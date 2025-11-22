@@ -377,7 +377,7 @@ A comprehensive comparison of Klujur against Clojure (the reference) and SCI (Sm
 | ------------------- | ------------------------- | ------------------------------- |
 | List backing        | `im::Vector`              | Linked list (PersistentList)    |
 | Map/Set ordering    | Ordered (OrdMap/OrdSet)   | Hash-based (unordered)          |
-| Reference type      | `Rc<T>` (single-threaded) | `Arc<T>` (thread-safe)          |
+| Reference type      | `Rc<T>` (single-threaded) | Thread-safe                     |
 | Interior mutability | `RefCell`                 | Lock-free concurrent structures |
 
 ### Semantic Differences
@@ -389,18 +389,7 @@ A comprehensive comparison of Klujur against Clojure (the reference) and SCI (Sm
 
 ### Missing Features
 
-1. **Embedding API** - Planned, core value proposition
+1. **Embedding API** - Planned
 2. **Transient collections** - Not planned for v1.0
 3. **Concurrency primitives** - Not planned (single-threaded by design)
 4. **Java/JS interop** - Not applicable
-
----
-
-## Test Coverage
-
-| Category                  | Tests    |
-| ------------------------- | -------- |
-| Rust unit tests           | ~400     |
-| Integration tests (.cljc) | 12 files |
-| Lazy sequence tests       | 21       |
-| Namespace tests           | 14       |
