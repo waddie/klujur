@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# klj - rlwrap wrapper for klujur REPL
+
+# This path is updated by 'cargo xtask install'
+bin_dir="./target/release"
+
+if type -p rlwrap >/dev/null 2>&1; then
+  exec rlwrap -m -r -q '\"' -b "(){}[],^%#@\";:'" "$bin_dir/klujur" "$@"
+else
+  echo "Please install rlwrap for command editing or use \"klujur\" directly."
+  exit 1
+fi

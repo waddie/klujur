@@ -1,0 +1,12 @@
+# klujur-core - Runtime and evaluator for the Klujur programming language
+# Copyright (c) 2025 Tom Waddington. MIT licensed.
+
+[package]
+name = "klujur-core"
+version.workspace = true
+edition.workspace = true
+description = "Runtime and evaluator for the Klujur programming language"
+license.workspace = true
+
+[dependencies]
+klujur-parser = { path = "../klujur-parser" }
