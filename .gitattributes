@@ -1,0 +1,2 @@
+# Override GitHub language detection
+*.klj linguist-language=Clojure

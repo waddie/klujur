@@ -1,0 +1,12 @@
+# klujur-parser - Lexer and parser for the Klujur programming language
+# Copyright (c) 2025 Tom Waddington. MIT licensed.
+
+[package]
+name = "klujur-parser"
+version.workspace = true
+edition.workspace = true
+description = "Lexer and parser for the Klujur programming language"
+license.workspace = true
+
+[dependencies]
+im = "15.1"

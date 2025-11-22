@@ -1,0 +1,25 @@
+// klujur-parser - Lexer and parser for the Klujur programming language
+// Copyright (c) 2025 Tom Waddington. MIT licensed.
+
+//! # klujur-parser
+//!
+//! Lexer and parser for the Klujur programming language.
+//! Produces `KlujurVal` AST from source code strings.
+
+pub mod keyword;
+pub mod lexer;
+pub mod parser;
+pub mod symbol;
+pub mod value;
+
+pub use im::{OrdMap, OrdSet, Vector};
+pub use keyword::Keyword;
+pub use lexer::Lexer;
+pub use parser::Parser;
+pub use symbol::Symbol;
+pub use value::{
+    FnArity, KlujurAtom, KlujurDelay, KlujurFn, KlujurHierarchy, KlujurLazySeq, KlujurMultimethod,
+    KlujurNativeFn, KlujurProtocol, KlujurVal, KlujurVar, KlujurVolatile, LazySeqState, Meta,
+    MethodSignature, Protocol, RecordDef, RecordInstance, SeqResult, TypeImpl, TypeKey,
+    get_print_length, set_print_length,
+};
