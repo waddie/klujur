@@ -411,3 +411,125 @@ fn test_atom_stored_in_collection() {
     let result = eval_str_with_env("@a", &env).unwrap();
     assert_eq!(result, KlujurVal::int(2));
 }
+
+// =============================================================================
+// Validators
+// =============================================================================
+
+#[test]
+fn test_set_validator() {
+    let env = new_env();
+    eval_str_with_env("(def a (atom 10))", &env).unwrap();
+    eval_str_with_env("(set-validator! a pos?)", &env).unwrap();
+
+    // Valid update (positive)
+    let result = eval_str_with_env("(reset! a 20)", &env).unwrap();
+    assert_eq!(result, KlujurVal::int(20));
+}
+
+#[test]
+fn test_validator_rejects_reset() {
+    let env = new_env();
+    eval_str_with_env("(def a (atom 10))", &env).unwrap();
+    eval_str_with_env("(set-validator! a pos?)", &env).unwrap();
+
+    // Invalid update (not positive)
+    let result = eval_str_with_env("(reset! a -5)", &env);
+    assert!(result.is_err());
+
+    // Value should be unchanged
+    let result = eval_str_with_env("@a", &env).unwrap();
+    assert_eq!(result, KlujurVal::int(10));
+}
+
+#[test]
+fn test_validator_rejects_swap() {
+    let env = new_env();
+    eval_str_with_env("(def a (atom 10))", &env).unwrap();
+    eval_str_with_env("(set-validator! a pos?)", &env).unwrap();
+
+    // Invalid swap (result would be negative)
+    let result = eval_str_with_env("(swap! a - 20)", &env);
+    assert!(result.is_err());
+
+    // Value should be unchanged
+    let result = eval_str_with_env("@a", &env).unwrap();
+    assert_eq!(result, KlujurVal::int(10));
+}
+
+#[test]
+fn test_validator_rejects_swap_vals() {
+    let env = new_env();
+    eval_str_with_env("(def a (atom 10))", &env).unwrap();
+    eval_str_with_env("(set-validator! a pos?)", &env).unwrap();
+
+    // Invalid swap-vals! (result would be 0, not positive)
+    let result = eval_str_with_env("(swap-vals! a - 10)", &env);
+    assert!(result.is_err());
+
+    // Value should be unchanged
+    let result = eval_str_with_env("@a", &env).unwrap();
+    assert_eq!(result, KlujurVal::int(10));
+}
+
+#[test]
+fn test_validator_rejects_reset_vals() {
+    let env = new_env();
+    eval_str_with_env("(def a (atom 10))", &env).unwrap();
+    eval_str_with_env("(set-validator! a pos?)", &env).unwrap();
+
+    // Invalid reset-vals!
+    let result = eval_str_with_env("(reset-vals! a 0)", &env);
+    assert!(result.is_err());
+
+    // Value should be unchanged
+    let result = eval_str_with_env("@a", &env).unwrap();
+    assert_eq!(result, KlujurVal::int(10));
+}
+
+#[test]
+fn test_get_validator() {
+    let env = new_env();
+    eval_str_with_env("(def a (atom 10))", &env).unwrap();
+
+    // No validator initially
+    let result = eval_str_with_env("(get-validator a)", &env).unwrap();
+    assert_eq!(result, KlujurVal::Nil);
+
+    // Set a validator
+    eval_str_with_env("(set-validator! a pos?)", &env).unwrap();
+
+    // Get validator returns the function
+    let result = eval_str_with_env("(get-validator a)", &env).unwrap();
+    assert!(matches!(result, KlujurVal::NativeFn(_)));
+}
+
+#[test]
+fn test_remove_validator() {
+    let env = new_env();
+    eval_str_with_env("(def a (atom 10))", &env).unwrap();
+    eval_str_with_env("(set-validator! a pos?)", &env).unwrap();
+
+    // Remove validator by setting to nil
+    eval_str_with_env("(set-validator! a nil)", &env).unwrap();
+
+    // Now negative values should be allowed
+    let result = eval_str_with_env("(reset! a -5)", &env).unwrap();
+    assert_eq!(result, KlujurVal::int(-5));
+}
+
+#[test]
+fn test_validator_with_custom_fn() {
+    let env = new_env();
+    eval_str_with_env("(def a (atom 5))", &env).unwrap();
+    // Validator: value must be less than 100
+    eval_str_with_env("(set-validator! a (fn* [x] (< x 100)))", &env).unwrap();
+
+    // Valid update
+    let result = eval_str_with_env("(reset! a 50)", &env).unwrap();
+    assert_eq!(result, KlujurVal::int(50));
+
+    // Invalid update (>= 100)
+    let result = eval_str_with_env("(reset! a 100)", &env);
+    assert!(result.is_err());
+}

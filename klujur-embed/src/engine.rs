@@ -150,7 +150,7 @@ impl Engine {
     /// ```rust
     /// use klujur_embed::{Engine, KlujurVal, Result};
     ///
-    /// let mut engine = Engine::new().unwrap();
+    /// let engine = Engine::new().unwrap();
     /// engine.register_native("greet", |args| {
     ///     let name = match args.first() {
     ///         Some(KlujurVal::String(s)) => s.as_ref(),
@@ -160,7 +160,7 @@ impl Engine {
     /// });
     /// ```
     pub fn register_native(
-        &mut self,
+        &self,
         name: &str,
         func: impl Fn(&[KlujurVal]) -> Result<KlujurVal> + 'static,
     ) {
@@ -175,7 +175,7 @@ impl Engine {
     /// This makes the function available to all code without requiring
     /// an explicit namespace prefix.
     pub fn register_native_core(
-        &mut self,
+        &self,
         name: &str,
         func: impl Fn(&[KlujurVal]) -> Result<KlujurVal> + 'static,
     ) {

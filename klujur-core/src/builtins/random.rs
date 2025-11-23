@@ -238,5 +238,9 @@ fn hash_val<H: std::hash::Hasher>(val: &KlujurVal, hasher: &mut H) {
                 hash_val(elem, hasher);
             }
         }
+        KlujurVal::Custom(c) => {
+            // Hash custom type using its type name
+            c.type_name().hash(hasher);
+        }
     }
 }

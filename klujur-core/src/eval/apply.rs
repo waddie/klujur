@@ -164,7 +164,7 @@ pub fn apply(func: &KlujurVal, args: &[KlujurVal]) -> Result<KlujurVal> {
 }
 
 /// Apply a user-defined function.
-/// Supports destructuring patterns in parameters.
+/// Supports destructuring patterns in parameters and `recur` in tail position.
 pub(crate) fn apply_fn(func: &KlujurFn, args: &[KlujurVal]) -> Result<KlujurVal> {
     // Find matching arity
     let arity = func.find_arity(args.len()).ok_or_else(|| {
@@ -193,64 +193,99 @@ pub(crate) fn apply_fn(func: &KlujurFn, args: &[KlujurVal]) -> Result<KlujurVal>
         .downcast_ref::<Env>()
         .ok_or_else(|| Error::Internal("Function environment has invalid type".into()))?;
 
-    // Create function environment
-    let fn_env = captured_env.child();
-
-    // Bind function name for self-recursion if present
-    if let Some(name) = &func.name {
-        fn_env.define(name.clone(), KlujurVal::Fn(func.clone()));
-    }
-
     // Check if we have destructuring patterns
     let has_patterns = !arity.param_patterns.is_empty();
 
-    if has_patterns {
-        // Bind parameters with destructuring
-        for (i, (param, arg)) in arity.params.iter().zip(args.iter()).enumerate() {
-            // First bind the gensym param
-            fn_env.define(param.clone(), arg.clone());
+    // Calculate the expected number of recur arguments
+    // For variadic functions, recur expects fixed params + 1 for the rest param
+    let recur_arity = if arity.rest_param.is_some() {
+        arity.params.len() + 1
+    } else {
+        arity.params.len()
+    };
 
-            // Then destructure the pattern
-            let pattern = &arity.param_patterns[i];
-            let binds = destructure(pattern, arg)?;
-            for (sym, val) in binds {
-                fn_env.define(sym, val);
-            }
+    // Current argument values for recur support
+    let mut current_args = args.to_vec();
+
+    // Main evaluation loop for recur support
+    'recur_loop: loop {
+        // Create function environment fresh each iteration
+        let fn_env = captured_env.child();
+
+        // Bind function name for self-recursion if present
+        if let Some(name) = &func.name {
+            fn_env.define(name.clone(), KlujurVal::Fn(func.clone()));
         }
 
-        // Bind rest parameter with destructuring if present
-        if let Some(rest) = &arity.rest_param {
-            let rest_args: Vec<KlujurVal> = args[arity.params.len()..].to_vec();
-            let rest_val = KlujurVal::list(rest_args);
-            fn_env.define(rest.clone(), rest_val.clone());
+        if has_patterns {
+            // Bind parameters with destructuring
+            for (i, (param, arg)) in arity.params.iter().zip(current_args.iter()).enumerate() {
+                // First bind the gensym param
+                fn_env.define(param.clone(), arg.clone());
 
-            // Destructure rest pattern if present
-            if let Some(rest_pattern) = &arity.rest_pattern {
-                let binds = destructure(rest_pattern, &rest_val)?;
+                // Then destructure the pattern
+                let pattern = &arity.param_patterns[i];
+                let binds = destructure(pattern, arg)?;
                 for (sym, val) in binds {
                     fn_env.define(sym, val);
                 }
             }
-        }
-    } else {
-        // Simple parameter binding (no destructuring)
-        for (param, arg) in arity.params.iter().zip(args.iter()) {
-            fn_env.define(param.clone(), arg.clone());
+
+            // Bind rest parameter with destructuring if present
+            if let Some(rest) = &arity.rest_param {
+                let rest_args: Vec<KlujurVal> = current_args[arity.params.len()..].to_vec();
+                let rest_val = KlujurVal::list(rest_args);
+                fn_env.define(rest.clone(), rest_val.clone());
+
+                // Destructure rest pattern if present
+                if let Some(rest_pattern) = &arity.rest_pattern {
+                    let binds = destructure(rest_pattern, &rest_val)?;
+                    for (sym, val) in binds {
+                        fn_env.define(sym, val);
+                    }
+                }
+            }
+        } else {
+            // Simple parameter binding (no destructuring)
+            for (param, arg) in arity.params.iter().zip(current_args.iter()) {
+                fn_env.define(param.clone(), arg.clone());
+            }
+
+            // Bind rest parameter if present
+            if let Some(rest) = &arity.rest_param {
+                let rest_args: Vec<KlujurVal> = current_args[arity.params.len()..].to_vec();
+                fn_env.define(rest.clone(), KlujurVal::list(rest_args));
+            }
         }
 
-        // Bind rest parameter if present
-        if let Some(rest) = &arity.rest_param {
-            let rest_args: Vec<KlujurVal> = args[arity.params.len()..].to_vec();
-            fn_env.define(rest.clone(), KlujurVal::list(rest_args));
+        // Evaluate body with recur support
+        let mut result = KlujurVal::Nil;
+        for (i, expr) in arity.body.iter().enumerate() {
+            let is_last = i == arity.body.len() - 1;
+            match eval(expr, &fn_env) {
+                Ok(val) => {
+                    result = val;
+                }
+                Err(Error::Recur(new_values)) => {
+                    if !is_last {
+                        return Err(Error::syntax("recur", "can only appear in tail position"));
+                    }
+                    if new_values.len() != recur_arity {
+                        return Err(Error::ArityError {
+                            expected: crate::error::AritySpec::Exact(recur_arity),
+                            got: new_values.len(),
+                            name: Some("recur".to_string()),
+                        });
+                    }
+                    current_args = new_values;
+                    continue 'recur_loop;
+                }
+                Err(e) => return Err(e),
+            }
         }
-    }
 
-    // Evaluate body
-    let mut result = KlujurVal::Nil;
-    for expr in &arity.body {
-        result = eval(expr, &fn_env)?;
+        return Ok(result);
     }
-    Ok(result)
 }
 
 /// Apply a native function.

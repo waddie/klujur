@@ -55,18 +55,38 @@ impl Env {
 
     /// Get the namespace registry from the root environment.
     /// Uses iterative traversal to avoid stack overflow on deep environments.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the root environment is missing its namespace registry, which
+    /// indicates an internal bug (environments created via `Env::new()` always
+    /// have a registry). For fallible access, use `try_registry()`.
     pub fn registry(&self) -> NamespaceRegistry {
+        self.try_registry()
+            .expect("Root environment missing namespace registry")
+    }
+
+    /// Try to get the namespace registry from the root environment.
+    /// Uses iterative traversal to avoid stack overflow on deep environments.
+    ///
+    /// Returns an error if the root environment is missing its namespace registry,
+    /// which should never happen with properly constructed environments.
+    pub fn try_registry(&self) -> Result<NamespaceRegistry> {
         let mut current = self.clone();
         loop {
             let inner = current.inner.borrow();
             if let Some(ref registry) = inner.registry {
-                return registry.clone();
+                return Ok(registry.clone());
             }
             let parent = inner.parent.clone();
             drop(inner);
             match parent {
                 Some(p) => current = p,
-                None => panic!("Root environment missing namespace registry"),
+                None => {
+                    return Err(Error::Internal(
+                        "Root environment missing namespace registry".to_string(),
+                    ));
+                }
             }
         }
     }

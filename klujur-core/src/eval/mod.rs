@@ -89,7 +89,8 @@ use crate::error::{Error, Result};
 // Import from submodules for internal use
 use apply::apply_fn;
 use dynamic::{
-    eval_binding, eval_delay, eval_force, eval_lazy_seq, eval_set_bang, eval_swap, eval_swap_vals,
+    eval_binding, eval_delay, eval_force, eval_lazy_seq, eval_reset, eval_reset_vals,
+    eval_set_bang, eval_swap, eval_swap_vals,
 };
 use exceptions::{eval_throw, eval_try};
 use multimethods::{
@@ -250,6 +251,9 @@ pub fn eval(expr: &KlujurVal, env: &Env) -> Result<KlujurVal> {
 
         // Sorted collections are self-evaluating
         KlujurVal::SortedMapBy(_) | KlujurVal::SortedSetBy(_) => Ok(expr.clone()),
+
+        // Custom values are self-evaluating
+        KlujurVal::Custom(_) => Ok(expr.clone()),
     }
 }
 
@@ -323,6 +327,8 @@ fn eval_list(items: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
             "set!" => return eval_set_bang(&items[1..], env),
             "swap!" => return eval_swap(&items[1..], env),
             "swap-vals!" => return eval_swap_vals(&items[1..], env),
+            "reset!" => return eval_reset(&items[1..], env),
+            "reset-vals!" => return eval_reset_vals(&items[1..], env),
             "delay" => return eval_delay(&items[1..], env),
             "force" => return eval_force(&items[1..], env),
             "lazy-seq" => return eval_lazy_seq(&items[1..], env),
@@ -361,7 +367,14 @@ fn eval_list(items: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
     // Regular function call - evaluate all forms then apply
     let mut evaluated = vec![op];
     for item in &items[1..] {
-        evaluated.push(eval(item, env)?);
+        match eval(item, env) {
+            Ok(val) => evaluated.push(val),
+            Err(Error::Recur(_)) => {
+                // recur was called in a non-tail position (as an argument to a function)
+                return Err(Error::syntax("recur", "can only appear in tail position"));
+            }
+            Err(e) => return Err(e),
+        }
     }
     apply(&evaluated[0], &evaluated[1..])
 }
@@ -909,19 +922,30 @@ fn eval_loop(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
 
     // Extract binding patterns and initial values
     // For recur, we track both the patterns and a gensym for each position
+    // Bindings are evaluated sequentially (like let*), so later bindings can
+    // reference earlier ones.
     let mut binding_patterns: Vec<KlujurVal> = Vec::with_capacity(bindings.len() / 2);
     let mut binding_gensyms: Vec<Symbol> = Vec::with_capacity(bindings.len() / 2);
     let mut initial_values: Vec<KlujurVal> = Vec::with_capacity(bindings.len() / 2);
 
+    // Create a temporary environment for sequential binding evaluation
+    let init_env = env.child();
+
     for (i, pair) in bindings.chunks(2).enumerate() {
         let pattern = &pair[0];
-        let val = eval(&pair[1], env)?;
+        let val = eval(&pair[1], &init_env)?;
 
         // Create a gensym for recur tracking (or use the symbol directly if simple)
         let gensym = match pattern {
             KlujurVal::Symbol(s, _) => s.clone(),
             _ => Symbol::new(&format!("__loop_{}", i)),
         };
+
+        // Add bindings to init_env so later bindings can reference earlier ones
+        let binds = destructure(pattern, &val)?;
+        for (sym, bound_val) in binds {
+            init_env.define(sym, bound_val);
+        }
 
         binding_patterns.push(pattern.clone());
         binding_gensyms.push(gensym);

@@ -12,7 +12,26 @@ use crate::bindings::{push_bindings, set_thread_binding};
 use crate::env::Env;
 use crate::error::{Error, Result};
 
+use klujur_parser::KlujurAtom;
+
 use super::{apply, eval, lookup_symbol};
+
+// ============================================================================
+// Atom Validation Helper
+// ============================================================================
+
+/// Validate a new value against an atom's validator, then set the value.
+/// In Clojure, if the validator returns false or throws, an IllegalStateException is raised.
+fn validate_and_set_atom(atom: &KlujurAtom, new_val: KlujurVal) -> Result<()> {
+    if let Some(validator) = atom.get_validator() {
+        let result = apply(&validator, std::slice::from_ref(&new_val))?;
+        if !result.is_truthy() {
+            return Err(Error::EvalError("Invalid reference state".to_string()));
+        }
+    }
+    atom.set_value(new_val);
+    Ok(())
+}
 
 // ============================================================================
 // Dynamic Binding
@@ -191,7 +210,7 @@ pub(crate) fn eval_swap(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
     call_args.extend(extra_args);
 
     let new_val = apply(&f, &call_args)?;
-    atom.set_value(new_val.clone());
+    validate_and_set_atom(atom, new_val.clone())?;
 
     Ok(new_val)
 }
@@ -230,7 +249,52 @@ pub(crate) fn eval_swap_vals(args: &[KlujurVal], env: &Env) -> Result<KlujurVal>
     call_args.extend(extra_args);
 
     let new_val = apply(&f, &call_args)?;
-    atom.set_value(new_val.clone());
+    validate_and_set_atom(atom, new_val.clone())?;
+
+    Ok(KlujurVal::vector(vec![old_val, new_val]))
+}
+
+/// (reset! atom newval) - Set atom value, returns newval
+pub(crate) fn eval_reset(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
+    if args.len() != 2 {
+        return Err(Error::syntax("reset!", "requires exactly 2 arguments"));
+    }
+
+    let atom_val = eval(&args[0], env)?;
+    let atom = match &atom_val {
+        KlujurVal::Atom(a) => a,
+        other => {
+            return Err(Error::type_error_in("reset!", "atom", other.type_name()));
+        }
+    };
+
+    let new_val = eval(&args[1], env)?;
+    validate_and_set_atom(atom, new_val.clone())?;
+
+    Ok(new_val)
+}
+
+/// (reset-vals! atom newval) - Set atom value, returns [old new]
+pub(crate) fn eval_reset_vals(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
+    if args.len() != 2 {
+        return Err(Error::syntax("reset-vals!", "requires exactly 2 arguments"));
+    }
+
+    let atom_val = eval(&args[0], env)?;
+    let atom = match &atom_val {
+        KlujurVal::Atom(a) => a,
+        other => {
+            return Err(Error::type_error_in(
+                "reset-vals!",
+                "atom",
+                other.type_name(),
+            ));
+        }
+    };
+
+    let old_val = atom.deref();
+    let new_val = eval(&args[1], env)?;
+    validate_and_set_atom(atom, new_val.clone())?;
 
     Ok(KlujurVal::vector(vec![old_val, new_val]))
 }

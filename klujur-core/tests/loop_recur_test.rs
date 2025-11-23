@@ -7,7 +7,7 @@
 
 mod common;
 
-use common::{KlujurVal, eval_str, eval_str_with_env, new_env};
+use common::{KlujurVal, eval_str_with_env, new_env};
 
 // =============================================================================
 // Basic loop/recur
@@ -31,10 +31,10 @@ fn test_loop_multiple_bindings() {
 
 #[test]
 fn test_loop_sequential_bindings() {
-    // Later bindings can reference earlier ones
-    // Note: loop bindings are not sequential like let* - they all evaluate in parallel
-    // So we test with independent bindings
+    // Loop bindings are sequential (like let*) - later bindings can reference earlier ones
     assert_eval!("(loop [x 1 y 2] (+ x y))", KlujurVal::int(3));
+    assert_eval!("(loop [x 10 y (+ x 5)] y)", KlujurVal::int(15));
+    assert_eval!("(loop [a 1 b (+ a 1) c (+ b 1)] c)", KlujurVal::int(3));
 }
 
 #[test]
@@ -118,9 +118,50 @@ fn test_fn_loop_recur_factorial() {
 }
 
 #[test]
-fn test_recur_outside_loop_in_fn_errors() {
-    // recur directly in fn* (without loop) should error
-    assert_eval_err!("((fn* [n] (if (= n 0) :done (recur (- n 1)))) 5)");
+fn test_recur_in_fn_tail_position() {
+    // recur directly in fn* (without loop) now works in tail position
+    assert_eval!(
+        "((fn* [n] (if (= n 0) :done (recur (- n 1)))) 5)",
+        KlujurVal::keyword(common::Keyword::new("done"))
+    );
+}
+
+#[test]
+fn test_recur_in_fn_factorial() {
+    // Factorial using recur in fn* tail position
+    assert_eval!(
+        "((fn* [n acc] (if (= n 0) acc (recur (- n 1) (* acc n)))) 5 1)",
+        KlujurVal::int(120)
+    );
+}
+
+#[test]
+fn test_recur_in_fn_sum() {
+    // Sum using recur in fn* tail position
+    assert_eval!(
+        "((fn* [n acc] (if (= n 0) acc (recur (- n 1) (+ acc n)))) 10 0)",
+        KlujurVal::int(55)
+    );
+}
+
+#[test]
+fn test_recur_in_named_fn() {
+    // Named function with recur
+    let env = new_env();
+    eval_str_with_env(
+        "(def countdown (fn* countdown [n] (if (= n 0) :done (recur (- n 1)))))",
+        &env,
+    )
+    .unwrap();
+    let result = eval_str_with_env("(countdown 10)", &env).unwrap();
+    assert_eq!(result, KlujurVal::keyword(common::Keyword::new("done")));
+}
+
+#[test]
+fn test_recur_in_fn_wrong_arity() {
+    // recur with wrong number of arguments should error
+    assert_eval_err!("((fn* [n] (if (= n 0) :done (recur))) 5)");
+    assert_eval_err!("((fn* [n] (if (= n 0) :done (recur 1 2))) 5)");
 }
 
 // =============================================================================
@@ -317,12 +358,18 @@ fn test_recur_wrong_arity() {
 
 #[test]
 fn test_recur_not_in_tail_position() {
-    // recur must be in tail position
-    // This should still work since (if ...) is the tail and recur is in tail of if
-    let result = eval_str("(loop [n 3] (if (= n 0) 0 (+ 1 (recur (- n 1)))))");
-    // Depending on implementation, this might error or give unexpected results
-    // The key is that it shouldn't cause undefined behaviour
-    assert!(result.is_err() || result.is_ok());
+    // recur must be in tail position - using it as an argument to a function should error
+    assert_eval_err!("(loop [n 3] (if (= n 0) 0 (+ 1 (recur (- n 1)))))");
+}
+
+#[test]
+fn test_recur_in_tail_position_of_if() {
+    // recur IS in tail position when it's the result of an if branch
+    // (the if itself is in tail position)
+    assert_eval!(
+        "(loop [n 5] (if (= n 0) :done (recur (- n 1))))",
+        KlujurVal::keyword(common::Keyword::new("done"))
+    );
 }
 
 // =============================================================================

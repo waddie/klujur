@@ -32,18 +32,16 @@ pub(crate) fn builtin_atom_p(args: &[KlujurVal]) -> Result<KlujurVal> {
 // ============================================================================
 
 /// (reset! atom newval) - Set atom value, returns newval
+/// This is a placeholder - reset! is implemented as a special form in eval.rs
 pub(crate) fn builtin_reset(args: &[KlujurVal]) -> Result<KlujurVal> {
     if args.len() != 2 {
         return Err(Error::arity_named("reset!", 2, args.len()));
     }
-    match &args[0] {
-        KlujurVal::Atom(a) => {
-            // TODO: Run validator if present
-            a.set_value(args[1].clone());
-            Ok(args[1].clone())
-        }
-        other => Err(Error::type_error_in("reset!", "atom", other.type_name())),
-    }
+    // This should never be called - reset! is handled as a special form
+    Err(Error::syntax(
+        "reset!",
+        "reset! must be called directly, not passed as a value",
+    ))
 }
 
 /// (swap! atom f & args) - Apply f to current value (and optional args)
@@ -73,21 +71,16 @@ pub(crate) fn builtin_swap_vals(args: &[KlujurVal]) -> Result<KlujurVal> {
 }
 
 /// (reset-vals! atom newval) - Set atom value, returns [old new]
+/// This is a placeholder - reset-vals! is implemented as a special form in eval.rs
 pub(crate) fn builtin_reset_vals(args: &[KlujurVal]) -> Result<KlujurVal> {
     if args.len() != 2 {
         return Err(Error::arity_named("reset-vals!", 2, args.len()));
     }
-    match &args[0] {
-        KlujurVal::Atom(a) => {
-            let (old, new) = a.reset_vals(args[1].clone());
-            Ok(KlujurVal::vector(vec![old, new]))
-        }
-        other => Err(Error::type_error_in(
-            "reset-vals!",
-            "atom",
-            other.type_name(),
-        )),
-    }
+    // This should never be called - reset-vals! is handled as a special form
+    Err(Error::syntax(
+        "reset-vals!",
+        "reset-vals! must be called directly, not passed as a value",
+    ))
 }
 
 /// (compare-and-set! atom oldval newval) - CAS, returns true if successful

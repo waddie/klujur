@@ -24,7 +24,7 @@
 //! ```rust
 //! use klujur_embed::{Engine, KlujurVal, Result};
 //!
-//! let mut engine = Engine::new().unwrap();
+//! let engine = Engine::new().unwrap();
 //! engine.register_native("double", |args: &[KlujurVal]| -> Result<KlujurVal> {
 //!     match args.first() {
 //!         Some(KlujurVal::Int(n)) => Ok(KlujurVal::int(n * 2)),
@@ -43,4 +43,4 @@ pub use engine::Engine;
 
 // Re-export core types for convenience
 pub use klujur_core::{Error, Result};
-pub use klujur_parser::KlujurVal;
+pub use klujur_parser::{CustomType, KlujurCustom, KlujurVal};

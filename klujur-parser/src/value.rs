@@ -40,6 +40,143 @@ use crate::keyword::Keyword;
 use crate::symbol::Symbol;
 
 // ============================================================================
+// CustomType - for Embedding Arbitrary Rust Types
+// ============================================================================
+
+/// Trait for embedding custom Rust types as Klujur values.
+///
+/// Implement this trait to allow arbitrary Rust types to be used as Klujur values.
+/// Custom types are opaque to Klujur code but can be passed to and returned from
+/// native functions.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use klujur_parser::{CustomType, KlujurVal};
+///
+/// struct MyData {
+///     value: i32,
+/// }
+///
+/// impl CustomType for MyData {
+///     fn type_name(&self) -> &'static str {
+///         "MyData"
+///     }
+///
+///     fn as_any(&self) -> &dyn std::any::Any {
+///         self
+///     }
+/// }
+///
+/// // Use with KlujurVal::custom()
+/// let val = KlujurVal::custom(MyData { value: 42 });
+/// ```
+pub trait CustomType: fmt::Debug {
+    /// Returns the type name for display and error messages.
+    fn type_name(&self) -> &'static str;
+
+    /// Returns a reference to the underlying value as `Any` for downcasting.
+    fn as_any(&self) -> &dyn Any;
+
+    /// Returns a mutable reference to the underlying value as `Any` for downcasting.
+    /// Default implementation returns `None` (immutable).
+    fn as_any_mut(&mut self) -> Option<&mut dyn Any> {
+        None
+    }
+
+    /// Compare two custom values for equality.
+    /// Default implementation uses pointer equality.
+    fn eq(&self, _other: &dyn CustomType) -> bool {
+        false // By default, custom types are only equal to themselves
+    }
+
+    /// Return a hash value for this custom type.
+    /// Default implementation returns 0 (all values of the same type hash identically).
+    fn custom_hash(&self) -> u64 {
+        0
+    }
+
+    /// Display the custom value.
+    /// Default implementation shows `#<TypeName>`.
+    fn display(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "#<{}>", self.type_name())
+    }
+}
+
+/// Wrapper for custom types that implements necessary traits.
+#[derive(Clone)]
+pub struct KlujurCustom {
+    inner: Rc<dyn CustomType>,
+}
+
+impl KlujurCustom {
+    /// Create a new custom value wrapper.
+    pub fn new<T: CustomType + 'static>(value: T) -> Self {
+        KlujurCustom {
+            inner: Rc::new(value),
+        }
+    }
+
+    /// Get the type name of the wrapped value.
+    pub fn type_name(&self) -> &'static str {
+        self.inner.type_name()
+    }
+
+    /// Attempt to downcast to a specific type.
+    pub fn downcast_ref<T: 'static>(&self) -> Option<&T> {
+        self.inner.as_any().downcast_ref::<T>()
+    }
+}
+
+impl fmt::Debug for KlujurCustom {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "KlujurCustom({:?})", &*self.inner)
+    }
+}
+
+impl fmt::Display for KlujurCustom {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.inner.display(f)
+    }
+}
+
+impl PartialEq for KlujurCustom {
+    fn eq(&self, other: &Self) -> bool {
+        // First check if they're the same Rc
+        Rc::ptr_eq(&self.inner, &other.inner) || self.inner.eq(&*other.inner)
+    }
+}
+
+impl Eq for KlujurCustom {}
+
+impl PartialOrd for KlujurCustom {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for KlujurCustom {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Compare by type name, then by pointer address
+        match self.type_name().cmp(other.type_name()) {
+            std::cmp::Ordering::Equal => {
+                let self_ptr = Rc::as_ptr(&self.inner) as *const () as usize;
+                let other_ptr = Rc::as_ptr(&other.inner) as *const () as usize;
+                self_ptr.cmp(&other_ptr)
+            }
+            ord => ord,
+        }
+    }
+}
+
+impl Hash for KlujurCustom {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.inner.type_name().hash(state);
+        self.inner.custom_hash().hash(state);
+    }
+}
+
+// ============================================================================
 // TypeKey - for Protocol Dispatch
 // ============================================================================
 
@@ -78,6 +215,8 @@ pub enum TypeKey {
     SortedSetBy,
     /// Custom record types (for future defrecord support)
     Record(crate::symbol::Symbol),
+    /// Custom embedded Rust type
+    Custom(&'static str),
 }
 
 // ============================================================================
@@ -836,6 +975,8 @@ pub enum KlujurVal {
     SortedMapBy(KlujurSortedMapBy),
     /// Sorted set with custom comparator
     SortedSetBy(KlujurSortedSetBy),
+    /// Custom embedded Rust type
+    Custom(KlujurCustom),
 }
 
 // ============================================================================
@@ -2088,6 +2229,7 @@ impl KlujurVal {
             KlujurVal::Record(_) => "record",
             KlujurVal::SortedMapBy(_) => "sorted-map",
             KlujurVal::SortedSetBy(_) => "sorted-set",
+            KlujurVal::Custom(c) => c.type_name(),
         }
     }
 
@@ -2123,6 +2265,7 @@ impl KlujurVal {
             KlujurVal::Record(r) => TypeKey::Record(r.record_type.clone()),
             KlujurVal::SortedMapBy(_) => TypeKey::SortedMapBy,
             KlujurVal::SortedSetBy(_) => TypeKey::SortedSetBy,
+            KlujurVal::Custom(c) => TypeKey::Custom(c.type_name()),
         }
     }
 
@@ -2179,6 +2322,28 @@ impl KlujurVal {
     /// Create a record value from an existing Rc<RecordInstance>
     pub fn from_record(instance: Rc<RecordInstance>) -> Self {
         KlujurVal::Record(instance)
+    }
+
+    /// Create a custom value wrapping an arbitrary Rust type.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let my_data = MyData { value: 42 };
+    /// let val = KlujurVal::custom(my_data);
+    /// ```
+    pub fn custom<T: CustomType + 'static>(value: T) -> Self {
+        KlujurVal::Custom(KlujurCustom::new(value))
+    }
+
+    /// Try to downcast a custom value to a specific type.
+    ///
+    /// Returns `None` if this is not a `Custom` variant or if the type doesn't match.
+    pub fn downcast_custom<T: 'static>(&self) -> Option<&T> {
+        match self {
+            KlujurVal::Custom(c) => c.downcast_ref::<T>(),
+            _ => None,
+        }
     }
 
     /// Create a sorted map with a custom comparator
@@ -2332,6 +2497,7 @@ impl fmt::Display for KlujurVal {
             KlujurVal::Record(r) => write!(f, "{}", r),
             KlujurVal::SortedMapBy(sm) => write!(f, "{}", sm),
             KlujurVal::SortedSetBy(ss) => write!(f, "{}", ss),
+            KlujurVal::Custom(c) => write!(f, "{}", c),
         }
     }
 }
@@ -2429,6 +2595,7 @@ impl PartialEq for KlujurVal {
             (KlujurVal::Record(a), KlujurVal::Record(b)) => a == b,
             (KlujurVal::SortedMapBy(a), KlujurVal::SortedMapBy(b)) => a == b,
             (KlujurVal::SortedSetBy(a), KlujurVal::SortedSetBy(b)) => a == b,
+            (KlujurVal::Custom(a), KlujurVal::Custom(b)) => a == b,
             _ => false,
         }
     }
@@ -2478,6 +2645,7 @@ impl Ord for KlujurVal {
                 KlujurVal::Record(_) => 23,
                 KlujurVal::SortedMapBy(_) => 24,
                 KlujurVal::SortedSetBy(_) => 25,
+                KlujurVal::Custom(_) => 26,
             }
         }
 
@@ -2531,6 +2699,7 @@ impl Ord for KlujurVal {
             (KlujurVal::Record(a), KlujurVal::Record(b)) => a.cmp(b),
             (KlujurVal::SortedMapBy(a), KlujurVal::SortedMapBy(b)) => a.cmp(b),
             (KlujurVal::SortedSetBy(a), KlujurVal::SortedSetBy(b)) => a.cmp(b),
+            (KlujurVal::Custom(a), KlujurVal::Custom(b)) => a.cmp(b),
             _ => Ordering::Equal,
         }
     }
@@ -2624,6 +2793,82 @@ impl Hash for KlujurVal {
                 // Hash by pointer address (identity-based)
                 ss.hash(state);
             }
+            KlujurVal::Custom(c) => {
+                c.hash(state);
+            }
+        }
+    }
+}
+
+// ============================================================================
+// From trait implementations
+// ============================================================================
+
+impl From<bool> for KlujurVal {
+    fn from(b: bool) -> Self {
+        KlujurVal::Bool(b)
+    }
+}
+
+impl From<i64> for KlujurVal {
+    fn from(n: i64) -> Self {
+        KlujurVal::int(n)
+    }
+}
+
+impl From<i32> for KlujurVal {
+    fn from(n: i32) -> Self {
+        KlujurVal::int(n as i64)
+    }
+}
+
+impl From<usize> for KlujurVal {
+    fn from(n: usize) -> Self {
+        KlujurVal::int(n as i64)
+    }
+}
+
+impl From<f64> for KlujurVal {
+    fn from(n: f64) -> Self {
+        KlujurVal::float(n)
+    }
+}
+
+impl From<f32> for KlujurVal {
+    fn from(n: f32) -> Self {
+        KlujurVal::float(n as f64)
+    }
+}
+
+impl From<char> for KlujurVal {
+    fn from(c: char) -> Self {
+        KlujurVal::char(c)
+    }
+}
+
+impl From<String> for KlujurVal {
+    fn from(s: String) -> Self {
+        KlujurVal::string(s)
+    }
+}
+
+impl From<&str> for KlujurVal {
+    fn from(s: &str) -> Self {
+        KlujurVal::string(s)
+    }
+}
+
+impl<T: Into<KlujurVal>> From<Vec<T>> for KlujurVal {
+    fn from(v: Vec<T>) -> Self {
+        KlujurVal::vector(v.into_iter().map(Into::into).collect())
+    }
+}
+
+impl<T: Into<KlujurVal>> From<Option<T>> for KlujurVal {
+    fn from(opt: Option<T>) -> Self {
+        match opt {
+            Some(v) => v.into(),
+            None => KlujurVal::Nil,
         }
     }
 }

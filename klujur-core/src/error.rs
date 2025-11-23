@@ -137,7 +137,7 @@ impl fmt::Display for Error {
                 write!(f, "recur can only be used inside loop or fn")
             }
             Error::Thrown(val) => {
-                write!(f, "{}", val)
+                write!(f, "Uncaught exception: {}", val)
             }
             Error::Internal(msg) => {
                 write!(f, "Internal error: {}", msg)

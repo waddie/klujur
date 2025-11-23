@@ -160,7 +160,18 @@ impl FromKlujurVal for i64 {
 impl FromKlujurVal for i32 {
     fn from_klujur_val(val: &KlujurVal) -> Result<Self> {
         match val {
-            KlujurVal::Int(n) => Ok(*n as i32),
+            KlujurVal::Int(n) => {
+                if *n < i32::MIN as i64 || *n > i32::MAX as i64 {
+                    Err(Error::EvalError(format!(
+                        "integer {} out of range for i32 ({}..={})",
+                        n,
+                        i32::MIN,
+                        i32::MAX
+                    )))
+                } else {
+                    Ok(*n as i32)
+                }
+            }
             other => Err(Error::type_error("integer", other.type_name())),
         }
     }
@@ -169,7 +180,18 @@ impl FromKlujurVal for i32 {
 impl FromKlujurVal for usize {
     fn from_klujur_val(val: &KlujurVal) -> Result<Self> {
         match val {
-            KlujurVal::Int(n) if *n >= 0 => Ok(*n as usize),
+            KlujurVal::Int(n) if *n >= 0 => {
+                // On 32-bit platforms, usize::MAX < i64::MAX, so we need a bounds check
+                #[cfg(target_pointer_width = "32")]
+                if *n > usize::MAX as i64 {
+                    return Err(Error::EvalError(format!(
+                        "integer {} out of range for usize (0..={})",
+                        n,
+                        usize::MAX
+                    )));
+                }
+                Ok(*n as usize)
+            }
             KlujurVal::Int(_) => Err(Error::type_error(
                 "non-negative integer",
                 "negative integer",
