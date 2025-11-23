@@ -16,14 +16,15 @@
      (eval* \"(+ 1 2)\")        ; Evaluate a string
      (eval* {:bindings {'x 10}} '(+ x 1))  ; With context"
   ([form]
-   ;; TODO: Implement Klujur evaluation. For now, return a placeholder
-   ;; indicating the form
-   (throw (ex-info "eval* not yet implemented - waiting for Klujur interpreter"
-                   {:form form})))
+   (if (string? form)
+     (eval (read-string form))
+     (eval form)))
   ([ctx form]
-   ;; TODO: Implement with context/bindings
-   (throw (ex-info "eval* not yet implemented - waiting for Klujur interpreter"
-                   {:context ctx :form form}))))
+   ;; With bindings context - wrap in let* with the provided bindings
+   (let [bindings (:bindings ctx)
+         binding-pairs (mapcat (fn [[k v]] [k v]) bindings)
+         wrapped-form (list 'let* (vec binding-pairs) form)]
+     (eval* wrapped-form))))
 
 (defn eval*-string
   "Evaluate a string as Klujur code.
@@ -54,9 +55,7 @@
   [thunk]
   (try (thunk)
        false
-       (catch #?(:clj Exception
-                 :cljs js/Error)
-         _
+       (catch :default _
          true)))
 
 (defmacro thrown-with-msg?
@@ -67,9 +66,7 @@
   [pattern & body]
   `(try ~@body
         false
-        (catch #?(:clj Exception
-                  :cljs js/Error)
-          e#
+        (catch :default e#
           (boolean (re-find ~pattern (str e#))))))
 
 ;; =============================================================================
@@ -98,14 +95,14 @@
 ;; Test Data Generators
 ;; =============================================================================
 
+;; Sample values for testing truthiness and type behaviour.
 (def sample-values
-  "Sample values for testing truthiness and type behaviour."
   {:truthy [true 1 0 -1 0.0 "" "hello" 'symbol :keyword [] [1 2] {} {:a 1} #{}
             #{1}]
    :falsy  [nil false]})
 
+;; Sample collections for testing collection operations.
 (def sample-collections
-  "Sample collections for testing collection operations."
   {:lists   ['() '(1) '(1 2 3)]
    :vectors [[] [1] [1 2 3]]
    :maps    [{} {:a 1} {:a 1 :b 2}]

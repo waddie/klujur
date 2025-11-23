@@ -3,7 +3,36 @@
 
 //! Keywords are self-evaluating identifiers that may be optionally namespaced.
 //!
-//! Keywords are interned for efficient comparison and storage.
+//! # Interning
+//!
+//! Keywords are interned using a global string interner, meaning that two keywords
+//! with the same namespace and name will share the same underlying storage. This
+//! provides several benefits:
+//!
+//! - **O(1) equality**: Comparing keywords is a pointer comparison, not string comparison
+//! - **O(1) hashing**: Hash is computed from the pointer address
+//! - **Memory efficiency**: Identical keywords share storage
+//!
+//! # Memory Behaviour
+//!
+//! **Important**: Interned keywords are never deallocated. The global interner
+//! maintains strong references (`Arc`) to all keywords created during the program's
+//! lifetime. This means:
+//!
+//! - Memory usage grows monotonically with unique keywords
+//! - Keywords created during parsing/evaluation persist until program termination
+//! - This is intentional: keywords are typically reused frequently and the memory
+//!   overhead is modest for typical programs
+//!
+//! For long-running applications that dynamically generate many unique keywords
+//! (e.g., from user input), be aware that these will accumulate. In practice, most
+//! Clojure programs use a bounded set of keywords defined at compile time.
+//!
+//! # Thread Safety
+//!
+//! The interner is protected by a `Mutex`, making keyword creation thread-safe.
+//! However, this means keyword creation involves lock acquisition. Keyword lookup
+//! and comparison are lock-free after creation.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -81,13 +110,23 @@ fn get_interner() -> &'static Mutex<KeywordInterner> {
 impl Keyword {
     /// Create a new keyword with no namespace.
     pub fn new(name: &str) -> Self {
-        let inner = get_interner().lock().unwrap().intern(None, name);
+        let inner = get_interner()
+            .lock()
+            .expect(
+                "Keyword interner mutex poisoned: another thread panicked while holding the lock",
+            )
+            .intern(None, name);
         Keyword { inner }
     }
 
     /// Create a new keyword with a namespace.
     pub fn with_namespace(namespace: &str, name: &str) -> Self {
-        let inner = get_interner().lock().unwrap().intern(Some(namespace), name);
+        let inner = get_interner()
+            .lock()
+            .expect(
+                "Keyword interner mutex poisoned: another thread panicked while holding the lock",
+            )
+            .intern(Some(namespace), name);
         Keyword { inner }
     }
 
