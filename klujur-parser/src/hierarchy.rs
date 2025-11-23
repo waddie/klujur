@@ -329,3 +329,193 @@ impl PartialEq for KlujurHierarchy {
 }
 
 impl Eq for KlujurHierarchy {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Keyword;
+
+    fn kw(name: &str) -> KlujurVal {
+        KlujurVal::keyword(Keyword::new(name))
+    }
+
+    #[test]
+    fn test_new_hierarchy_is_empty() {
+        let h = KlujurHierarchy::new();
+        assert!(h.parents.is_empty());
+        assert!(h.ancestors.is_empty());
+        assert!(h.descendants.is_empty());
+    }
+
+    #[test]
+    fn test_derive_creates_parent_relationship() {
+        let mut h = KlujurHierarchy::new();
+        h.derive(kw("child"), kw("parent")).unwrap();
+
+        assert!(h.parents(&kw("child")).contains(&kw("parent")));
+    }
+
+    #[test]
+    fn test_derive_self_fails() {
+        let mut h = KlujurHierarchy::new();
+        let result = h.derive(kw("thing"), kw("thing"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_derive_cycle_fails() {
+        let mut h = KlujurHierarchy::new();
+        h.derive(kw("a"), kw("b")).unwrap();
+        h.derive(kw("b"), kw("c")).unwrap();
+
+        let result = h.derive(kw("c"), kw("a"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_isa_reflexive() {
+        let h = KlujurHierarchy::new();
+        assert!(h.isa(&kw("x"), &kw("x")));
+    }
+
+    #[test]
+    fn test_isa_direct_parent() {
+        let mut h = KlujurHierarchy::new();
+        h.derive(kw("child"), kw("parent")).unwrap();
+
+        assert!(h.isa(&kw("child"), &kw("parent")));
+        assert!(!h.isa(&kw("parent"), &kw("child")));
+    }
+
+    #[test]
+    fn test_isa_transitive() {
+        let mut h = KlujurHierarchy::new();
+        h.derive(kw("grandchild"), kw("child")).unwrap();
+        h.derive(kw("child"), kw("parent")).unwrap();
+
+        assert!(h.isa(&kw("grandchild"), &kw("parent")));
+    }
+
+    #[test]
+    fn test_ancestors_transitive() {
+        let mut h = KlujurHierarchy::new();
+        h.derive(kw("c"), kw("b")).unwrap();
+        h.derive(kw("b"), kw("a")).unwrap();
+
+        let ancestors = h.ancestors(&kw("c"));
+        assert!(ancestors.contains(&kw("b")));
+        assert!(ancestors.contains(&kw("a")));
+        assert_eq!(ancestors.len(), 2);
+    }
+
+    #[test]
+    fn test_descendants_transitive() {
+        let mut h = KlujurHierarchy::new();
+        h.derive(kw("c"), kw("b")).unwrap();
+        h.derive(kw("b"), kw("a")).unwrap();
+
+        let descendants = h.descendants(&kw("a"));
+        assert!(descendants.contains(&kw("b")));
+        assert!(descendants.contains(&kw("c")));
+        assert_eq!(descendants.len(), 2);
+    }
+
+    #[test]
+    fn test_underive_removes_relationship() {
+        let mut h = KlujurHierarchy::new();
+        h.derive(kw("child"), kw("parent")).unwrap();
+        assert!(h.isa(&kw("child"), &kw("parent")));
+
+        h.underive(&kw("child"), &kw("parent"));
+        assert!(!h.isa(&kw("child"), &kw("parent")));
+    }
+
+    #[test]
+    fn test_underive_updates_transitives() {
+        let mut h = KlujurHierarchy::new();
+        h.derive(kw("c"), kw("b")).unwrap();
+        h.derive(kw("b"), kw("a")).unwrap();
+        assert!(h.isa(&kw("c"), &kw("a")));
+
+        h.underive(&kw("b"), &kw("a"));
+        assert!(!h.isa(&kw("c"), &kw("a")));
+        assert!(h.isa(&kw("c"), &kw("b")));
+    }
+
+    #[test]
+    fn test_multiple_parents() {
+        let mut h = KlujurHierarchy::new();
+        h.derive(kw("cat"), kw("animal")).unwrap();
+        h.derive(kw("cat"), kw("pet")).unwrap();
+
+        let parents = h.parents(&kw("cat"));
+        assert!(parents.contains(&kw("animal")));
+        assert!(parents.contains(&kw("pet")));
+        assert_eq!(parents.len(), 2);
+    }
+
+    #[test]
+    fn test_diamond_inheritance() {
+        let mut h = KlujurHierarchy::new();
+        //       animal
+        //      /      \
+        //    pet     wild
+        //      \      /
+        //       cat
+        h.derive(kw("pet"), kw("animal")).unwrap();
+        h.derive(kw("wild"), kw("animal")).unwrap();
+        h.derive(kw("cat"), kw("pet")).unwrap();
+        h.derive(kw("cat"), kw("wild")).unwrap();
+
+        assert!(h.isa(&kw("cat"), &kw("animal")));
+
+        let cat_ancestors = h.ancestors(&kw("cat"));
+        assert!(cat_ancestors.contains(&kw("pet")));
+        assert!(cat_ancestors.contains(&kw("wild")));
+        assert!(cat_ancestors.contains(&kw("animal")));
+        assert_eq!(cat_ancestors.len(), 3);
+    }
+
+    #[test]
+    fn test_find_best_method_exact_match() {
+        let h = KlujurHierarchy::new();
+        let mut methods = HashMap::new();
+        methods.insert(kw("dog"), kw("dog-method"));
+
+        let result = h.find_best_method(&kw("dog"), &methods, &HashMap::new());
+        assert_eq!(result, Some((kw("dog"), kw("dog-method"))));
+    }
+
+    #[test]
+    fn test_find_best_method_via_hierarchy() {
+        let mut h = KlujurHierarchy::new();
+        h.derive(kw("poodle"), kw("dog")).unwrap();
+
+        let mut methods = HashMap::new();
+        methods.insert(kw("dog"), kw("dog-method"));
+
+        let result = h.find_best_method(&kw("poodle"), &methods, &HashMap::new());
+        assert_eq!(result, Some((kw("dog"), kw("dog-method"))));
+    }
+
+    #[test]
+    fn test_hierarchy_equality() {
+        let mut h1 = KlujurHierarchy::new();
+        let mut h2 = KlujurHierarchy::new();
+
+        h1.derive(kw("child"), kw("parent")).unwrap();
+        h2.derive(kw("child"), kw("parent")).unwrap();
+
+        assert_eq!(h1, h2);
+    }
+
+    #[test]
+    fn test_hierarchy_clone() {
+        let mut h1 = KlujurHierarchy::new();
+        h1.derive(kw("child"), kw("parent")).unwrap();
+
+        let h2 = h1.clone();
+        assert_eq!(h1, h2);
+        assert!(h2.isa(&kw("child"), &kw("parent")));
+    }
+}

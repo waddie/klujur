@@ -3,7 +3,36 @@
 
 //! Symbols are identifiers that may be optionally namespaced.
 //!
-//! Symbols are interned for efficient comparison and storage.
+//! # Interning
+//!
+//! Symbols are interned using a global string interner, meaning that two symbols
+//! with the same namespace and name will share the same underlying storage. This
+//! provides several benefits:
+//!
+//! - **O(1) equality**: Comparing symbols is a pointer comparison, not string comparison
+//! - **O(1) hashing**: Hash is computed from the pointer address
+//! - **Memory efficiency**: Identical symbols share storage
+//!
+//! # Memory Behaviour
+//!
+//! **Important**: Interned symbols are never deallocated. The global interner
+//! maintains strong references (`Arc`) to all symbols created during the program's
+//! lifetime. This means:
+//!
+//! - Memory usage grows monotonically with unique symbols
+//! - Symbols created during parsing/evaluation persist until program termination
+//! - This is intentional: symbols are typically reused frequently and the memory
+//!   overhead is modest for typical programs
+//!
+//! For long-running applications that dynamically generate many unique symbols
+//! (e.g., via `gensym`), be aware that these will accumulate. In practice, most
+//! Clojure programs use a bounded set of symbols defined at compile time.
+//!
+//! # Thread Safety
+//!
+//! The interner is protected by a `Mutex`, making symbol creation thread-safe.
+//! However, this means symbol creation involves lock acquisition. Symbol lookup
+//! and comparison are lock-free after creation.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -81,13 +110,23 @@ fn get_interner() -> &'static Mutex<SymbolInterner> {
 impl Symbol {
     /// Create a new symbol with no namespace.
     pub fn new(name: &str) -> Self {
-        let inner = get_interner().lock().unwrap().intern(None, name);
+        let inner = get_interner()
+            .lock()
+            .expect(
+                "Symbol interner mutex poisoned: another thread panicked while holding the lock",
+            )
+            .intern(None, name);
         Symbol { inner }
     }
 
     /// Create a new symbol with a namespace.
     pub fn with_namespace(namespace: &str, name: &str) -> Self {
-        let inner = get_interner().lock().unwrap().intern(Some(namespace), name);
+        let inner = get_interner()
+            .lock()
+            .expect(
+                "Symbol interner mutex poisoned: another thread panicked while holding the lock",
+            )
+            .intern(Some(namespace), name);
         Symbol { inner }
     }
 

@@ -919,6 +919,8 @@ pub struct KlujurFn {
 
 impl KlujurFn {
     /// Create a new single-arity function.
+    ///
+    /// Note: An empty body is valid in Clojure and returns `nil` when invoked.
     pub fn new(
         params: Vec<Symbol>,
         rest_param: Option<Symbol>,
@@ -933,7 +935,35 @@ impl KlujurFn {
     }
 
     /// Create a new multi-arity function.
+    ///
+    /// # Panics (debug mode only)
+    ///
+    /// Debug assertions will panic if:
+    /// - `arities` is empty (must have at least one arity)
+    /// - Two arities have the same fixed parameter count (ambiguous dispatch)
+    ///
+    /// Note: Empty bodies are valid (return `nil` when invoked).
     pub fn new_multi(name: Option<Symbol>, arities: Vec<FnArity>, env: Rc<dyn Any>) -> Self {
+        debug_assert!(
+            !arities.is_empty(),
+            "Multi-arity function must have at least one arity"
+        );
+        // Check for duplicate arity counts (excluding variadic)
+        #[cfg(debug_assertions)]
+        {
+            let mut fixed_counts: Vec<usize> = arities
+                .iter()
+                .filter(|a| a.rest_param.is_none())
+                .map(|a| a.params.len())
+                .collect();
+            fixed_counts.sort_unstable();
+            let original_len = fixed_counts.len();
+            fixed_counts.dedup();
+            debug_assert!(
+                fixed_counts.len() == original_len,
+                "Multi-arity function has duplicate arity counts; each fixed arity must be unique"
+            );
+        }
         KlujurFn { name, arities, env }
     }
 
@@ -953,17 +983,41 @@ impl KlujurFn {
 
     // Legacy accessors for backward compatibility with single-arity code
     /// Get parameters of the first (or only) arity.
+    ///
+    /// # Panics (debug mode only)
+    ///
+    /// Debug assertion will panic if the function has no arities.
     pub fn params(&self) -> &[Symbol] {
+        debug_assert!(
+            !self.arities.is_empty(),
+            "Cannot access params: function has no arities"
+        );
         &self.arities[0].params
     }
 
     /// Get rest parameter of the first (or only) arity.
+    ///
+    /// # Panics (debug mode only)
+    ///
+    /// Debug assertion will panic if the function has no arities.
     pub fn rest_param(&self) -> Option<&Symbol> {
+        debug_assert!(
+            !self.arities.is_empty(),
+            "Cannot access rest_param: function has no arities"
+        );
         self.arities[0].rest_param.as_ref()
     }
 
     /// Get body of the first (or only) arity.
+    ///
+    /// # Panics (debug mode only)
+    ///
+    /// Debug assertion will panic if the function has no arities.
     pub fn body(&self) -> &[KlujurVal] {
+        debug_assert!(
+            !self.arities.is_empty(),
+            "Cannot access body: function has no arities"
+        );
         &self.arities[0].body
     }
 }
