@@ -177,7 +177,7 @@ A comprehensive comparison of Klujur against Clojure (the reference) and SCI (Sm
 | `list` / `vector`                 | ✓      | ✓       | ✓   |                    |
 | `hash-map` / `hash-set`           | ✓      | ✓       | ✓   |                    |
 | `sorted-map` / `sorted-set`       | ✓      | ✓       | ✓   |                    |
-| `sorted-map-by` / `sorted-set-by` | ✗      | ✓       | ✓   | Custom comparators |
+| `sorted-map-by` / `sorted-set-by` | ✓      | ✓       | ✓   | Custom comparators |
 | `vec` / `set`                     | ✓      | ✓       | ✓   |                    |
 | `list*`                           | ✓      | ✓       | ✓   |                    |
 | `zipmap`                          | ✓      | ✓       | ✓   |                    |

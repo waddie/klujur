@@ -11,9 +11,10 @@ mod additional_predicates;
 mod arithmetic;
 mod atoms;
 mod bitwise;
-mod collection_constructors;
+pub mod collection_constructors;
 mod collection_utils;
 mod collections;
+pub mod comparators;
 mod comparison;
 mod eager_sequences;
 mod exceptions;
@@ -64,7 +65,7 @@ use bitwise::{
 };
 use collection_constructors::{
     builtin_hash_map, builtin_hash_set, builtin_list_star, builtin_set, builtin_sorted_map,
-    builtin_sorted_set, builtin_vec, builtin_zipmap,
+    builtin_sorted_map_by, builtin_sorted_set, builtin_sorted_set_by, builtin_vec, builtin_zipmap,
 };
 use collection_utils::{
     builtin_assoc_in, builtin_contains_p, builtin_disj, builtin_empty, builtin_find,
@@ -349,6 +350,8 @@ pub fn register_builtins(env: &Env) {
     core_ns.define_native("hash-set", builtin_hash_set);
     core_ns.define_native("sorted-map", builtin_sorted_map);
     core_ns.define_native("sorted-set", builtin_sorted_set);
+    core_ns.define_native("sorted-map-by", builtin_sorted_map_by);
+    core_ns.define_native("sorted-set-by", builtin_sorted_set_by);
     core_ns.define_native("list*", builtin_list_star);
     core_ns.define_native("zipmap", builtin_zipmap);
 

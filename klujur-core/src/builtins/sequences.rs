@@ -33,6 +33,17 @@ pub(crate) fn builtin_first(args: &[KlujurVal]) -> Result<KlujurVal> {
             SeqResult::Empty => Ok(KlujurVal::Nil),
             SeqResult::Cons(first, _) => Ok(first),
         },
+        KlujurVal::SortedMapBy(sm) => {
+            let entries = sm.entries();
+            Ok(entries
+                .first()
+                .map(|(k, v)| KlujurVal::vector(vec![k.clone(), v.clone()]))
+                .unwrap_or(KlujurVal::Nil))
+        }
+        KlujurVal::SortedSetBy(ss) => {
+            let elements = ss.elements();
+            Ok(elements.first().cloned().unwrap_or(KlujurVal::Nil))
+        }
         other => Err(Error::type_error_in("first", "seqable", other.type_name())),
     }
 }
@@ -62,6 +73,27 @@ pub(crate) fn builtin_rest(args: &[KlujurVal]) -> Result<KlujurVal> {
             SeqResult::Empty => Ok(KlujurVal::empty_list()),
             SeqResult::Cons(_, rest) => Ok(rest),
         },
+        KlujurVal::SortedMapBy(sm) => {
+            let entries = sm.entries();
+            if entries.is_empty() {
+                Ok(KlujurVal::empty_list())
+            } else {
+                let rest: Vec<KlujurVal> = entries
+                    .iter()
+                    .skip(1)
+                    .map(|(k, v)| KlujurVal::vector(vec![k.clone(), v.clone()]))
+                    .collect();
+                Ok(KlujurVal::list(rest))
+            }
+        }
+        KlujurVal::SortedSetBy(ss) => {
+            let elements = ss.elements();
+            if elements.is_empty() {
+                Ok(KlujurVal::empty_list())
+            } else {
+                Ok(KlujurVal::list(elements.iter().skip(1).cloned().collect()))
+            }
+        }
         other => Err(Error::type_error_in("rest", "seqable", other.type_name())),
     }
 }
@@ -112,6 +144,8 @@ pub(crate) fn builtin_count(args: &[KlujurVal]) -> Result<KlujurVal> {
             let items = to_seq(&args[0])?;
             items.len()
         }
+        KlujurVal::SortedMapBy(sm) => sm.len(),
+        KlujurVal::SortedSetBy(ss) => ss.len(),
         other => {
             return Err(Error::type_error_in(
                 "count",
@@ -241,6 +275,8 @@ pub(crate) fn builtin_empty_p(args: &[KlujurVal]) -> Result<KlujurVal> {
         KlujurVal::Map(map, _) => map.is_empty(),
         KlujurVal::Set(set, _) => set.is_empty(),
         KlujurVal::String(s) => s.is_empty(),
+        KlujurVal::SortedMapBy(sm) => sm.is_empty(),
+        KlujurVal::SortedSetBy(ss) => ss.is_empty(),
         other => return Err(Error::type_error_in("empty?", "seqable", other.type_name())),
     };
 
@@ -264,6 +300,27 @@ pub(crate) fn builtin_next(args: &[KlujurVal]) -> Result<KlujurVal> {
                     // next returns nil if rest is empty, otherwise rest as seq
                     builtin_seq(&[rest])
                 }
+            }
+        }
+        KlujurVal::SortedMapBy(sm) => {
+            let entries = sm.entries();
+            if entries.len() <= 1 {
+                Ok(KlujurVal::Nil)
+            } else {
+                let rest: Vec<KlujurVal> = entries
+                    .iter()
+                    .skip(1)
+                    .map(|(k, v)| KlujurVal::vector(vec![k.clone(), v.clone()]))
+                    .collect();
+                Ok(KlujurVal::list(rest))
+            }
+        }
+        KlujurVal::SortedSetBy(ss) => {
+            let elements = ss.elements();
+            if elements.len() <= 1 {
+                Ok(KlujurVal::Nil)
+            } else {
+                Ok(KlujurVal::list(elements.iter().skip(1).cloned().collect()))
             }
         }
         other => Err(Error::type_error_in("next", "seqable", other.type_name())),
@@ -781,6 +838,26 @@ pub(crate) fn builtin_seq(args: &[KlujurVal]) -> Result<KlujurVal> {
                     .map(|(k, v)| KlujurVal::vector(vec![KlujurVal::Keyword(k.clone()), v.clone()]))
                     .collect();
                 Ok(KlujurVal::list(pairs))
+            }
+        }
+        KlujurVal::SortedMapBy(sm) => {
+            let entries = sm.entries();
+            if entries.is_empty() {
+                Ok(KlujurVal::Nil)
+            } else {
+                let pairs: Vec<KlujurVal> = entries
+                    .iter()
+                    .map(|(k, v)| KlujurVal::vector(vec![k.clone(), v.clone()]))
+                    .collect();
+                Ok(KlujurVal::list(pairs))
+            }
+        }
+        KlujurVal::SortedSetBy(ss) => {
+            let elements = ss.elements();
+            if elements.is_empty() {
+                Ok(KlujurVal::Nil)
+            } else {
+                Ok(KlujurVal::list(elements.clone()))
             }
         }
         other => Err(Error::type_error_in("seq", "seqable", other.type_name())),

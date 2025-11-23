@@ -182,6 +182,8 @@ pub(crate) fn builtin_seqable_p(args: &[KlujurVal]) -> Result<KlujurVal> {
             | KlujurVal::Map(_, _)
             | KlujurVal::Set(_, _)
             | KlujurVal::String(_)
+            | KlujurVal::SortedMapBy(_)
+            | KlujurVal::SortedSetBy(_)
     )))
 }
 
@@ -201,10 +203,13 @@ pub(crate) fn builtin_sorted_p(args: &[KlujurVal]) -> Result<KlujurVal> {
     if args.len() != 1 {
         return Err(Error::arity_named("sorted?", 1, args.len()));
     }
-    // Our OrdMap and OrdSet are sorted by default
+    // Our OrdMap and OrdSet are sorted by default, as are sorted-map-by and sorted-set-by
     Ok(KlujurVal::bool(matches!(
         args[0],
-        KlujurVal::Map(_, _) | KlujurVal::Set(_, _)
+        KlujurVal::Map(_, _)
+            | KlujurVal::Set(_, _)
+            | KlujurVal::SortedMapBy(_)
+            | KlujurVal::SortedSetBy(_)
     )))
 }
 
@@ -221,6 +226,8 @@ pub(crate) fn builtin_counted_p(args: &[KlujurVal]) -> Result<KlujurVal> {
             | KlujurVal::Map(_, _)
             | KlujurVal::Set(_, _)
             | KlujurVal::String(_)
+            | KlujurVal::SortedMapBy(_)
+            | KlujurVal::SortedSetBy(_)
     )))
 }
 
@@ -232,7 +239,11 @@ pub(crate) fn builtin_reversible_p(args: &[KlujurVal]) -> Result<KlujurVal> {
     // Vectors and sorted collections are reversible
     Ok(KlujurVal::bool(matches!(
         args[0],
-        KlujurVal::Vector(_, _) | KlujurVal::Map(_, _) | KlujurVal::Set(_, _)
+        KlujurVal::Vector(_, _)
+            | KlujurVal::Map(_, _)
+            | KlujurVal::Set(_, _)
+            | KlujurVal::SortedMapBy(_)
+            | KlujurVal::SortedSetBy(_)
     )))
 }
 
@@ -243,7 +254,7 @@ pub(crate) fn builtin_associative_p(args: &[KlujurVal]) -> Result<KlujurVal> {
     }
     Ok(KlujurVal::bool(matches!(
         args[0],
-        KlujurVal::Map(_, _) | KlujurVal::Vector(_, _)
+        KlujurVal::Map(_, _) | KlujurVal::Vector(_, _) | KlujurVal::SortedMapBy(_)
     )))
 }
 

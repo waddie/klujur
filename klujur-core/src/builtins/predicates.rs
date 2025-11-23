@@ -128,6 +128,8 @@ pub(crate) fn builtin_coll_p(args: &[KlujurVal]) -> Result<KlujurVal> {
             | KlujurVal::Vector(_, _)
             | KlujurVal::Map(_, _)
             | KlujurVal::Set(_, _)
+            | KlujurVal::SortedMapBy(_)
+            | KlujurVal::SortedSetBy(_)
     )))
 }
 
