@@ -1426,3 +1426,82 @@
     (-counted? x)
     ;; Fallback for built-in types not explicitly extended
     (or (nil? x) (list? x) (vector? x) (map? x) (set? x) (string? x))))
+
+;; ============================================================================
+;; Eager Side-Effect Iteration
+;; ============================================================================
+
+(defn run!
+  "Runs the supplied procedure (via reduce), for purposes of side effects,
+   on successive items in the collection. Returns nil."
+  [proc coll]
+  (reduce (fn [_ x] (proc x) nil) nil coll))
+
+;; ============================================================================
+;; Trampoline - Tail-Call Optimisation Helper
+;; ============================================================================
+
+(defn trampoline
+  "trampoline can be used to convert algorithms requiring mutual recursion
+   without stack consumption. Calls f with supplied args, if any. If f returns
+   a fn, calls that fn with no arguments, and continues to repeat, until the
+   return value is not a fn, then returns that non-fn value.
+   Note that if you want to return a fn as a final value, you must wrap it
+   in some data structure and unpack it after trampoline returns."
+  ([f]
+   (loop [ret (f)]
+     (if (fn? ret) (recur (ret)) ret)))
+  ([f & args] (trampoline #(apply f args))))
+
+;; ============================================================================
+;; Tree Traversal
+;; ============================================================================
+
+(defn tree-seq
+  "Returns a lazy sequence of the nodes in a tree, via a depth-first walk.
+   branch? must be a fn of one arg that returns true if passed a node
+   that can have children (but may not). children must be a fn of one
+   arg that returns a sequence of the children. Will only be called on
+   nodes for which branch? returns true. Root is the root node of the tree."
+  [branch? children root]
+  (let [walk (fn walk [node]
+               (lazy-seq (cons node
+                               (when (branch? node)
+                                 (mapcat walk (children node))))))]
+    (walk root)))
+
+;; ============================================================================
+;; Probabilistic Filtering
+;; ============================================================================
+
+(defn random-sample
+  "Returns items from coll with random probability of prob (0.0 - 1.0).
+   Returns a transducer when no collection is provided."
+  ([prob] (filter (fn [_] (< (rand) prob))))
+  ([prob coll] (filter (fn [_] (< (rand) prob)) coll)))
+
+;; ============================================================================
+;; Early Termination Transducer
+;; ============================================================================
+
+(defn halt-when
+  "Returns a transducer that ends transduction when pred returns true
+   for an input. When retf is supplied it must be a fn of 2 arguments -
+   it will be passed the (completed) result so far and the input that
+   triggered the predicate, and its return value (if it does not throw
+   an exception) will be the return value of the transducer. If retf
+   is not supplied, the input that triggered the predicate will be returned.
+   If the predicate never returns true the transduction completes normally."
+  ([pred] (halt-when pred nil))
+  ([pred retf]
+   (fn [rf]
+     (fn
+       ([] (rf))
+       ([result]
+        (if (and (map? result) (contains? result ::halt))
+          (::halt result)
+          (rf result)))
+       ([result input]
+        (if (pred input)
+          (reduced {::halt (if retf (retf (rf result) input) input)})
+          (rf result input)))))))

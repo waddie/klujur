@@ -386,3 +386,91 @@
 (deftest map-indexed-test
   (testing "map-indexed"
     (is (= '([0 :a] [1 :b] [2 :c]) (eval* "(map-indexed vector [:a :b :c])")))))
+
+;; =============================================================================
+;; run! - Eager side-effect iteration
+;; =============================================================================
+
+(deftest run!-test
+  (testing "run! executes side effects"
+    ;; run! should iterate and call proc for each element
+    (is (= [1 2 3] (eval* "(do (def side-effects (atom []))
+                              (run! #(swap! side-effects conj %) [1 2 3])
+                              @side-effects)"))))
+  (testing "run! returns nil"
+    (is (nil? (eval* "(run! identity [1 2 3])")))
+    (is (nil? (eval* "(run! inc [])")))))
+
+;; =============================================================================
+;; trampoline - Tail-call optimisation helper
+;; =============================================================================
+
+(deftest trampoline-test
+  (testing "trampoline with non-fn return"
+    (is (= 42 (eval* "(trampoline (constantly 42))"))))
+  (testing "trampoline with fn chain"
+    (is (= "done!" (eval* "(do (defn countdown [n]
+                                 (if (zero? n)
+                                   \"done!\"
+                                   #(countdown (dec n))))
+                              (trampoline countdown 5))"))))
+  (testing "trampoline with args"
+    (is (= 10 (eval* "(trampoline + 1 2 3 4)"))))
+  (testing "trampoline enables mutual recursion"
+    (is (= true (eval* "(do (defn my-even? [n]
+                               (if (zero? n)
+                                 true
+                                 #(my-odd? (dec n))))
+                            (defn my-odd? [n]
+                               (if (zero? n)
+                                 false
+                                 #(my-even? (dec n))))
+                            (trampoline my-even? 10))")))
+    (is (= false (eval* "(trampoline my-odd? 10)")))))
+
+;; =============================================================================
+;; tree-seq - Lazy tree traversal
+;; =============================================================================
+
+(deftest tree-seq-test
+  (testing "tree-seq on nested lists"
+    (is (= '(((1 2 (3)) (4)) (1 2 (3)) 1 2 (3) 3 (4) 4)
+           (eval* "(doall (tree-seq seq? identity '((1 2 (3)) (4))))"))))
+  (testing "tree-seq on nested vectors"
+    (is (= '([[1 2 [3]] [4]] [1 2 [3]] 1 2 [3] 3 [4] 4)
+           (eval* "(doall (tree-seq vector? seq [[1 2 [3]] [4]]))"))))
+  (testing "tree-seq on single non-branch node"
+    (is (= '(5) (eval* "(doall (tree-seq seq? identity 5))"))))
+  (testing "tree-seq returns lazy sequence"
+    (is (seq? (eval* "(tree-seq seq? identity '(1 2 3))")))))
+
+;; =============================================================================
+;; random-sample - Probabilistic filtering
+;; =============================================================================
+
+(deftest random-sample-test
+  (testing "random-sample with prob 1.0 keeps all"
+    (is (= '(1 2 3 4 5) (eval* "(doall (random-sample 1.0 [1 2 3 4 5]))"))))
+  (testing "random-sample with prob 0.0 keeps none"
+    (is (= '() (eval* "(doall (random-sample 0.0 [1 2 3 4 5]))"))))
+  (testing "random-sample returns subset"
+    ;; With 0.5 probability, result should be between 0 and 100 elements
+    (is (<= 0 (count (eval* "(random-sample 0.5 (range 100))")) 100)))
+  (testing "random-sample as transducer"
+    (is (<= 0 (count (eval* "(into [] (random-sample 0.5) (range 100))")) 100))))
+
+;; =============================================================================
+;; halt-when - Early termination transducer
+;; =============================================================================
+
+(deftest halt-when-test
+  (testing "halt-when stops and returns triggering input"
+    (is (= 5 (eval* "(into [] (halt-when #(= % 5)) (range 10))"))))
+  (testing "halt-when with retf"
+    (is (= [0 1 2 3 4 :stopped-at 5]
+           (eval* "(into [] (halt-when #(= % 5) (fn [r x] (conj r :stopped-at x))) (range 10))"))))
+  (testing "halt-when completes normally if pred never true"
+    (is (= [0 1 2 3 4 5 6 7 8 9]
+           (eval* "(into [] (halt-when #(= % 100)) (range 10))"))))
+  (testing "halt-when works with transduce"
+    (is (= 5 (eval* "(transduce (halt-when #(> % 4)) conj [] (range 10))"))))))

@@ -31,3 +31,4 @@ CLAUDE.md
 .clj-kondo/.cache
 .lsp
 TODO.md
+benchmarks/*
