@@ -1247,20 +1247,379 @@
 
    Expands to multiple extend-type forms."
   [protocol & specs]
-  (let [parse-specs (fn parse-specs [specs]
-                      (loop [remaining specs
-                             result    []]
-                        (if (empty? remaining)
-                          result
-                          (let [type-sym   (first remaining)
-                                ;; Collect method impls until next symbol
-                                ;; (type) or end
-                                methods    (take-while list? (rest remaining))
-                                rest-specs (drop (inc (count methods))
-                                                 remaining)]
-                            (recur rest-specs
-                                   (conj result
-                                         `(extend-type ~type-sym
-                                           ~protocol
-                                           ~@methods)))))))]
+  (let [parse-specs
+        (fn parse-specs [specs]
+          (loop [remaining specs
+                 result    []]
+            (if (empty? remaining)
+              result
+              (let [type-sym   (first remaining)
+                    ;; Collect method impls until next symbol
+                    ;; (type) or end
+                    ;; Use doall to force lazy seqs into lists for ~@
+                    methods    (doall (take-while list? (rest remaining)))
+                    rest-specs (drop (inc (count methods)) remaining)]
+                (recur rest-specs
+                       (conj result
+                             `(extend-type ~type-sym
+                               ~protocol
+                               ~@methods)))))))]
     `(do ~@(parse-specs specs))))
+
+;; ============================================================================
+;; Core Protocols
+;; ============================================================================
+;; These protocols define the fundamental abstractions for sequences,
+;; collections, and other core operations. They allow user-defined types
+;; to participate in the seq abstraction.
+
+(defprotocol ISeqable
+  "Protocol for types that can be converted to a sequence."
+  (-seq [coll]
+   "Returns a seq on the collection, or nil if empty."))
+
+(defprotocol ISeq
+  "Protocol for sequence types that support first/rest decomposition."
+  (-first [coll]
+   "Returns the first element of the collection.")
+  (-rest [coll]
+   "Returns a seq of the rest of the collection."))
+
+(defprotocol INext
+  "Protocol for sequences that support efficient next operation."
+  (-next [coll]
+   "Returns the next seq, or nil if empty."))
+
+(defprotocol ICollection
+  "Protocol for general collection operations."
+  (-count [coll]
+   "Returns the number of items in the collection.")
+  (-conj [coll x]
+   "Returns a new collection with x added.")
+  (-empty [coll]
+   "Returns an empty collection of the same type."))
+
+(defprotocol IAssociative
+  "Protocol for associative data structures (maps, vectors)."
+  (-assoc [coll k v]
+   "Returns a new collection with key k associated to value v.")
+  (-contains-key? [coll k]
+   "Returns true if the collection contains key k."))
+
+(defprotocol ILookup
+  "Protocol for key-based lookup."
+  (-lookup [coll k]
+           [coll k not-found]
+   "Returns the value at key k, or not-found/nil."))
+
+(defprotocol IIndexed
+  "Protocol for indexed access."
+  (-nth [coll n]
+        [coll n not-found]
+   "Returns the value at index n, or not-found/error."))
+
+(defprotocol IFn
+  "Protocol for callable objects."
+  (-invoke [f]
+           [f a]
+           [f a b]
+           [f a b c]
+           [f a b c d]
+           [f a b c d & more]
+   "Invokes the function with the given arguments."))
+
+(defprotocol IDeref
+  "Protocol for dereferenceable types."
+  (-deref [ref]
+   "Returns the current value of the reference."))
+
+(defprotocol IMeta
+  "Protocol for types that support metadata."
+  (-meta [obj]
+   "Returns the metadata map for the object."))
+
+(defprotocol IWithMeta
+  "Protocol for types that can have metadata attached."
+  (-with-meta [obj m]
+   "Returns a copy of obj with metadata m attached."))
+
+(defprotocol ICounted
+  "Protocol for types with O(1) count."
+  (-counted? [coll]
+   "Returns true if count is O(1)."))
+
+(defprotocol IReduce
+  "Protocol for reducible collections."
+  (-reduce [coll f]
+           [coll f init]
+   "Reduces the collection using f."))
+
+;; ============================================================================
+;; Core Protocol Implementations for Built-in Types
+;; ============================================================================
+;; Note: These extend the core protocols to all built-in types.
+;; The -prefixed methods are the protocol implementations, while
+;; the unprefixed versions (seq, first, rest, etc.) remain as the
+;; public API and will dispatch through the protocols.
+;;
+;; The implementations use the existing Rust builtins directly (first, rest,
+;; count, etc.) since these are the native implementations. The protocol
+;; methods provide the abstraction layer for user-defined types.
+
+;; ISeqable implementations
+(extend-type nil
+ ISeqable
+   (-seq [_] nil))
+
+(extend-type List
+ ISeqable
+   (-seq [coll] (if (empty? coll) nil coll)))
+
+(extend-type Vector
+ ISeqable
+   (-seq [coll] (if (empty? coll) nil (seq coll))))
+
+(extend-type Map
+ ISeqable
+   (-seq [coll] (if (empty? coll) nil (seq coll))))
+
+(extend-type Set
+ ISeqable
+   (-seq [coll] (if (empty? coll) nil (seq coll))))
+
+(extend-type String
+ ISeqable
+   (-seq [s] (if (= "" s) nil (seq s))))
+
+(extend-type LazySeq
+ ISeqable
+   (-seq [coll] (if (empty? coll) nil coll)))
+
+;; ISeq implementations
+(extend-type nil
+ ISeq
+   (-first [_] nil)
+   (-rest [_] ()))
+
+(extend-type List
+ ISeq
+   (-first [coll] (first coll))
+   (-rest [coll] (rest coll)))
+
+(extend-type LazySeq
+ ISeq
+   (-first [coll] (first coll))
+   (-rest [coll] (rest coll)))
+
+;; INext implementations
+(extend-type nil
+ INext
+   (-next [_] nil))
+(extend-type List
+ INext
+   (-next [coll] (next coll)))
+(extend-type LazySeq
+ INext
+   (-next [coll] (next coll)))
+
+;; ICollection implementations
+(extend-type nil
+ ICollection
+   (-count [_] 0)
+   (-conj [_ x] (list x))
+   (-empty [_] nil))
+
+(extend-type List
+ ICollection
+   (-count [coll] (count coll))
+   (-conj [coll x] (conj coll x))
+   (-empty [_] ()))
+
+(extend-type Vector
+ ICollection
+   (-count [coll] (count coll))
+   (-conj [coll x] (conj coll x))
+   (-empty [_] []))
+
+(extend-type Map
+ ICollection
+   (-count [coll] (count coll))
+   (-conj [coll x] (conj coll x))
+   (-empty [_] {}))
+
+(extend-type Set
+ ICollection
+   (-count [coll] (count coll))
+   (-conj [coll x] (conj coll x))
+   (-empty [_] #{}))
+
+;; IAssociative implementations
+(extend-type nil
+ IAssociative
+   (-assoc [_ k v] {k v})
+   (-contains-key? [_ _] false))
+
+(extend-type Vector
+ IAssociative
+   (-assoc [coll k v] (assoc coll k v))
+   (-contains-key? [coll k] (and (int? k) (>= k 0) (< k (count coll)))))
+
+(extend-type Map
+ IAssociative
+   (-assoc [coll k v] (assoc coll k v))
+   (-contains-key? [coll k] (contains? coll k)))
+
+;; ILookup implementations
+(extend-type nil
+ ILookup
+   (-lookup ([_ _] nil) ([_ _ not-found] not-found)))
+
+(extend-type Vector
+ ILookup
+   (-lookup
+     ([coll k] (get coll k))
+     ([coll k not-found] (get coll k not-found))))
+
+(extend-type Map
+ ILookup
+   (-lookup
+     ([coll k] (get coll k))
+     ([coll k not-found] (get coll k not-found))))
+
+(extend-type Set
+ ILookup
+   (-lookup
+     ([coll k] (get coll k))
+     ([coll k not-found] (get coll k not-found))))
+
+;; IIndexed implementations
+(extend-type Vector
+ IIndexed
+   (-nth ([coll n] (nth coll n)) ([coll n not-found] (nth coll n not-found))))
+
+(extend-type List
+ IIndexed
+   (-nth ([coll n] (nth coll n)) ([coll n not-found] (nth coll n not-found))))
+
+(extend-type String
+ IIndexed
+   (-nth ([s n] (nth s n)) ([s n not-found] (nth s n not-found))))
+
+;; IDeref implementations
+(extend-type Atom
+ IDeref
+   (-deref [ref] (deref ref)))
+(extend-type Delay
+ IDeref
+   (-deref [ref] (force ref)))
+(extend-type Var
+ IDeref
+   (-deref [ref] (deref ref)))
+(extend-type Volatile
+ IDeref
+   (-deref [ref] (deref ref)))
+
+;; IMeta implementations
+(extend-type nil
+ IMeta
+   (-meta [_] nil))
+(extend-type List
+ IMeta
+   (-meta [obj] (meta obj)))
+(extend-type Vector
+ IMeta
+   (-meta [obj] (meta obj)))
+(extend-type Map
+ IMeta
+   (-meta [obj] (meta obj)))
+(extend-type Set
+ IMeta
+   (-meta [obj] (meta obj)))
+(extend-type Symbol
+ IMeta
+   (-meta [obj] (meta obj)))
+
+;; IWithMeta implementations
+(extend-type List
+ IWithMeta
+   (-with-meta [obj m] (with-meta obj m)))
+(extend-type Vector
+ IWithMeta
+   (-with-meta [obj m] (with-meta obj m)))
+(extend-type Map
+ IWithMeta
+   (-with-meta [obj m] (with-meta obj m)))
+(extend-type Set
+ IWithMeta
+   (-with-meta [obj m] (with-meta obj m)))
+(extend-type Symbol
+ IWithMeta
+   (-with-meta [obj m] (with-meta obj m)))
+
+;; ICounted implementations
+(extend-type nil
+ ICounted
+   (-counted? [_] true))
+(extend-type List
+ ICounted
+   (-counted? [_] true))
+(extend-type Vector
+ ICounted
+   (-counted? [_] true))
+(extend-type Map
+ ICounted
+   (-counted? [_] true))
+(extend-type Set
+ ICounted
+   (-counted? [_] true))
+(extend-type String
+ ICounted
+   (-counted? [_] true))
+(extend-type LazySeq
+ ICounted
+   (-counted? [_] false))
+
+;; ============================================================================
+;; Protocol-Aware Predicates
+;; ============================================================================
+;; These predicates check both built-in types and protocol implementations,
+;; allowing user-defined types to participate in the seq abstraction.
+
+(defn seqable?
+  "Returns true if x can be converted to a sequence.
+   Checks both built-in types and ISeqable protocol implementation."
+  [x]
+  (or (nil? x)
+      (list? x)
+      (vector? x)
+      (map? x)
+      (set? x)
+      (string? x)
+      (satisfies? ISeqable x)))
+
+(defn seq?
+  "Returns true if x is a sequence (list or lazy-seq).
+   Checks both built-in types and ISeq protocol implementation."
+  [x]
+  (or (list? x) (lazy-seq? x) (satisfies? ISeq x)))
+
+(defn associative?
+  "Returns true if x supports associative lookup.
+   Checks both built-in types and IAssociative protocol implementation."
+  [x]
+  (or (nil? x) (vector? x) (map? x) (satisfies? IAssociative x)))
+
+(defn indexed?
+  "Returns true if x supports indexed (O(1) or near O(1)) access.
+   Checks both built-in types and IIndexed protocol implementation."
+  [x]
+  (or (vector? x) (string? x) (satisfies? IIndexed x)))
+
+(defn counted?
+  "Returns true if x has O(1) count.
+   Checks ICounted protocol implementation."
+  [x]
+  (if (satisfies? ICounted x)
+    (-counted? x)
+    ;; Fallback for built-in types not explicitly extended
+    (or (nil? x) (list? x) (vector? x) (map? x) (set? x) (string? x))))
