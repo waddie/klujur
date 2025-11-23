@@ -250,7 +250,7 @@ A comprehensive comparison of Klujur against Clojure (the reference) and SCI (Sm
 | `defprotocol`       | ✓      | ✓       | ✓   |       |
 | `extend-type`       | ✓      | ✓       | ✓   |       |
 | `extend-protocol`   | ✓      | ✓       | ✓   |       |
-| `extend` (map form) | ✗      | ✓       | ✓   |       |
+| `extend` (map form) | ✓      | ✓       | ✓   |       |
 | `satisfies?`        | ✓      | ✓       | ✓   |       |
 | `extends?`          | ✓      | ✓       | ✓   |       |
 

@@ -190,9 +190,10 @@ pub(crate) fn eval_extend_type(args: &[KlujurVal], env: &Env) -> Result<KlujurVa
         return Err(Error::syntax("extend-type", "requires a type name"));
     }
 
-    // Get the type name
-    let type_name = match &args[0] {
-        KlujurVal::Symbol(s, _) => s.clone(),
+    // Get the type name - handle both symbol and nil literal
+    let type_key = match &args[0] {
+        KlujurVal::Symbol(s, _) => symbol_to_type_key(s)?,
+        KlujurVal::Nil => TypeKey::Nil, // Support (extend-type nil ...)
         other => {
             return Err(Error::syntax(
                 "extend-type",
@@ -203,8 +204,6 @@ pub(crate) fn eval_extend_type(args: &[KlujurVal], env: &Env) -> Result<KlujurVa
             ));
         }
     };
-
-    let type_key = symbol_to_type_key(&type_name)?;
     let registry = env.registry();
 
     let mut i = 1;
@@ -294,9 +293,10 @@ pub(crate) fn eval_extend(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
         return Err(Error::syntax("extend", "requires a type name"));
     }
 
-    // Get the type name
-    let type_name = match &args[0] {
-        KlujurVal::Symbol(s, _) => s.clone(),
+    // Get the type name - handle both symbol and nil literal
+    let type_key = match &args[0] {
+        KlujurVal::Symbol(s, _) => symbol_to_type_key(s)?,
+        KlujurVal::Nil => TypeKey::Nil, // Support (extend nil ...)
         other => {
             return Err(Error::syntax(
                 "extend",
@@ -307,8 +307,6 @@ pub(crate) fn eval_extend(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
             ));
         }
     };
-
-    let type_key = symbol_to_type_key(&type_name)?;
     let registry = env.registry();
 
     // Process pairs of (Protocol method-map)
