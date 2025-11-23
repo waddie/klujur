@@ -468,3 +468,125 @@ fn test_completing() {
         KlujurVal::int(9)
     );
 }
+
+// =============================================================================
+// Sequence with Transducer Tests
+// =============================================================================
+
+#[test]
+fn test_sequence_with_map() {
+    // sequence with transducer produces lazy sequence, convert to vec for comparison
+    assert_eval!(
+        "(vec (sequence (map inc) [1 2 3]))",
+        KlujurVal::vector(vec![
+            KlujurVal::int(2),
+            KlujurVal::int(3),
+            KlujurVal::int(4)
+        ])
+    );
+}
+
+#[test]
+fn test_sequence_with_filter() {
+    assert_eval!(
+        "(vec (sequence (filter even?) [1 2 3 4 5 6]))",
+        KlujurVal::vector(vec![
+            KlujurVal::int(2),
+            KlujurVal::int(4),
+            KlujurVal::int(6)
+        ])
+    );
+}
+
+#[test]
+fn test_sequence_with_composition() {
+    assert_eval!(
+        "(vec (sequence (comp (map inc) (filter even?)) [1 2 3 4]))",
+        KlujurVal::vector(vec![KlujurVal::int(2), KlujurVal::int(4)])
+    );
+}
+
+#[test]
+fn test_sequence_with_take() {
+    // take should terminate early
+    assert_eval!(
+        "(vec (sequence (comp (map inc) (take 3)) (range 100)))",
+        KlujurVal::vector(vec![
+            KlujurVal::int(1),
+            KlujurVal::int(2),
+            KlujurVal::int(3)
+        ])
+    );
+}
+
+#[test]
+fn test_sequence_without_transducer() {
+    // 1-arity just calls seq
+    assert_eval!(
+        "(vec (sequence [1 2 3]))",
+        KlujurVal::vector(vec![
+            KlujurVal::int(1),
+            KlujurVal::int(2),
+            KlujurVal::int(3)
+        ])
+    );
+}
+
+// =============================================================================
+// Eduction Tests
+// =============================================================================
+
+#[test]
+fn test_eduction_creation() {
+    assert_eval!(
+        "(eduction? (eduction (map inc) [1 2 3]))",
+        KlujurVal::Bool(true)
+    );
+}
+
+#[test]
+fn test_eduction_seq() {
+    assert_eval!(
+        "(vec (eduction-seq (eduction (map inc) [1 2 3])))",
+        KlujurVal::vector(vec![
+            KlujurVal::int(2),
+            KlujurVal::int(3),
+            KlujurVal::int(4)
+        ])
+    );
+}
+
+#[test]
+fn test_eduction_reduce() {
+    assert_eval!(
+        "(eduction-reduce (eduction (map inc) [1 2 3]) + 0)",
+        KlujurVal::int(9)
+    );
+}
+
+#[test]
+fn test_eduction_with_composition() {
+    assert_eval!(
+        "(vec (eduction-seq (eduction (map inc) (filter even?) [1 2 3 4])))",
+        KlujurVal::vector(vec![KlujurVal::int(2), KlujurVal::int(4)])
+    );
+}
+
+// =============================================================================
+// Preserving-Reduced Tests (for cat transducer)
+// =============================================================================
+
+#[test]
+fn test_cat_with_early_termination() {
+    // cat should respect reduced from inner sequences
+    // Test that take works correctly through cat
+    assert_eval!(
+        "(into [] (comp cat (take 4)) [[1 2] [3 4] [5 6]])",
+        KlujurVal::vector(vec![
+            KlujurVal::int(1),
+            KlujurVal::int(2),
+            KlujurVal::int(3),
+            KlujurVal::int(4)
+        ])
+    );
+}

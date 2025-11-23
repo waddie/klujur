@@ -31,7 +31,7 @@ mod transducers;
 mod type_checks;
 mod vars;
 
-use klujur_parser::{KlujurVal, Symbol};
+use klujur_parser::KlujurVal;
 
 use crate::env::Env;
 use crate::error::{Error, Result};
@@ -129,306 +129,329 @@ use vars::{
     builtin_var_set,
 };
 
-/// Register all built-in functions in the given environment.
+/// Register all built-in functions in the klujur.core namespace.
 pub fn register_builtins(env: &Env) {
+    let registry = env.registry();
+    let core_ns = registry.find_or_create(crate::namespace::NamespaceRegistry::CORE_NS);
+
     // Arithmetic
-    env.define_native("+", builtin_add);
-    env.define_native("-", builtin_sub);
-    env.define_native("*", builtin_mul);
-    env.define_native("/", builtin_div);
-    env.define_native("quot", builtin_quot);
-    env.define_native("rem", builtin_rem);
-    env.define_native("mod", builtin_mod);
-    env.define_native("inc", builtin_inc);
-    env.define_native("dec", builtin_dec);
-    env.define_native("max", builtin_max);
-    env.define_native("min", builtin_min);
-    env.define_native("abs", builtin_abs);
+    core_ns.define_native("+", builtin_add);
+    core_ns.define_native("-", builtin_sub);
+    core_ns.define_native("*", builtin_mul);
+    core_ns.define_native("/", builtin_div);
+    core_ns.define_native("quot", builtin_quot);
+    core_ns.define_native("rem", builtin_rem);
+    core_ns.define_native("mod", builtin_mod);
+    core_ns.define_native("inc", builtin_inc);
+    core_ns.define_native("dec", builtin_dec);
+    core_ns.define_native("max", builtin_max);
+    core_ns.define_native("min", builtin_min);
+    core_ns.define_native("abs", builtin_abs);
 
     // Numeric predicates
-    env.define_native("even?", builtin_even_p);
-    env.define_native("odd?", builtin_odd_p);
-    env.define_native("pos?", builtin_pos_p);
-    env.define_native("neg?", builtin_neg_p);
-    env.define_native("zero?", builtin_zero_p);
+    core_ns.define_native("even?", builtin_even_p);
+    core_ns.define_native("odd?", builtin_odd_p);
+    core_ns.define_native("pos?", builtin_pos_p);
+    core_ns.define_native("neg?", builtin_neg_p);
+    core_ns.define_native("zero?", builtin_zero_p);
 
     // Comparison
-    env.define_native("=", builtin_eq);
-    env.define_native("<", builtin_lt);
-    env.define_native(">", builtin_gt);
-    env.define_native("<=", builtin_le);
-    env.define_native(">=", builtin_ge);
-    env.define_native("not=", builtin_not_eq);
+    core_ns.define_native("=", builtin_eq);
+    core_ns.define_native("<", builtin_lt);
+    core_ns.define_native(">", builtin_gt);
+    core_ns.define_native("<=", builtin_le);
+    core_ns.define_native(">=", builtin_ge);
+    core_ns.define_native("not=", builtin_not_eq);
 
     // Type predicates
-    env.define_native("nil?", builtin_nil_p);
-    env.define_native("some?", builtin_some_p);
-    env.define_native("boolean?", builtin_boolean_p);
-    env.define_native("number?", builtin_number_p);
-    env.define_native("integer?", builtin_integer_p);
-    env.define_native("float?", builtin_float_p);
-    env.define_native("string?", builtin_string_p);
-    env.define_native("symbol?", builtin_symbol_p);
-    env.define_native("keyword?", builtin_keyword_p);
-    env.define_native("list?", builtin_list_p);
-    env.define_native("vector?", builtin_vector_p);
-    env.define_native("map?", builtin_map_p);
-    env.define_native("set?", builtin_set_p);
-    env.define_native("fn?", builtin_fn_p);
-    env.define_native("coll?", builtin_coll_p);
-    env.define_native("seq?", builtin_seq_p);
-    env.define_native("var?", builtin_var_p);
-    env.define_native("seqable?", builtin_seqable_p);
-    env.define_native("sequential?", builtin_sequential_p);
-    env.define_native("sorted?", builtin_sorted_p);
-    env.define_native("counted?", builtin_counted_p);
-    env.define_native("reversible?", builtin_reversible_p);
-    env.define_native("associative?", builtin_associative_p);
-    env.define_native("indexed?", builtin_indexed_p);
+    core_ns.define_native("nil?", builtin_nil_p);
+    core_ns.define_native("some?", builtin_some_p);
+    core_ns.define_native("boolean?", builtin_boolean_p);
+    core_ns.define_native("number?", builtin_number_p);
+    core_ns.define_native("integer?", builtin_integer_p);
+    core_ns.define_native("float?", builtin_float_p);
+    core_ns.define_native("string?", builtin_string_p);
+    core_ns.define_native("symbol?", builtin_symbol_p);
+    core_ns.define_native("keyword?", builtin_keyword_p);
+    core_ns.define_native("list?", builtin_list_p);
+    core_ns.define_native("vector?", builtin_vector_p);
+    core_ns.define_native("map?", builtin_map_p);
+    core_ns.define_native("set?", builtin_set_p);
+    core_ns.define_native("fn?", builtin_fn_p);
+    core_ns.define_native("coll?", builtin_coll_p);
+    core_ns.define_native("seq?", builtin_seq_p);
+    core_ns.define_native("var?", builtin_var_p);
+    core_ns.define_native("seqable?", builtin_seqable_p);
+    core_ns.define_native("sequential?", builtin_sequential_p);
+    core_ns.define_native("sorted?", builtin_sorted_p);
+    core_ns.define_native("counted?", builtin_counted_p);
+    core_ns.define_native("reversible?", builtin_reversible_p);
+    core_ns.define_native("associative?", builtin_associative_p);
+    core_ns.define_native("indexed?", builtin_indexed_p);
 
     // Vars
-    env.define_native("deref", builtin_deref);
+    core_ns.define_native("deref", builtin_deref);
 
     // Atoms
-    env.define_native("atom", builtin_atom);
-    env.define_native("atom?", builtin_atom_p);
-    env.define_native("reset!", builtin_reset);
-    env.define_native("swap!", builtin_swap);
-    env.define_native("swap-vals!", builtin_swap_vals);
-    env.define_native("reset-vals!", builtin_reset_vals);
-    env.define_native("compare-and-set!", builtin_compare_and_set);
-    env.define_native("add-watch", builtin_add_watch);
-    env.define_native("remove-watch", builtin_remove_watch);
-    env.define_native("set-validator!", builtin_set_validator);
-    env.define_native("get-validator", builtin_get_validator);
+    core_ns.define_native("atom", builtin_atom);
+    core_ns.define_native("atom?", builtin_atom_p);
+    core_ns.define_native("reset!", builtin_reset);
+    core_ns.define_native("swap!", builtin_swap);
+    core_ns.define_native("swap-vals!", builtin_swap_vals);
+    core_ns.define_native("reset-vals!", builtin_reset_vals);
+    core_ns.define_native("compare-and-set!", builtin_compare_and_set);
+    core_ns.define_native("add-watch", builtin_add_watch);
+    core_ns.define_native("remove-watch", builtin_remove_watch);
+    core_ns.define_native("set-validator!", builtin_set_validator);
+    core_ns.define_native("get-validator", builtin_get_validator);
 
     // Delays and Lazy Sequences
-    env.define_native("delay?", builtin_delay_p);
-    env.define_native("force", builtin_force);
-    env.define_native("realized?", builtin_realized_p);
-    env.define_native("lazy-seq?", builtin_lazy_seq_p);
-    env.define_native("doall", builtin_doall);
-    env.define_native("dorun", builtin_dorun);
+    core_ns.define_native("delay?", builtin_delay_p);
+    core_ns.define_native("force", builtin_force);
+    core_ns.define_native("realized?", builtin_realized_p);
+    core_ns.define_native("lazy-seq?", builtin_lazy_seq_p);
+    core_ns.define_native("doall", builtin_doall);
+    core_ns.define_native("dorun", builtin_dorun);
 
     // Memoization
-    env.define_native("memoize", builtin_memoize);
+    core_ns.define_native("memoize", builtin_memoize);
 
     // Sequences
-    env.define_native("first", builtin_first);
-    env.define_native("rest", builtin_rest);
-    env.define_native("next", builtin_next);
-    env.define_native("second", builtin_second);
-    env.define_native("last", builtin_last);
-    env.define_native("butlast", builtin_butlast);
-    env.define_native("cons", builtin_cons);
-    env.define_native("count", builtin_count);
-    env.define_native("nth", builtin_nth);
-    env.define_native("empty?", builtin_empty_p);
-    env.define_native("take*", builtin_take);
-    env.define_native("drop*", builtin_drop);
-    env.define_native("concat", builtin_concat);
-    env.define_native("mapcat*", builtin_mapcat);
-    env.define_native("partition", builtin_partition);
-    env.define_native("reverse", builtin_reverse);
-    env.define_native("range", builtin_range);
-    env.define_native("repeat", builtin_repeat);
-    env.define_native("into", builtin_into);
-    env.define_native("seq", builtin_seq);
+    core_ns.define_native("first", builtin_first);
+    core_ns.define_native("rest", builtin_rest);
+    core_ns.define_native("next", builtin_next);
+    core_ns.define_native("second", builtin_second);
+    core_ns.define_native("last", builtin_last);
+    core_ns.define_native("butlast", builtin_butlast);
+    core_ns.define_native("cons", builtin_cons);
+    core_ns.define_native("count", builtin_count);
+    core_ns.define_native("nth", builtin_nth);
+    core_ns.define_native("empty?", builtin_empty_p);
+    core_ns.define_native("take*", builtin_take);
+    core_ns.define_native("drop*", builtin_drop);
+    core_ns.define_native("concat", builtin_concat);
+    core_ns.define_native("mapcat*", builtin_mapcat);
+    core_ns.define_native("partition", builtin_partition);
+    core_ns.define_native("reverse", builtin_reverse);
+    core_ns.define_native("range", builtin_range);
+    core_ns.define_native("repeat", builtin_repeat);
+    core_ns.define_native("into", builtin_into);
+    core_ns.define_native("seq", builtin_seq);
 
     // Logic
-    env.define_native("not", builtin_not);
-    env.define_native("boolean", builtin_boolean);
+    core_ns.define_native("not", builtin_not);
+    core_ns.define_native("boolean", builtin_boolean);
 
     // Collections
-    env.define_native("list", builtin_list);
-    env.define_native("vector", builtin_vector);
-    env.define_native("get", builtin_get);
-    env.define_native("assoc", builtin_assoc);
-    env.define_native("dissoc", builtin_dissoc);
-    env.define_native("conj", builtin_conj);
+    core_ns.define_native("list", builtin_list);
+    core_ns.define_native("vector", builtin_vector);
+    core_ns.define_native("get", builtin_get);
+    core_ns.define_native("assoc", builtin_assoc);
+    core_ns.define_native("dissoc", builtin_dissoc);
+    core_ns.define_native("conj", builtin_conj);
+
+    // I/O dynamic vars - default to keywords representing standard streams
+    core_ns.intern_dynamic(
+        "*in*",
+        KlujurVal::Keyword(klujur_parser::Keyword::new("stdin")),
+    );
+    core_ns.intern_dynamic(
+        "*out*",
+        KlujurVal::Keyword(klujur_parser::Keyword::new("stdout")),
+    );
+    core_ns.intern_dynamic(
+        "*err*",
+        KlujurVal::Keyword(klujur_parser::Keyword::new("stderr")),
+    );
 
     // Misc
-    env.define_native("str", builtin_str);
-    env.define_native("pr-str", builtin_pr_str);
-    env.define_native("print", builtin_print);
-    env.define_native("println", builtin_println);
-    env.define_native("type", builtin_type);
-    env.define_native("satisfies?", builtin_satisfies_p);
-    env.define_native("extends?", builtin_extends_p);
-    env.define_native("identity", builtin_identity);
-    env.define_native("set-print-length!", builtin_set_print_length);
-    env.define_native("get-print-length", builtin_get_print_length);
+    core_ns.define_native("str", builtin_str);
+    core_ns.define_native("pr-str", builtin_pr_str);
+    core_ns.define_native("print", builtin_print);
+    core_ns.define_native("println", builtin_println);
+    core_ns.define_native("type", builtin_type);
+    core_ns.define_native("satisfies?", builtin_satisfies_p);
+    core_ns.define_native("extends?", builtin_extends_p);
+    core_ns.define_native("identity", builtin_identity);
+    core_ns.define_native("set-print-length!", builtin_set_print_length);
+    core_ns.define_native("get-print-length", builtin_get_print_length);
 
     // Higher-order functions
-    env.define_native("apply", builtin_apply);
-    env.define_native("map*", builtin_map);
-    env.define_native("filter*", builtin_filter);
-    env.define_native("remove*", builtin_remove);
-    env.define_native("reduce", builtin_reduce);
-    env.define_native("comp", builtin_comp);
-    env.define_native("partial", builtin_partial);
-    env.define_native("constantly", builtin_constantly);
-    env.define_native("every?", builtin_every_p);
-    env.define_native("some", builtin_some);
-    env.define_native("not-any?", builtin_not_any_p);
-    env.define_native("not-every?", builtin_not_every_p);
+    core_ns.define_native("apply", builtin_apply);
+    core_ns.define_native("map*", builtin_map);
+    core_ns.define_native("filter*", builtin_filter);
+    core_ns.define_native("remove*", builtin_remove);
+    core_ns.define_native("reduce", builtin_reduce);
+    core_ns.define_native("comp", builtin_comp);
+    core_ns.define_native("partial", builtin_partial);
+    core_ns.define_native("constantly", builtin_constantly);
+    core_ns.define_native("every?", builtin_every_p);
+    core_ns.define_native("some", builtin_some);
+    core_ns.define_native("not-any?", builtin_not_any_p);
+    core_ns.define_native("not-every?", builtin_not_every_p);
 
     // Exceptions
-    env.define_native("ex-info", builtin_ex_info);
-    env.define_native("ex-message", builtin_ex_message);
-    env.define_native("ex-data", builtin_ex_data);
+    core_ns.define_native("ex-info", builtin_ex_info);
+    core_ns.define_native("ex-message", builtin_ex_message);
+    core_ns.define_native("ex-data", builtin_ex_data);
 
     // Dynamic bindings
-    env.define_native("bound?", builtin_bound_p);
-    env.define_native("thread-bound?", builtin_thread_bound_p);
-    env.define_native("var-get", builtin_var_get);
-    env.define_native("var-set", builtin_var_set);
+    core_ns.define_native("bound?", builtin_bound_p);
+    core_ns.define_native("thread-bound?", builtin_thread_bound_p);
+    core_ns.define_native("var-get", builtin_var_get);
+    core_ns.define_native("var-set", builtin_var_set);
 
     // String/Symbol/Keyword operations
-    env.define_native("name", builtin_name);
-    env.define_native("namespace", builtin_namespace);
-    env.define_native("symbol", builtin_symbol);
-    env.define_native("keyword", builtin_keyword);
-    env.define_native("subs", builtin_subs);
+    core_ns.define_native("name", builtin_name);
+    core_ns.define_native("namespace", builtin_namespace);
+    core_ns.define_native("symbol", builtin_symbol);
+    core_ns.define_native("keyword", builtin_keyword);
+    core_ns.define_native("subs", builtin_subs);
 
     // Additional predicates
-    env.define_native("true?", builtin_true_p);
-    env.define_native("false?", builtin_false_p);
-    env.define_native("==", builtin_num_eq);
-    env.define_native("compare", builtin_compare);
-    env.define_native("identical?", builtin_identical_p);
-    env.define_native("not-empty", builtin_not_empty);
-    env.define_native("seqable?", builtin_seqable_p);
-    env.define_native("sequential?", builtin_sequential_p);
-    env.define_native("sorted?", builtin_sorted_p);
-    env.define_native("counted?", builtin_counted_p);
-    env.define_native("reversible?", builtin_reversible_p);
-    env.define_native("associative?", builtin_associative_p);
-    env.define_native("indexed?", builtin_indexed_p);
+    core_ns.define_native("true?", builtin_true_p);
+    core_ns.define_native("false?", builtin_false_p);
+    core_ns.define_native("==", builtin_num_eq);
+    core_ns.define_native("compare", builtin_compare);
+    core_ns.define_native("identical?", builtin_identical_p);
+    core_ns.define_native("not-empty", builtin_not_empty);
+    core_ns.define_native("seqable?", builtin_seqable_p);
+    core_ns.define_native("sequential?", builtin_sequential_p);
+    core_ns.define_native("sorted?", builtin_sorted_p);
+    core_ns.define_native("counted?", builtin_counted_p);
+    core_ns.define_native("reversible?", builtin_reversible_p);
+    core_ns.define_native("associative?", builtin_associative_p);
+    core_ns.define_native("indexed?", builtin_indexed_p);
 
     // Collection utilities
-    env.define_native("keys", builtin_keys);
-    env.define_native("vals", builtin_vals);
-    env.define_native("find", builtin_find);
-    env.define_native("contains?", builtin_contains_p);
-    env.define_native("select-keys", builtin_select_keys);
-    env.define_native("merge", builtin_merge);
-    env.define_native("merge-with", builtin_merge_with);
-    env.define_native("get-in", builtin_get_in);
-    env.define_native("assoc-in", builtin_assoc_in);
-    env.define_native("update", builtin_update);
-    env.define_native("update-in", builtin_update_in);
-    env.define_native("update-keys", builtin_update_keys);
-    env.define_native("update-vals", builtin_update_vals);
-    env.define_native("peek", builtin_peek);
-    env.define_native("pop", builtin_pop);
-    env.define_native("disj", builtin_disj);
-    env.define_native("empty", builtin_empty);
+    core_ns.define_native("keys", builtin_keys);
+    core_ns.define_native("vals", builtin_vals);
+    core_ns.define_native("find", builtin_find);
+    core_ns.define_native("contains?", builtin_contains_p);
+    core_ns.define_native("select-keys", builtin_select_keys);
+    core_ns.define_native("merge", builtin_merge);
+    core_ns.define_native("merge-with", builtin_merge_with);
+    core_ns.define_native("get-in", builtin_get_in);
+    core_ns.define_native("assoc-in", builtin_assoc_in);
+    core_ns.define_native("update", builtin_update);
+    core_ns.define_native("update-in", builtin_update_in);
+    core_ns.define_native("update-keys", builtin_update_keys);
+    core_ns.define_native("update-vals", builtin_update_vals);
+    core_ns.define_native("peek", builtin_peek);
+    core_ns.define_native("pop", builtin_pop);
+    core_ns.define_native("disj", builtin_disj);
+    core_ns.define_native("empty", builtin_empty);
 
     // Collection constructors
-    env.define_native("vec", builtin_vec);
-    env.define_native("set", builtin_set);
-    env.define_native("hash-map", builtin_hash_map);
-    env.define_native("hash-set", builtin_hash_set);
-    env.define_native("sorted-map", builtin_sorted_map);
-    env.define_native("sorted-set", builtin_sorted_set);
-    env.define_native("list*", builtin_list_star);
-    env.define_native("zipmap", builtin_zipmap);
+    core_ns.define_native("vec", builtin_vec);
+    core_ns.define_native("set", builtin_set);
+    core_ns.define_native("hash-map", builtin_hash_map);
+    core_ns.define_native("hash-set", builtin_hash_set);
+    core_ns.define_native("sorted-map", builtin_sorted_map);
+    core_ns.define_native("sorted-set", builtin_sorted_set);
+    core_ns.define_native("list*", builtin_list_star);
+    core_ns.define_native("zipmap", builtin_zipmap);
 
     // Bitwise operations
-    env.define_native("bit-and", builtin_bit_and);
-    env.define_native("bit-or", builtin_bit_or);
-    env.define_native("bit-xor", builtin_bit_xor);
-    env.define_native("bit-not", builtin_bit_not);
-    env.define_native("bit-and-not", builtin_bit_and_not);
-    env.define_native("bit-shift-left", builtin_bit_shift_left);
-    env.define_native("bit-shift-right", builtin_bit_shift_right);
-    env.define_native("unsigned-bit-shift-right", builtin_unsigned_bit_shift_right);
-    env.define_native("bit-set", builtin_bit_set);
-    env.define_native("bit-clear", builtin_bit_clear);
-    env.define_native("bit-flip", builtin_bit_flip);
-    env.define_native("bit-test", builtin_bit_test);
+    core_ns.define_native("bit-and", builtin_bit_and);
+    core_ns.define_native("bit-or", builtin_bit_or);
+    core_ns.define_native("bit-xor", builtin_bit_xor);
+    core_ns.define_native("bit-not", builtin_bit_not);
+    core_ns.define_native("bit-and-not", builtin_bit_and_not);
+    core_ns.define_native("bit-shift-left", builtin_bit_shift_left);
+    core_ns.define_native("bit-shift-right", builtin_bit_shift_right);
+    core_ns.define_native("unsigned-bit-shift-right", builtin_unsigned_bit_shift_right);
+    core_ns.define_native("bit-set", builtin_bit_set);
+    core_ns.define_native("bit-clear", builtin_bit_clear);
+    core_ns.define_native("bit-flip", builtin_bit_flip);
+    core_ns.define_native("bit-test", builtin_bit_test);
 
     // Additional higher-order functions
-    env.define_native("reduce-kv", builtin_reduce_kv);
-    env.define_native("juxt", builtin_juxt);
-    env.define_native("complement", builtin_complement);
-    env.define_native("fnil", builtin_fnil);
-    env.define_native("some-fn", builtin_some_fn);
-    env.define_native("every-pred", builtin_every_pred);
+    core_ns.define_native("reduce-kv", builtin_reduce_kv);
+    core_ns.define_native("juxt", builtin_juxt);
+    core_ns.define_native("complement", builtin_complement);
+    core_ns.define_native("fnil", builtin_fnil);
+    core_ns.define_native("some-fn", builtin_some_fn);
+    core_ns.define_native("every-pred", builtin_every_pred);
 
     // Eager sequence functions
-    env.define_native("sort", builtin_sort);
-    env.define_native("sort-by", builtin_sort_by);
-    env.define_native("frequencies", builtin_frequencies);
-    env.define_native("group-by", builtin_group_by);
-    env.define_native("ffirst", builtin_ffirst);
-    env.define_native("nfirst", builtin_nfirst);
-    env.define_native("nnext", builtin_nnext);
-    env.define_native("fnext", builtin_fnext);
-    env.define_native("rseq", builtin_rseq);
+    core_ns.define_native("sort", builtin_sort);
+    core_ns.define_native("sort-by", builtin_sort_by);
+    core_ns.define_native("frequencies", builtin_frequencies);
+    core_ns.define_native("group-by", builtin_group_by);
+    core_ns.define_native("ffirst", builtin_ffirst);
+    core_ns.define_native("nfirst", builtin_nfirst);
+    core_ns.define_native("nnext", builtin_nnext);
+    core_ns.define_native("fnext", builtin_fnext);
+    core_ns.define_native("rseq", builtin_rseq);
 
     // Random & utilities
-    env.define_native("rand", builtin_rand);
-    env.define_native("rand-int", builtin_rand_int);
-    env.define_native("rand-nth", builtin_rand_nth);
-    env.define_native("shuffle", builtin_shuffle);
-    env.define_native("gensym", builtin_gensym);
-    env.define_native("hash", builtin_hash);
+    core_ns.define_native("rand", builtin_rand);
+    core_ns.define_native("rand-int", builtin_rand_int);
+    core_ns.define_native("rand-nth", builtin_rand_nth);
+    core_ns.define_native("shuffle", builtin_shuffle);
+    core_ns.define_native("gensym", builtin_gensym);
+    core_ns.define_native("hash", builtin_hash);
 
     // Metadata
-    env.define_native("meta", builtin_meta);
-    env.define_native("with-meta", builtin_with_meta);
-    env.define_native("vary-meta", builtin_vary_meta);
-    env.define_native("alter-meta!", builtin_alter_meta);
-    env.define_native("reset-meta!", builtin_reset_meta);
+    core_ns.define_native("meta", builtin_meta);
+    core_ns.define_native("with-meta", builtin_with_meta);
+    core_ns.define_native("vary-meta", builtin_vary_meta);
+    core_ns.define_native("alter-meta!", builtin_alter_meta);
+    core_ns.define_native("reset-meta!", builtin_reset_meta);
 
     // I/O & evaluation
-    env.define_native("read-string", builtin_read_string);
-    env.define_native("slurp", builtin_slurp);
-    env.define_native("spit", builtin_spit);
-    env.define_native("format", builtin_format);
+    core_ns.define_native("read-string", builtin_read_string);
+    core_ns.define_native("slurp", builtin_slurp);
+    core_ns.define_native("spit", builtin_spit);
+    core_ns.define_native("format", builtin_format);
 
     // Multimethods
-    env.define_native("methods", builtin_methods);
-    env.define_native("get-method", builtin_get_method);
-    env.define_native("remove-method", builtin_remove_method);
-    env.define_native("prefer-method", builtin_prefer_method);
-    env.define_native("prefers", builtin_prefers);
-    env.define_native("remove-all-methods", builtin_remove_all_methods);
+    core_ns.define_native("methods", builtin_methods);
+    core_ns.define_native("get-method", builtin_get_method);
+    core_ns.define_native("remove-method", builtin_remove_method);
+    core_ns.define_native("prefer-method", builtin_prefer_method);
+    core_ns.define_native("prefers", builtin_prefers);
+    core_ns.define_native("remove-all-methods", builtin_remove_all_methods);
 
     // Hierarchies
-    env.define_native("make-hierarchy", builtin_make_hierarchy);
-    env.define_native("isa?", builtin_isa);
-    env.define_native("parents", builtin_parents);
-    env.define_native("ancestors", builtin_ancestors);
-    env.define_native("descendants", builtin_descendants);
+    core_ns.define_native("make-hierarchy", builtin_make_hierarchy);
+    core_ns.define_native("isa?", builtin_isa);
+    core_ns.define_native("parents", builtin_parents);
+    core_ns.define_native("ancestors", builtin_ancestors);
+    core_ns.define_native("descendants", builtin_descendants);
 
     // Transducers - Reduced type
-    env.define_native("reduced", builtin_reduced);
-    env.define_native("reduced?", builtin_reduced_p);
-    env.define_native("unreduced", builtin_unreduced);
-    env.define_native("ensure-reduced", builtin_ensure_reduced);
+    core_ns.define_native("reduced", builtin_reduced);
+    core_ns.define_native("reduced?", builtin_reduced_p);
+    core_ns.define_native("unreduced", builtin_unreduced);
+    core_ns.define_native("ensure-reduced", builtin_ensure_reduced);
 
     // Volatiles
-    env.define_native("volatile!", builtin_volatile);
-    env.define_native("volatile?", builtin_volatile_p);
-    env.define_native("vreset!", builtin_vreset);
-    env.define_native("vswap!", builtin_vswap);
+    core_ns.define_native("volatile!", builtin_volatile);
+    core_ns.define_native("volatile?", builtin_volatile_p);
+    core_ns.define_native("vreset!", builtin_vreset);
+    core_ns.define_native("vswap!", builtin_vswap);
 
     // Transducers - execution
-    env.define_native("transduce", builtin_transduce);
+    core_ns.define_native("transduce", builtin_transduce);
+
+    // Refer klujur.core into the user namespace so builtins are accessible
+    let user_ns = registry.find("user").expect("user namespace should exist");
+    registry.refer_core_to(&user_ns);
 }
 
+use crate::namespace::Namespace;
+
 /// Helper trait to define native functions more easily.
-pub trait EnvExt {
+pub trait NsExt {
     fn define_native(&self, name: &'static str, func: fn(&[KlujurVal]) -> Result<KlujurVal>);
 }
 
-impl EnvExt for Env {
+impl NsExt for Namespace {
     fn define_native(&self, name: &'static str, func: fn(&[KlujurVal]) -> Result<KlujurVal>) {
         let native = make_native_fn(name, func);
-        self.define(Symbol::new(name), KlujurVal::NativeFn(native));
+        self.intern_with_value(name, KlujurVal::NativeFn(native));
     }
 }
 

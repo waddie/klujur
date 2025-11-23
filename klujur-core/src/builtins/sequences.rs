@@ -707,17 +707,29 @@ fn builtin_into_3(args: &[KlujurVal]) -> Result<KlujurVal> {
     // Apply transducer to conj to get transformed reducing function
     let xf = apply(xform, &[conj_fn])?;
 
-    // Get sequence from source collection
-    let items = to_seq(from)?;
-
-    // Reduce with transformed function, starting with target collection
+    // Iterate lazily over source collection to support early termination
+    // This allows transducers like take-xf to terminate before realizing the entire sequence
     let mut result = to.clone();
-    for item in items {
-        result = apply(&xf, &[result, item])?;
-        // Check for early termination with Reduced
-        if let KlujurVal::Reduced(v) = result {
-            result = (*v).clone();
-            break;
+    let mut current = builtin_seq(std::slice::from_ref(from))?;
+
+    loop {
+        match &current {
+            KlujurVal::Nil => break,
+            _ => {
+                let first = builtin_first(&[current.clone()])?;
+                let rest = builtin_rest(&[current.clone()])?;
+
+                result = apply(&xf, &[result, first])?;
+
+                // Check for early termination with Reduced
+                if let KlujurVal::Reduced(v) = result {
+                    result = (*v).clone();
+                    break;
+                }
+
+                // Move to rest, calling seq to normalize (nil for empty)
+                current = builtin_seq(&[rest])?;
+            }
         }
     }
 
