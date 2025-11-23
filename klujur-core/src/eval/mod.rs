@@ -188,6 +188,9 @@ pub fn eval(expr: &KlujurVal, env: &Env) -> Result<KlujurVal> {
 
         // Vars dereference to their value (checking thread bindings)
         KlujurVal::Var(v) => Ok(deref_var(v)),
+
+        // Sorted collections are self-evaluating
+        KlujurVal::SortedMapBy(_) | KlujurVal::SortedSetBy(_) => Ok(expr.clone()),
     }
 }
 

@@ -5,6 +5,9 @@
 
 use klujur_parser::KlujurVal;
 
+use super::collection_constructors::{
+    sorted_map_by_assoc, sorted_map_by_dissoc, sorted_map_by_get, sorted_set_by_conj,
+};
 use crate::error::{Error, Result};
 
 // ============================================================================
@@ -58,6 +61,22 @@ pub(crate) fn builtin_get(args: &[KlujurVal]) -> Result<KlujurVal> {
             // Get on record requires keyword key
             if let KlujurVal::Keyword(kw) = &args[1] {
                 Ok(r.get(kw).cloned().unwrap_or(not_found))
+            } else {
+                Ok(not_found)
+            }
+        }
+        KlujurVal::SortedMapBy(sm) => {
+            // Use binary search with custom comparator
+            match sorted_map_by_get(sm, &args[1])? {
+                Some(v) => Ok(v),
+                None => Ok(not_found),
+            }
+        }
+        KlujurVal::SortedSetBy(ss) => {
+            // Sets return the key if present, like regular sets
+            use super::collection_constructors::sorted_set_by_contains;
+            if sorted_set_by_contains(ss, &args[1])? {
+                Ok(args[1].clone())
             } else {
                 Ok(not_found)
             }
@@ -123,6 +142,14 @@ pub(crate) fn builtin_assoc(args: &[KlujurVal]) -> Result<KlujurVal> {
             }
             Ok(KlujurVal::Record(std::rc::Rc::new(new_record)))
         }
+        KlujurVal::SortedMapBy(sm) => {
+            // assoc on sorted map preserves comparator
+            let mut result = sm.clone();
+            for pair in args[1..].chunks(2) {
+                result = sorted_map_by_assoc(&result, pair[0].clone(), pair[1].clone())?;
+            }
+            Ok(KlujurVal::SortedMapBy(result))
+        }
         KlujurVal::Nil => {
             let mut new_map = klujur_parser::OrdMap::new();
             for pair in args[1..].chunks(2) {
@@ -169,6 +196,14 @@ pub(crate) fn builtin_dissoc(args: &[KlujurVal]) -> Result<KlujurVal> {
             }
             Ok(result)
         }
+        KlujurVal::SortedMapBy(sm) => {
+            // dissoc on sorted map preserves comparator
+            let mut result = sm.clone();
+            for key in &args[1..] {
+                result = sorted_map_by_dissoc(&result, key)?;
+            }
+            Ok(KlujurVal::SortedMapBy(result))
+        }
         KlujurVal::Nil => Ok(KlujurVal::Nil),
         other => Err(Error::type_error_in("dissoc", "map", other.type_name())),
     }
@@ -202,6 +237,31 @@ pub(crate) fn builtin_conj(args: &[KlujurVal]) -> Result<KlujurVal> {
                 new_set.insert(item.clone());
             }
             Ok(KlujurVal::Set(new_set, None))
+        }
+        KlujurVal::SortedMapBy(sm) => {
+            // conj on sorted map expects [k v] pairs
+            let mut result = sm.clone();
+            for item in &args[1..] {
+                match item {
+                    KlujurVal::Vector(pair, _) if pair.len() == 2 => {
+                        result = sorted_map_by_assoc(&result, pair[0].clone(), pair[1].clone())?;
+                    }
+                    _ => {
+                        return Err(Error::EvalError(
+                            "conj on sorted-map requires [key value] vectors".into(),
+                        ));
+                    }
+                }
+            }
+            Ok(KlujurVal::SortedMapBy(result))
+        }
+        KlujurVal::SortedSetBy(ss) => {
+            // conj on sorted set adds elements
+            let mut result = ss.clone();
+            for item in &args[1..] {
+                result = sorted_set_by_conj(&result, item.clone())?;
+            }
+            Ok(KlujurVal::SortedSetBy(result))
         }
         KlujurVal::Nil => Ok(KlujurVal::list(args[1..].to_vec())),
         other => Err(Error::type_error_in(

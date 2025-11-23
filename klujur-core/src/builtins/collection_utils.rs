@@ -29,6 +29,10 @@ pub(crate) fn builtin_keys(args: &[KlujurVal]) -> Result<KlujurVal> {
                 .collect();
             Ok(KlujurVal::list(keys))
         }
+        KlujurVal::SortedMapBy(sm) => {
+            let keys: Vec<KlujurVal> = sm.entries().iter().map(|(k, _)| k.clone()).collect();
+            Ok(KlujurVal::list(keys))
+        }
         other => Err(Error::type_error_in("keys", "map", other.type_name())),
     }
 }
@@ -44,6 +48,10 @@ pub(crate) fn builtin_vals(args: &[KlujurVal]) -> Result<KlujurVal> {
         KlujurVal::Record(r) => {
             // Return values for all fields in the record
             let vals: Vec<KlujurVal> = r.values.values().cloned().collect();
+            Ok(KlujurVal::list(vals))
+        }
+        KlujurVal::SortedMapBy(sm) => {
+            let vals: Vec<KlujurVal> = sm.entries().iter().map(|(_, v)| v.clone()).collect();
             Ok(KlujurVal::list(vals))
         }
         other => Err(Error::type_error_in("vals", "map", other.type_name())),
@@ -80,6 +88,14 @@ pub(crate) fn builtin_contains_p(args: &[KlujurVal]) -> Result<KlujurVal> {
                 KlujurVal::Int(idx) => *idx >= 0 && (*idx as usize) < items.len(),
                 _ => false,
             }
+        }
+        KlujurVal::SortedMapBy(sm) => {
+            use super::collection_constructors::sorted_map_by_get;
+            sorted_map_by_get(sm, &args[1])?.is_some()
+        }
+        KlujurVal::SortedSetBy(ss) => {
+            use super::collection_constructors::sorted_set_by_contains;
+            sorted_set_by_contains(ss, &args[1])?
         }
         other => {
             return Err(Error::type_error_in(
@@ -620,6 +636,14 @@ pub(crate) fn builtin_disj(args: &[KlujurVal]) -> Result<KlujurVal> {
             }
             Ok(KlujurVal::Set(new_set, None))
         }
+        KlujurVal::SortedSetBy(ss) => {
+            use super::collection_constructors::sorted_set_by_disj;
+            let mut result = ss.clone();
+            for key in &args[1..] {
+                result = sorted_set_by_disj(&result, key)?;
+            }
+            Ok(KlujurVal::SortedSetBy(result))
+        }
         other => Err(Error::type_error_in("disj", "set", other.type_name())),
     }
 }
@@ -636,6 +660,8 @@ pub(crate) fn builtin_empty(args: &[KlujurVal]) -> Result<KlujurVal> {
         KlujurVal::Map(_, _) => Ok(KlujurVal::map(vec![])),
         KlujurVal::Set(_, _) => Ok(KlujurVal::set(vec![])),
         KlujurVal::String(_) => Ok(KlujurVal::string("")),
+        KlujurVal::SortedMapBy(sm) => Ok(KlujurVal::SortedMapBy(sm.empty())),
+        KlujurVal::SortedSetBy(ss) => Ok(KlujurVal::SortedSetBy(ss.empty())),
         other => Err(Error::type_error_in(
             "empty",
             "collection",

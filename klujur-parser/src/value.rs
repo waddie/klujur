@@ -72,6 +72,10 @@ pub enum TypeKey {
     Hierarchy,
     Reduced,
     Volatile,
+    /// Sorted map with custom comparator
+    SortedMapBy,
+    /// Sorted set with custom comparator
+    SortedSetBy,
     /// Custom record types (for future defrecord support)
     Record(crate::symbol::Symbol),
 }
@@ -479,6 +483,290 @@ impl Hash for RecordInstance {
     }
 }
 
+// ============================================================================
+// Sorted Collection Types (with custom comparators)
+// ============================================================================
+
+/// A sorted map with a custom key comparator function.
+///
+/// Unlike the standard `Map` which uses the default `Ord` implementation,
+/// `SortedMapBy` uses a user-provided comparator function to determine
+/// key ordering. The comparator is stored with the collection and used
+/// for all operations (get, assoc, dissoc).
+#[derive(Clone)]
+pub struct KlujurSortedMapBy {
+    /// The comparator function for keys (takes two args, returns int or bool)
+    comparator: Rc<KlujurVal>,
+    /// Entries stored in sorted order by the comparator: (key, value) pairs
+    entries: Rc<RefCell<Vec<(KlujurVal, KlujurVal)>>>,
+    /// Optional metadata
+    meta: Option<Rc<Meta>>,
+}
+
+impl KlujurSortedMapBy {
+    /// Create a new empty sorted map with the given comparator.
+    pub fn new(comparator: KlujurVal) -> Self {
+        KlujurSortedMapBy {
+            comparator: Rc::new(comparator),
+            entries: Rc::new(RefCell::new(Vec::new())),
+            meta: None,
+        }
+    }
+
+    /// Create a sorted map with entries (assumed to be already sorted).
+    pub fn from_entries(comparator: KlujurVal, entries: Vec<(KlujurVal, KlujurVal)>) -> Self {
+        KlujurSortedMapBy {
+            comparator: Rc::new(comparator),
+            entries: Rc::new(RefCell::new(entries)),
+            meta: None,
+        }
+    }
+
+    /// Get the comparator function.
+    pub fn comparator(&self) -> &KlujurVal {
+        &self.comparator
+    }
+
+    /// Get a clone of the comparator Rc.
+    pub fn comparator_rc(&self) -> Rc<KlujurVal> {
+        Rc::clone(&self.comparator)
+    }
+
+    /// Get the number of entries.
+    pub fn len(&self) -> usize {
+        self.entries.borrow().len()
+    }
+
+    /// Check if the map is empty.
+    pub fn is_empty(&self) -> bool {
+        self.entries.borrow().is_empty()
+    }
+
+    /// Get a clone of all entries.
+    pub fn entries(&self) -> Vec<(KlujurVal, KlujurVal)> {
+        self.entries.borrow().clone()
+    }
+
+    /// Get a reference to the entries RefCell for external manipulation.
+    pub fn entries_cell(&self) -> &Rc<RefCell<Vec<(KlujurVal, KlujurVal)>>> {
+        &self.entries
+    }
+
+    /// Get the metadata.
+    pub fn meta(&self) -> Option<&Rc<Meta>> {
+        self.meta.as_ref()
+    }
+
+    /// Create a new SortedMapBy with different metadata.
+    pub fn with_meta(&self, meta: Option<Rc<Meta>>) -> Self {
+        KlujurSortedMapBy {
+            comparator: Rc::clone(&self.comparator),
+            entries: Rc::clone(&self.entries),
+            meta,
+        }
+    }
+
+    /// Create a new empty map with the same comparator.
+    pub fn empty(&self) -> Self {
+        KlujurSortedMapBy {
+            comparator: Rc::clone(&self.comparator),
+            entries: Rc::new(RefCell::new(Vec::new())),
+            meta: None,
+        }
+    }
+}
+
+impl fmt::Debug for KlujurSortedMapBy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "#<SortedMapBy: {} entries>", self.len())
+    }
+}
+
+impl fmt::Display for KlujurSortedMapBy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{{")?;
+        let entries = self.entries.borrow();
+        for (i, (k, v)) in entries.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{} {}", k, v)?;
+        }
+        write!(f, "}}")
+    }
+}
+
+impl PartialEq for KlujurSortedMapBy {
+    fn eq(&self, other: &Self) -> bool {
+        // Identity comparison (same as Atom)
+        Rc::ptr_eq(&self.entries, &other.entries)
+    }
+}
+
+impl Eq for KlujurSortedMapBy {}
+
+impl PartialOrd for KlujurSortedMapBy {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for KlujurSortedMapBy {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Compare by pointer address for consistent ordering
+        let self_ptr = Rc::as_ptr(&self.entries) as usize;
+        let other_ptr = Rc::as_ptr(&other.entries) as usize;
+        self_ptr.cmp(&other_ptr)
+    }
+}
+
+impl Hash for KlujurSortedMapBy {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Hash by pointer address (identity-based)
+        (Rc::as_ptr(&self.entries) as usize).hash(state);
+    }
+}
+
+/// A sorted set with a custom comparator function.
+///
+/// Unlike the standard `Set` which uses the default `Ord` implementation,
+/// `SortedSetBy` uses a user-provided comparator function to determine
+/// element ordering. The comparator is stored with the collection and used
+/// for all operations (contains?, conj, disj).
+#[derive(Clone)]
+pub struct KlujurSortedSetBy {
+    /// The comparator function for elements (takes two args, returns int or bool)
+    comparator: Rc<KlujurVal>,
+    /// Elements stored in sorted order by the comparator
+    elements: Rc<RefCell<Vec<KlujurVal>>>,
+    /// Optional metadata
+    meta: Option<Rc<Meta>>,
+}
+
+impl KlujurSortedSetBy {
+    /// Create a new empty sorted set with the given comparator.
+    pub fn new(comparator: KlujurVal) -> Self {
+        KlujurSortedSetBy {
+            comparator: Rc::new(comparator),
+            elements: Rc::new(RefCell::new(Vec::new())),
+            meta: None,
+        }
+    }
+
+    /// Create a sorted set with elements (assumed to be already sorted and deduped).
+    pub fn from_elements(comparator: KlujurVal, elements: Vec<KlujurVal>) -> Self {
+        KlujurSortedSetBy {
+            comparator: Rc::new(comparator),
+            elements: Rc::new(RefCell::new(elements)),
+            meta: None,
+        }
+    }
+
+    /// Get the comparator function.
+    pub fn comparator(&self) -> &KlujurVal {
+        &self.comparator
+    }
+
+    /// Get a clone of the comparator Rc.
+    pub fn comparator_rc(&self) -> Rc<KlujurVal> {
+        Rc::clone(&self.comparator)
+    }
+
+    /// Get the number of elements.
+    pub fn len(&self) -> usize {
+        self.elements.borrow().len()
+    }
+
+    /// Check if the set is empty.
+    pub fn is_empty(&self) -> bool {
+        self.elements.borrow().is_empty()
+    }
+
+    /// Get a clone of all elements.
+    pub fn elements(&self) -> Vec<KlujurVal> {
+        self.elements.borrow().clone()
+    }
+
+    /// Get a reference to the elements RefCell for external manipulation.
+    pub fn elements_cell(&self) -> &Rc<RefCell<Vec<KlujurVal>>> {
+        &self.elements
+    }
+
+    /// Get the metadata.
+    pub fn meta(&self) -> Option<&Rc<Meta>> {
+        self.meta.as_ref()
+    }
+
+    /// Create a new SortedSetBy with different metadata.
+    pub fn with_meta(&self, meta: Option<Rc<Meta>>) -> Self {
+        KlujurSortedSetBy {
+            comparator: Rc::clone(&self.comparator),
+            elements: Rc::clone(&self.elements),
+            meta,
+        }
+    }
+
+    /// Create a new empty set with the same comparator.
+    pub fn empty(&self) -> Self {
+        KlujurSortedSetBy {
+            comparator: Rc::clone(&self.comparator),
+            elements: Rc::new(RefCell::new(Vec::new())),
+            meta: None,
+        }
+    }
+}
+
+impl fmt::Debug for KlujurSortedSetBy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "#<SortedSetBy: {} elements>", self.len())
+    }
+}
+
+impl fmt::Display for KlujurSortedSetBy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "#{{")?;
+        let elements = self.elements.borrow();
+        for (i, elem) in elements.iter().enumerate() {
+            if i > 0 {
+                write!(f, " ")?;
+            }
+            write!(f, "{}", elem)?;
+        }
+        write!(f, "}}")
+    }
+}
+
+impl PartialEq for KlujurSortedSetBy {
+    fn eq(&self, other: &Self) -> bool {
+        // Identity comparison (same as Atom)
+        Rc::ptr_eq(&self.elements, &other.elements)
+    }
+}
+
+impl Eq for KlujurSortedSetBy {}
+
+impl PartialOrd for KlujurSortedSetBy {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for KlujurSortedSetBy {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Compare by pointer address for consistent ordering
+        let self_ptr = Rc::as_ptr(&self.elements) as usize;
+        let other_ptr = Rc::as_ptr(&other.elements) as usize;
+        self_ptr.cmp(&other_ptr)
+    }
+}
+
+impl Hash for KlujurSortedSetBy {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Hash by pointer address (identity-based)
+        (Rc::as_ptr(&self.elements) as usize).hash(state);
+    }
+}
+
 /// Metadata type: an ordered map of KlujurVal to KlujurVal.
 /// Wrapped in Rc for cheap cloning and Option for zero-cost when absent.
 pub type Meta = OrdMap<KlujurVal, KlujurVal>;
@@ -544,6 +832,10 @@ pub enum KlujurVal {
     Protocol(KlujurProtocol),
     /// Record instance (named type with defined fields, like a typed map)
     Record(Rc<RecordInstance>),
+    /// Sorted map with custom comparator
+    SortedMapBy(KlujurSortedMapBy),
+    /// Sorted set with custom comparator
+    SortedSetBy(KlujurSortedSetBy),
 }
 
 // ============================================================================
@@ -1707,6 +1999,8 @@ impl KlujurVal {
             KlujurVal::Volatile(_) => "volatile",
             KlujurVal::Protocol(_) => "protocol",
             KlujurVal::Record(_) => "record",
+            KlujurVal::SortedMapBy(_) => "sorted-map",
+            KlujurVal::SortedSetBy(_) => "sorted-set",
         }
     }
 
@@ -1740,6 +2034,8 @@ impl KlujurVal {
             KlujurVal::Volatile(_) => TypeKey::Volatile,
             KlujurVal::Protocol(_) => TypeKey::Fn, // Protocols dispatch as Fn type
             KlujurVal::Record(r) => TypeKey::Record(r.record_type.clone()),
+            KlujurVal::SortedMapBy(_) => TypeKey::SortedMapBy,
+            KlujurVal::SortedSetBy(_) => TypeKey::SortedSetBy,
         }
     }
 
@@ -1798,6 +2094,16 @@ impl KlujurVal {
         KlujurVal::Record(instance)
     }
 
+    /// Create a sorted map with a custom comparator
+    pub fn sorted_map_by(comparator: KlujurVal) -> Self {
+        KlujurVal::SortedMapBy(KlujurSortedMapBy::new(comparator))
+    }
+
+    /// Create a sorted set with a custom comparator
+    pub fn sorted_set_by(comparator: KlujurVal) -> Self {
+        KlujurVal::SortedSetBy(KlujurSortedSetBy::new(comparator))
+    }
+
     /// Get the metadata of this value, if any.
     /// Returns None for types that don't support metadata.
     pub fn meta(&self) -> Option<&Rc<Meta>> {
@@ -1807,6 +2113,8 @@ impl KlujurVal {
             KlujurVal::Vector(_, meta) => meta.as_ref(),
             KlujurVal::Map(_, meta) => meta.as_ref(),
             KlujurVal::Set(_, meta) => meta.as_ref(),
+            KlujurVal::SortedMapBy(sm) => sm.meta(),
+            KlujurVal::SortedSetBy(ss) => ss.meta(),
             _ => None,
         }
     }
@@ -1820,6 +2128,8 @@ impl KlujurVal {
                 | KlujurVal::Vector(_, _)
                 | KlujurVal::Map(_, _)
                 | KlujurVal::Set(_, _)
+                | KlujurVal::SortedMapBy(_)
+                | KlujurVal::SortedSetBy(_)
         )
     }
 
@@ -1832,6 +2142,8 @@ impl KlujurVal {
             KlujurVal::Vector(items, _) => Some(KlujurVal::Vector(items.clone(), meta)),
             KlujurVal::Map(m, _) => Some(KlujurVal::Map(m.clone(), meta)),
             KlujurVal::Set(s, _) => Some(KlujurVal::Set(s.clone(), meta)),
+            KlujurVal::SortedMapBy(sm) => Some(KlujurVal::SortedMapBy(sm.with_meta(meta))),
+            KlujurVal::SortedSetBy(ss) => Some(KlujurVal::SortedSetBy(ss.with_meta(meta))),
             _ => None,
         }
     }
@@ -1931,6 +2243,8 @@ impl fmt::Display for KlujurVal {
             KlujurVal::Volatile(v) => write!(f, "{}", v),
             KlujurVal::Protocol(p) => write!(f, "{}", p),
             KlujurVal::Record(r) => write!(f, "{}", r),
+            KlujurVal::SortedMapBy(sm) => write!(f, "{}", sm),
+            KlujurVal::SortedSetBy(ss) => write!(f, "{}", ss),
         }
     }
 }
@@ -2026,6 +2340,8 @@ impl PartialEq for KlujurVal {
             (KlujurVal::Volatile(a), KlujurVal::Volatile(b)) => a == b,
             (KlujurVal::Protocol(a), KlujurVal::Protocol(b)) => a == b,
             (KlujurVal::Record(a), KlujurVal::Record(b)) => a == b,
+            (KlujurVal::SortedMapBy(a), KlujurVal::SortedMapBy(b)) => a == b,
+            (KlujurVal::SortedSetBy(a), KlujurVal::SortedSetBy(b)) => a == b,
             _ => false,
         }
     }
@@ -2073,6 +2389,8 @@ impl Ord for KlujurVal {
                 KlujurVal::Volatile(_) => 21,
                 KlujurVal::Protocol(_) => 22,
                 KlujurVal::Record(_) => 23,
+                KlujurVal::SortedMapBy(_) => 24,
+                KlujurVal::SortedSetBy(_) => 25,
             }
         }
 
@@ -2124,6 +2442,8 @@ impl Ord for KlujurVal {
             (KlujurVal::Volatile(a), KlujurVal::Volatile(b)) => a.cmp(b),
             (KlujurVal::Protocol(a), KlujurVal::Protocol(b)) => a.cmp(b),
             (KlujurVal::Record(a), KlujurVal::Record(b)) => a.cmp(b),
+            (KlujurVal::SortedMapBy(a), KlujurVal::SortedMapBy(b)) => a.cmp(b),
+            (KlujurVal::SortedSetBy(a), KlujurVal::SortedSetBy(b)) => a.cmp(b),
             _ => Ordering::Equal,
         }
     }
@@ -2208,6 +2528,14 @@ impl Hash for KlujurVal {
             KlujurVal::Record(r) => {
                 // Hash by record type and values
                 r.hash(state);
+            }
+            KlujurVal::SortedMapBy(sm) => {
+                // Hash by pointer address (identity-based)
+                sm.hash(state);
+            }
+            KlujurVal::SortedSetBy(ss) => {
+                // Hash by pointer address (identity-based)
+                ss.hash(state);
             }
         }
     }

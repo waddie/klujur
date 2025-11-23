@@ -8,6 +8,8 @@ use std::rc::Rc;
 
 use klujur_parser::{KlujurFn, KlujurNativeFn, KlujurVal};
 
+use crate::builtins::collection_constructors::{sorted_map_by_get, sorted_set_by_contains};
+
 use super::destructuring::destructure;
 use super::eval;
 use crate::env::Env;
@@ -104,6 +106,37 @@ pub fn apply(func: &KlujurVal, args: &[KlujurVal]) -> Result<KlujurVal> {
             }
             let key = &args[0];
             if set.contains(key) {
+                Ok(key.clone())
+            } else if args.len() == 2 {
+                Ok(args[1].clone())
+            } else {
+                Ok(KlujurVal::Nil)
+            }
+        }
+        KlujurVal::SortedMapBy(sm) => {
+            // Sorted maps can be called as functions: (sm key) => value
+            if args.len() != 1 && args.len() != 2 {
+                return Err(Error::arity_named("sorted-map-by", 1, args.len()));
+            }
+            let key = &args[0];
+            match sorted_map_by_get(sm, key)? {
+                Some(val) => Ok(val),
+                None => {
+                    if args.len() == 2 {
+                        Ok(args[1].clone())
+                    } else {
+                        Ok(KlujurVal::Nil)
+                    }
+                }
+            }
+        }
+        KlujurVal::SortedSetBy(ss) => {
+            // Sorted sets can be called as functions: (ss key) => key (or nil)
+            if args.len() != 1 && args.len() != 2 {
+                return Err(Error::arity_named("sorted-set-by", 1, args.len()));
+            }
+            let key = &args[0];
+            if sorted_set_by_contains(ss, key)? {
                 Ok(key.clone())
             } else if args.len() == 2 {
                 Ok(args[1].clone())

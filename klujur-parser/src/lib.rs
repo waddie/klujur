@@ -21,7 +21,7 @@ pub use parser::Parser;
 pub use symbol::Symbol;
 pub use value::{
     FnArity, KlujurAtom, KlujurDelay, KlujurFn, KlujurLazySeq, KlujurMultimethod, KlujurNativeFn,
-    KlujurProtocol, KlujurVal, KlujurVar, KlujurVolatile, LazySeqState, Meta, MethodSignature,
-    Protocol, RecordDef, RecordInstance, SeqResult, TypeImpl, TypeKey, get_print_length,
-    set_print_length,
+    KlujurProtocol, KlujurSortedMapBy, KlujurSortedSetBy, KlujurVal, KlujurVar, KlujurVolatile,
+    LazySeqState, Meta, MethodSignature, Protocol, RecordDef, RecordInstance, SeqResult, TypeImpl,
+    TypeKey, get_print_length, set_print_length,
 };
