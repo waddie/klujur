@@ -42,6 +42,8 @@ pub enum Error {
     RecurOutsideLoop,
     /// User-thrown exception (via throw)
     Thrown(KlujurVal),
+    /// Internal error - invariant violation
+    Internal(String),
 }
 
 /// Specification for expected arity.
@@ -125,6 +127,9 @@ impl fmt::Display for Error {
             }
             Error::Thrown(val) => {
                 write!(f, "{}", val)
+            }
+            Error::Internal(msg) => {
+                write!(f, "Internal error: {}", msg)
             }
         }
     }

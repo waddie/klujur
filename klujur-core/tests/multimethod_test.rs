@@ -511,7 +511,6 @@ fn test_prefer_method_basic() {
 }
 
 #[test]
-#[ignore] // TODO: prefers not implemented yet
 fn test_prefer_method_with_prefers() {
     let env = Env::new();
     register_builtins(&env);
@@ -542,7 +541,6 @@ fn test_prefer_method_with_prefers() {
 // =============================================================================
 
 #[test]
-#[ignore] // BUG: :hierarchy option expects hierarchy value directly, not var reference
 fn test_multimethod_with_custom_hierarchy() {
     let env = Env::new();
     register_builtins(&env);
@@ -645,7 +643,6 @@ fn test_get_method_with_hierarchy_fallback() {
 }
 
 #[test]
-#[ignore] // TODO: remove-all-methods not implemented yet
 fn test_remove_all_methods() {
     let env = Env::new();
     register_builtins(&env);
@@ -661,9 +658,9 @@ fn test_remove_all_methods() {
     )
     .unwrap();
 
-    // Verify methods exist
+    // Verify methods exist (note: :default is stored separately, so only 2 in methods table)
     let result = eval_forms_with_env(&["(count (methods f))"], &env).unwrap();
-    assert_eq!(result, KlujurVal::int(3));
+    assert_eq!(result, KlujurVal::int(2));
 
     // Remove all methods
     eval_forms_with_env(&["(remove-all-methods f)"], &env).unwrap();
@@ -671,6 +668,13 @@ fn test_remove_all_methods() {
     // Should have no methods
     let result = eval_forms_with_env(&["(count (methods f))"], &env).unwrap();
     assert_eq!(result, KlujurVal::int(0));
+
+    // Default method should also be removed - dispatching with unknown value should fail
+    let result = eval_forms_with_env(&["(f :unknown)"], &env);
+    assert!(
+        result.is_err(),
+        "Expected error after remove-all-methods since default is also cleared"
+    );
 }
 
 #[test]

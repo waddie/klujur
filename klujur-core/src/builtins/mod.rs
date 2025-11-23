@@ -101,7 +101,7 @@ use metadata::{
 use multimethods::{
     builtin_ancestors, builtin_descendants, builtin_get_method, builtin_isa,
     builtin_make_hierarchy, builtin_methods, builtin_parents, builtin_prefer_method,
-    builtin_remove_method,
+    builtin_prefers, builtin_remove_all_methods, builtin_remove_method,
 };
 use predicates::{
     builtin_boolean_p, builtin_coll_p, builtin_float_p, builtin_fn_p, builtin_integer_p,
@@ -394,6 +394,8 @@ pub fn register_builtins(env: &Env) {
     env.define_native("get-method", builtin_get_method);
     env.define_native("remove-method", builtin_remove_method);
     env.define_native("prefer-method", builtin_prefer_method);
+    env.define_native("prefers", builtin_prefers);
+    env.define_native("remove-all-methods", builtin_remove_all_methods);
 
     // Hierarchies
     env.define_native("make-hierarchy", builtin_make_hierarchy);

@@ -116,54 +116,66 @@
 ;; ============================================================================
 
 (defmacro cond->
-  "Thread expr through forms when tests pass."
+  "Takes an expression and a set of test/form pairs. Threads expr (via ->)
+   through each form for which the corresponding test expression is true.
+   Note that, unlike cond branching, cond-> threading does not short circuit
+   after the first true test expression."
   [expr & clauses]
-  (let [g (gensym "cond->_")]
-    `(let [~g ~expr]
-       ~(reduce (fn [acc [test form]]
-                  `(if ~test
-                     (-> ~acc
-                         ~form)
-                     ~acc))
-                g
-                (partition 2 clauses)))))
+  (let [g     (gensym "cond->_")
+        steps (vec (map (fn [[test step]]
+                          `(if ~test
+                             (-> ~g
+                                 ~step)
+                             ~g))
+                        (partition 2 clauses)))]
+    `(let [~g ~expr
+           ~@(mapcat (fn [step] [g step]) (butlast steps))]
+       ~(if (empty? steps) g (last steps)))))
 
 (defmacro cond->>
-  "Thread expr through forms when tests pass (thread last)."
+  "Takes an expression and a set of test/form pairs. Threads expr (via ->>)
+   through each form for which the corresponding test expression is true."
   [expr & clauses]
-  (let [g (gensym "cond->>_")]
-    `(let [~g ~expr]
-       ~(reduce (fn [acc [test form]]
-                  `(if ~test
-                     (->> ~acc
-                          ~form)
-                     ~acc))
-                g
-                (partition 2 clauses)))))
+  (let [g     (gensym "cond->>_")
+        steps (vec (map (fn [[test step]]
+                          `(if ~test
+                             (->> ~g
+                                  ~step)
+                             ~g))
+                        (partition 2 clauses)))]
+    `(let [~g ~expr
+           ~@(mapcat (fn [step] [g step]) (butlast steps))]
+       ~(if (empty? steps) g (last steps)))))
 
 (defmacro some->
-  "Thread expr through forms, short-circuiting on nil."
+  "When expr is not nil, threads it into the first form (via ->),
+   and when that result is not nil, through the next etc."
   [expr & forms]
-  (let [g (gensym "some->_")]
-    `(let [~g ~expr]
-       ~(reduce (fn [acc form]
-                  `(when (some? ~acc)
-                     (-> ~acc
-                         ~form)))
-                g
-                forms))))
+  (let [g     (gensym "some->_")
+        steps (vec (map (fn [step]
+                          `(if (nil? ~g)
+                             nil
+                             (-> ~g
+                                 ~step)))
+                        forms))]
+    `(let [~g ~expr
+           ~@(mapcat (fn [step] [g step]) (butlast steps))]
+       ~(if (empty? steps) g (last steps)))))
 
 (defmacro some->>
-  "Thread expr through forms (thread last), short-circuiting on nil."
+  "When expr is not nil, threads it into the first form (via ->>),
+   and when that result is not nil, through the next etc."
   [expr & forms]
-  (let [g (gensym "some->>_")]
-    `(let [~g ~expr]
-       ~(reduce (fn [acc form]
-                  `(when (some? ~acc)
-                     (->> ~acc
-                          ~form)))
-                g
-                forms))))
+  (let [g     (gensym "some->>_")
+        steps (vec (map (fn [step]
+                          `(if (nil? ~g)
+                             nil
+                             (->> ~g
+                                  ~step)))
+                        forms))]
+    `(let [~g ~expr
+           ~@(mapcat (fn [step] [g step]) (butlast steps))]
+       ~(if (empty? steps) g (last steps)))))
 
 ;; ============================================================================
 ;; Case and Condp
@@ -435,20 +447,6 @@
                (if s (cons (first s) (concat (rest s) y)) y))))
   ([x y & zs] (lazy-cat (concat x y) (apply concat zs))))
 
-(defn take
-  "Returns a lazy sequence of the first n items in coll, or all items if
-   there are fewer than n."
-  [n coll]
-  (lazy-seq (when (pos? n)
-              (when-let [s (seq coll)]
-                (cons (first s) (take (dec n) (rest s)))))))
-
-(defn drop
-  "Returns a lazy sequence of all but the first n items in coll."
-  [n coll]
-  (lazy-seq (let [s (seq coll)]
-              (if (and (pos? n) s) (drop (dec n) (rest s)) s))))
-
 (defn range
   "Returns a lazy seq of nums from start (inclusive) to end (exclusive),
    by step, where start defaults to 0, step to 1, and end to infinity."
@@ -605,25 +603,6 @@
                    (cons p (partition n step pad (drop step s)))
                    (list (doall (take n (concat p pad))))))))))
 
-(defn partition-all
-  "Returns a lazy sequence of lists like partition, but may include
-   partitions with fewer than n items at the end."
-  ([n coll] (partition-all n n coll))
-  ([n step coll]
-   (lazy-seq (when-let [s (seq coll)]
-               (cons (doall (take n s))
-                     (partition-all n step (drop step s)))))))
-
-(defn partition-by
-  "Applies f to each value in coll, splitting it each time f returns a
-   new value. Returns a lazy seq of partitions."
-  [f coll]
-  (lazy-seq (when-let [s (seq coll)]
-              (let [fst (first s)
-                    fv  (f fst)
-                    run (doall (cons fst (take-while #(= fv (f %)) (rest s))))]
-                (cons run (partition-by f (drop (count run) s)))))))
-
 ;; ============================================================================
 ;; Interleaving Functions
 ;; ============================================================================
@@ -749,17 +728,6 @@
                                             (flatten (rest s))))
                   :else (list x))))
 
-(defn distinct
-  "Returns a lazy sequence of the elements of coll with duplicates removed."
-  [coll]
-  (letfn [(step [seen s]
-            (lazy-seq (when-let [s (seq s)]
-                        (let [f (first s)]
-                          (if (contains? seen f)
-                            (step seen (rest s))
-                            (cons f (step (conj seen f) (rest s))))))))]
-    (step #{} coll)))
-
 (defn reductions
   "Returns a lazy seq of the intermediate values of the reduction of
    coll by f, starting with init."
@@ -862,9 +830,11 @@
          ([result input]
           (let [v (vswap! a conj input)]
             (if (= n (count v)) (do (vreset! a []) (rf result v)) result)))))))
-  ([n coll]
+  ([n coll] (partition-all n n coll))
+  ([n step coll]
    (lazy-seq (when-let [s (seq coll)]
-               (cons (take n s) (partition-all n (drop n s)))))))
+               (cons (doall (take n s))
+                     (partition-all n step (drop step s)))))))
 
 (defn partition-by
   "Applies f to each value in coll, splitting when f returns a new value.

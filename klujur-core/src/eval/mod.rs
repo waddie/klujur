@@ -42,8 +42,8 @@ use multimethods::{
 };
 use namespaces::{
     eval_alias, eval_all_ns, eval_create_ns, eval_find_ns, eval_in_ns, eval_ns_interns,
-    eval_ns_name, eval_ns_publics, eval_refer, eval_remove_ns, eval_require, eval_the_ns, eval_use,
-    eval_var,
+    eval_ns_name, eval_ns_publics, eval_ns_resolve, eval_refer, eval_remove_ns, eval_require,
+    eval_the_ns, eval_use, eval_var,
 };
 use protocols::{eval_defprotocol, eval_extend_type};
 use records::eval_defrecord;
@@ -231,6 +231,7 @@ fn eval_list(items: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
             "remove-ns" => return eval_remove_ns(&items[1..], env),
             "the-ns" => return eval_the_ns(&items[1..], env),
             "ns-name" => return eval_ns_name(&items[1..], env),
+            "ns-resolve" => return eval_ns_resolve(&items[1..], env),
             "defmacro" => return eval_defmacro(&items[1..], env),
             "macroexpand-1" => return eval_macroexpand_1(&items[1..], env),
             "macroexpand" => return eval_macroexpand(&items[1..], env),

@@ -178,11 +178,29 @@ fn destructure_associative(
             match kw.name() {
                 "keys" => {
                     // {:keys [a b c]} - bind symbols to keyword lookups
+                    // {:ns/keys [a b c]} - bind symbols to namespaced keyword lookups
+                    // {:keys [ns/a ns/b]} - bind symbols to their namespaced keyword lookups
                     let syms = extract_symbols(pat_val, ":keys")?;
+                    let kw_namespace = kw.namespace(); // e.g., "user" from :user/keys
                     for sym in syms {
-                        let lookup_key = KlujurVal::keyword(Keyword::new(sym.name()));
+                        // Determine the lookup key namespace:
+                        // 1. If symbol has a namespace (e.g., user/name), use that
+                        // 2. Else if :ns/keys was used (e.g., :user/keys), use that namespace
+                        // 3. Else no namespace
+                        let lookup_key = if let Some(sym_ns) = sym.namespace() {
+                            // Symbol has explicit namespace: {:keys [user/name]} -> :user/name
+                            KlujurVal::keyword(Keyword::with_namespace(sym_ns, sym.name()))
+                        } else if let Some(key_ns) = kw_namespace {
+                            // :ns/keys shorthand: {:user/keys [name]} -> :user/name
+                            KlujurVal::keyword(Keyword::with_namespace(key_ns, sym.name()))
+                        } else {
+                            // No namespace: {:keys [name]} -> :name
+                            KlujurVal::keyword(Keyword::new(sym.name()))
+                        };
                         let val = lookup_with_default(&lookup_key, value_map, defaults, &sym);
-                        bindings.push((sym, val));
+                        // Bind to local name (without namespace)
+                        let local_sym = Symbol::new(sym.name());
+                        bindings.push((local_sym, val));
                     }
                     continue;
                 }
@@ -227,37 +245,55 @@ fn destructure_associative(
             }
         }
 
-        // Regular map destructuring: {local-name lookup-key}
-        // The key is the local binding, the value is what to look up
-        let local_sym = match pat_key {
-            KlujurVal::Symbol(s, _) => s.clone(),
+        // Regular map destructuring: {local-binding lookup-key}
+        // The key is the binding pattern, the value is what to look up
+        // Supports:
+        //   {local-sym :key}      - simple symbol binding
+        //   {[a b] :pair}         - vector destructuring pattern
+        //   {{:keys [x]} :nested} - nested map destructuring pattern
+        match pat_key {
+            KlujurVal::Symbol(local_sym, _) => {
+                // Simple symbol binding
+                // Look up the value using pat_val as the key
+                // Defaults only apply when key is MISSING, not when value is nil
+                let final_val = if let Some(m) = value_map {
+                    if m.contains_key(pat_val) {
+                        // Key exists - use its value (even if nil)
+                        m.get(pat_val).cloned().unwrap_or(KlujurVal::Nil)
+                    } else {
+                        // Key missing - apply default
+                        defaults
+                            .and_then(|d| d.get(&KlujurVal::symbol(local_sym.clone())).cloned())
+                            .unwrap_or(KlujurVal::Nil)
+                    }
+                } else {
+                    // No map - apply default
+                    defaults
+                        .and_then(|d| d.get(&KlujurVal::symbol(local_sym.clone())).cloned())
+                        .unwrap_or(KlujurVal::Nil)
+                };
+                bindings.push((local_sym.clone(), final_val));
+            }
+            KlujurVal::Vector(_, _) | KlujurVal::Map(_, _) => {
+                // Nested destructuring pattern (vector or map)
+                // Look up the value using pat_val as the key, then recursively destructure
+                let looked_up = value_map
+                    .and_then(|m| m.get(pat_val).cloned())
+                    .unwrap_or(KlujurVal::Nil);
+                // Recursively destructure the nested pattern
+                let nested_bindings = destructure(pat_key, &looked_up)?;
+                bindings.extend(nested_bindings);
+            }
             other => {
                 return Err(Error::syntax(
                     "destructure",
                     format!(
-                        "map destructuring key must be a symbol, got {}",
+                        "map destructuring key must be a symbol, vector, or map pattern, got {}",
                         other.type_name()
                     ),
                 ));
             }
-        };
-
-        // Look up the value using pat_val as the key
-        let looked_up = value_map
-            .and_then(|m| m.get(pat_val).cloned())
-            .unwrap_or(KlujurVal::Nil);
-
-        // Apply defaults if nil
-        let final_val = if looked_up == KlujurVal::Nil {
-            defaults
-                .and_then(|d| d.get(&KlujurVal::symbol(local_sym.clone())).cloned())
-                .unwrap_or(KlujurVal::Nil)
-        } else {
-            looked_up
-        };
-
-        // Bind the symbol to the value
-        bindings.push((local_sym, final_val));
+        }
     }
 
     Ok(bindings)
@@ -291,20 +327,25 @@ fn extract_symbols(val: &KlujurVal, context: &str) -> Result<Vec<Symbol>> {
         .collect()
 }
 
-/// Look up a key in a map with fallback to defaults
+/// Look up a key in a map with fallback to defaults.
+/// Defaults only apply when the key is MISSING from the map, not when the value is nil.
 fn lookup_with_default(
     key: &KlujurVal,
     value_map: Option<&OrdMap<KlujurVal, KlujurVal>>,
     defaults: Option<&OrdMap<KlujurVal, KlujurVal>>,
     sym: &Symbol,
 ) -> KlujurVal {
-    let looked_up = value_map.and_then(|m| m.get(key).cloned());
-    match looked_up {
-        Some(v) if v != KlujurVal::Nil => v,
-        _ => defaults
-            .and_then(|d| d.get(&KlujurVal::symbol(sym.clone())).cloned())
-            .unwrap_or(KlujurVal::Nil),
+    // Check if key exists in the map (not just if value is non-nil)
+    if let Some(m) = value_map
+        && m.contains_key(key)
+    {
+        // Key exists - return its value (even if nil)
+        return m.get(key).cloned().unwrap_or(KlujurVal::Nil);
     }
+    // Key missing - apply default if available
+    defaults
+        .and_then(|d| d.get(&KlujurVal::symbol(sym.clone())).cloned())
+        .unwrap_or(KlujurVal::Nil)
 }
 
 /// Convert a value to a sequence (Vec) for destructuring

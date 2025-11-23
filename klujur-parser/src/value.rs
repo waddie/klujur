@@ -1487,6 +1487,25 @@ impl KlujurMultimethod {
             .borrow_mut()
             .insert((preferred, other), true);
     }
+
+    /// Get all preferences as a map: preferred -> #{other-vals...}
+    pub fn get_prefers(&self) -> HashMap<KlujurVal, OrdSet<KlujurVal>> {
+        let prefs = self.preferences.borrow();
+        let mut result: HashMap<KlujurVal, OrdSet<KlujurVal>> = HashMap::new();
+        for (preferred, other) in prefs.keys() {
+            result
+                .entry(preferred.clone())
+                .or_default()
+                .insert(other.clone());
+        }
+        result
+    }
+
+    /// Remove all methods from this multimethod.
+    pub fn clear_methods(&self) {
+        self.methods.borrow_mut().clear();
+        *self.default.borrow_mut() = None;
+    }
 }
 
 impl fmt::Debug for KlujurMultimethod {
