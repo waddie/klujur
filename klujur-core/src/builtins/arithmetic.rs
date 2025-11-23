@@ -19,6 +19,37 @@ use crate::error::{Error, Result};
 use super::compare_numbers;
 
 // ============================================================================
+// Helper functions for ratio arithmetic
+// ============================================================================
+
+/// Convert a numeric value to f64.
+fn to_float(val: &KlujurVal) -> Result<f64> {
+    match val {
+        KlujurVal::Int(n) => Ok(*n as f64),
+        KlujurVal::Float(n) => Ok(*n),
+        KlujurVal::Ratio(num, den) => Ok(*num as f64 / *den as f64),
+        other => Err(Error::type_error_in(
+            "arithmetic",
+            "number",
+            other.type_name(),
+        )),
+    }
+}
+
+/// Convert a numeric value to a ratio (numerator, denominator).
+fn to_ratio(val: &KlujurVal) -> Result<(i64, i64)> {
+    match val {
+        KlujurVal::Int(n) => Ok((*n, 1)),
+        KlujurVal::Ratio(num, den) => Ok((*num, *den)),
+        other => Err(Error::type_error_in(
+            "arithmetic",
+            "number",
+            other.type_name(),
+        )),
+    }
+}
+
+// ============================================================================
 // Arithmetic
 // ============================================================================
 
@@ -27,39 +58,50 @@ pub(crate) fn builtin_add(args: &[KlujurVal]) -> Result<KlujurVal> {
         return Ok(KlujurVal::int(0));
     }
 
-    let mut is_float = false;
-    let mut int_sum: i64 = 0;
-    let mut float_sum: f64 = 0.0;
+    // Check for floats first (they take precedence)
+    let has_float = args.iter().any(|a| matches!(a, KlujurVal::Float(_)));
+    if has_float {
+        let mut sum: f64 = 0.0;
+        for arg in args {
+            sum += to_float(arg)?;
+        }
+        return Ok(KlujurVal::float(sum));
+    }
 
+    // Check for ratios
+    let has_ratio = args.iter().any(|a| matches!(a, KlujurVal::Ratio(_, _)));
+    if has_ratio {
+        let mut num: i64 = 0;
+        let mut den: i64 = 1;
+        for arg in args {
+            let (n, d) = to_ratio(arg)?;
+            // num/den + n/d = (num*d + n*den) / (den*d)
+            num = num
+                .checked_mul(d)
+                .and_then(|nd| n.checked_mul(den).and_then(|nd2| nd.checked_add(nd2)))
+                .ok_or(Error::IntegerOverflow { operation: "+" })?;
+            den = den
+                .checked_mul(d)
+                .ok_or(Error::IntegerOverflow { operation: "+" })?;
+        }
+        return Ok(KlujurVal::ratio(num, den));
+    }
+
+    // All integers
+    let mut int_sum: i64 = 0;
     for arg in args {
         match arg {
             KlujurVal::Int(n) => {
-                if is_float {
-                    float_sum += *n as f64;
-                } else {
-                    int_sum = int_sum
-                        .checked_add(*n)
-                        .ok_or(Error::IntegerOverflow { operation: "+" })?;
-                }
-            }
-            KlujurVal::Float(n) => {
-                if !is_float {
-                    is_float = true;
-                    float_sum = int_sum as f64;
-                }
-                float_sum += n;
+                int_sum = int_sum
+                    .checked_add(*n)
+                    .ok_or(Error::IntegerOverflow { operation: "+" })?;
             }
             other => {
                 return Err(Error::type_error_in("+", "number", other.type_name()));
             }
         }
     }
-
-    if is_float {
-        Ok(KlujurVal::float(float_sum))
-    } else {
-        Ok(KlujurVal::int(int_sum))
-    }
+    Ok(KlujurVal::int(int_sum))
 }
 
 pub(crate) fn builtin_sub(args: &[KlujurVal]) -> Result<KlujurVal> {
@@ -75,53 +117,62 @@ pub(crate) fn builtin_sub(args: &[KlujurVal]) -> Result<KlujurVal> {
                     .ok_or(Error::IntegerOverflow { operation: "-" })?,
             )),
             KlujurVal::Float(n) => Ok(KlujurVal::float(-n)),
+            KlujurVal::Ratio(num, den) => {
+                let neg_num = num
+                    .checked_neg()
+                    .ok_or(Error::IntegerOverflow { operation: "-" })?;
+                Ok(KlujurVal::ratio(neg_num, *den))
+            }
             other => Err(Error::type_error_in("-", "number", other.type_name())),
         };
     }
 
-    let mut is_float = false;
-    let mut result: f64 = 0.0;
-    let mut int_result: i64 = 0;
+    // Check for floats first (they take precedence)
+    let has_float = args.iter().any(|a| matches!(a, KlujurVal::Float(_)));
+    if has_float {
+        let mut result = to_float(&args[0])?;
+        for arg in &args[1..] {
+            result -= to_float(arg)?;
+        }
+        return Ok(KlujurVal::float(result));
+    }
 
-    for (i, arg) in args.iter().enumerate() {
+    // Check for ratios
+    let has_ratio = args.iter().any(|a| matches!(a, KlujurVal::Ratio(_, _)));
+    if has_ratio {
+        let (mut num, mut den) = to_ratio(&args[0])?;
+        for arg in &args[1..] {
+            let (n, d) = to_ratio(arg)?;
+            // num/den - n/d = (num*d - n*den) / (den*d)
+            num = num
+                .checked_mul(d)
+                .and_then(|nd| n.checked_mul(den).and_then(|nd2| nd.checked_sub(nd2)))
+                .ok_or(Error::IntegerOverflow { operation: "-" })?;
+            den = den
+                .checked_mul(d)
+                .ok_or(Error::IntegerOverflow { operation: "-" })?;
+        }
+        return Ok(KlujurVal::ratio(num, den));
+    }
+
+    // All integers
+    let mut int_result = match &args[0] {
+        KlujurVal::Int(n) => *n,
+        other => return Err(Error::type_error_in("-", "number", other.type_name())),
+    };
+    for arg in &args[1..] {
         match arg {
             KlujurVal::Int(n) => {
-                if i == 0 {
-                    if is_float {
-                        result = *n as f64;
-                    } else {
-                        int_result = *n;
-                    }
-                } else if is_float {
-                    result -= *n as f64;
-                } else {
-                    int_result = int_result
-                        .checked_sub(*n)
-                        .ok_or(Error::IntegerOverflow { operation: "-" })?;
-                }
-            }
-            KlujurVal::Float(n) => {
-                if !is_float {
-                    is_float = true;
-                    result = int_result as f64;
-                }
-                if i == 0 {
-                    result = *n;
-                } else {
-                    result -= n;
-                }
+                int_result = int_result
+                    .checked_sub(*n)
+                    .ok_or(Error::IntegerOverflow { operation: "-" })?;
             }
             other => {
                 return Err(Error::type_error_in("-", "number", other.type_name()));
             }
         }
     }
-
-    if is_float {
-        Ok(KlujurVal::float(result))
-    } else {
-        Ok(KlujurVal::int(int_result))
-    }
+    Ok(KlujurVal::int(int_result))
 }
 
 pub(crate) fn builtin_mul(args: &[KlujurVal]) -> Result<KlujurVal> {
@@ -129,39 +180,49 @@ pub(crate) fn builtin_mul(args: &[KlujurVal]) -> Result<KlujurVal> {
         return Ok(KlujurVal::int(1));
     }
 
-    let mut is_float = false;
-    let mut int_prod: i64 = 1;
-    let mut float_prod: f64 = 1.0;
+    // Check for floats first (they take precedence)
+    let has_float = args.iter().any(|a| matches!(a, KlujurVal::Float(_)));
+    if has_float {
+        let mut prod: f64 = 1.0;
+        for arg in args {
+            prod *= to_float(arg)?;
+        }
+        return Ok(KlujurVal::float(prod));
+    }
 
+    // Check for ratios
+    let has_ratio = args.iter().any(|a| matches!(a, KlujurVal::Ratio(_, _)));
+    if has_ratio {
+        let mut num: i64 = 1;
+        let mut den: i64 = 1;
+        for arg in args {
+            let (n, d) = to_ratio(arg)?;
+            // (num/den) * (n/d) = (num*n) / (den*d)
+            num = num
+                .checked_mul(n)
+                .ok_or(Error::IntegerOverflow { operation: "*" })?;
+            den = den
+                .checked_mul(d)
+                .ok_or(Error::IntegerOverflow { operation: "*" })?;
+        }
+        return Ok(KlujurVal::ratio(num, den));
+    }
+
+    // All integers
+    let mut int_prod: i64 = 1;
     for arg in args {
         match arg {
             KlujurVal::Int(n) => {
-                if is_float {
-                    float_prod *= *n as f64;
-                } else {
-                    int_prod = int_prod
-                        .checked_mul(*n)
-                        .ok_or(Error::IntegerOverflow { operation: "*" })?;
-                }
-            }
-            KlujurVal::Float(n) => {
-                if !is_float {
-                    is_float = true;
-                    float_prod = int_prod as f64;
-                }
-                float_prod *= n;
+                int_prod = int_prod
+                    .checked_mul(*n)
+                    .ok_or(Error::IntegerOverflow { operation: "*" })?;
             }
             other => {
                 return Err(Error::type_error_in("*", "number", other.type_name()));
             }
         }
     }
-
-    if is_float {
-        Ok(KlujurVal::float(float_prod))
-    } else {
-        Ok(KlujurVal::int(int_prod))
-    }
+    Ok(KlujurVal::int(int_prod))
 }
 
 pub(crate) fn builtin_div(args: &[KlujurVal]) -> Result<KlujurVal> {
@@ -170,32 +231,48 @@ pub(crate) fn builtin_div(args: &[KlujurVal]) -> Result<KlujurVal> {
     }
 
     if args.len() == 1 {
-        // 1/x
+        // 1/x - returns ratio for int, float for float
         return match &args[0] {
             KlujurVal::Int(0) => Err(Error::DivisionByZero),
-            KlujurVal::Int(n) => Ok(KlujurVal::float(1.0 / *n as f64)),
+            KlujurVal::Int(n) => Ok(KlujurVal::ratio(1, *n)),
             KlujurVal::Float(n) => Ok(KlujurVal::float(1.0 / n)),
+            KlujurVal::Ratio(num, den) => {
+                if *num == 0 {
+                    return Err(Error::DivisionByZero);
+                }
+                Ok(KlujurVal::ratio(*den, *num))
+            }
             other => Err(Error::type_error_in("/", "number", other.type_name())),
         };
     }
 
-    let mut result = match &args[0] {
-        KlujurVal::Int(n) => *n as f64,
-        KlujurVal::Float(n) => *n,
-        other => return Err(Error::type_error_in("/", "number", other.type_name())),
-    };
-
-    for arg in &args[1..] {
-        let divisor = match arg {
-            KlujurVal::Int(0) => return Err(Error::DivisionByZero),
-            KlujurVal::Int(n) => *n as f64,
-            KlujurVal::Float(n) => *n,
-            other => return Err(Error::type_error_in("/", "number", other.type_name())),
-        };
-        result /= divisor;
+    // Check for floats first (they take precedence)
+    let has_float = args.iter().any(|a| matches!(a, KlujurVal::Float(_)));
+    if has_float {
+        let mut result = to_float(&args[0])?;
+        for arg in &args[1..] {
+            let divisor = to_float(arg)?;
+            result /= divisor;
+        }
+        return Ok(KlujurVal::float(result));
     }
 
-    Ok(KlujurVal::float(result))
+    // Ratio or integer division - produces a ratio
+    let (mut num, mut den) = to_ratio(&args[0])?;
+    for arg in &args[1..] {
+        let (n, d) = to_ratio(arg)?;
+        if n == 0 {
+            return Err(Error::DivisionByZero);
+        }
+        // (num/den) / (n/d) = (num*d) / (den*n)
+        num = num
+            .checked_mul(d)
+            .ok_or(Error::IntegerOverflow { operation: "/" })?;
+        den = den
+            .checked_mul(n)
+            .ok_or(Error::IntegerOverflow { operation: "/" })?;
+    }
+    Ok(KlujurVal::ratio(num, den))
 }
 
 pub(crate) fn builtin_quot(args: &[KlujurVal]) -> Result<KlujurVal> {
@@ -322,7 +399,40 @@ pub(crate) fn builtin_abs(args: &[KlujurVal]) -> Result<KlujurVal> {
                 .ok_or(Error::IntegerOverflow { operation: "abs" })?,
         )),
         KlujurVal::Float(n) => Ok(KlujurVal::float(n.abs())),
+        KlujurVal::Ratio(num, den) => {
+            let abs_num = num
+                .checked_abs()
+                .ok_or(Error::IntegerOverflow { operation: "abs" })?;
+            Ok(KlujurVal::ratio(abs_num, *den))
+        }
         other => Err(Error::type_error_in("abs", "number", other.type_name())),
+    }
+}
+
+pub(crate) fn builtin_double(args: &[KlujurVal]) -> Result<KlujurVal> {
+    if args.len() != 1 {
+        return Err(Error::arity_named("double", 1, args.len()));
+    }
+    match &args[0] {
+        KlujurVal::Int(n) => Ok(KlujurVal::float(*n as f64)),
+        KlujurVal::Float(n) => Ok(KlujurVal::float(*n)),
+        KlujurVal::Ratio(num, den) => Ok(KlujurVal::float(*num as f64 / *den as f64)),
+        other => Err(Error::type_error_in("double", "number", other.type_name())),
+    }
+}
+
+pub(crate) fn builtin_int(args: &[KlujurVal]) -> Result<KlujurVal> {
+    if args.len() != 1 {
+        return Err(Error::arity_named("int", 1, args.len()));
+    }
+    match &args[0] {
+        KlujurVal::Int(n) => Ok(KlujurVal::int(*n)),
+        KlujurVal::Float(n) => Ok(KlujurVal::int(*n as i64)),
+        KlujurVal::Ratio(num, den) => {
+            // Truncate towards zero, like Clojure's int
+            Ok(KlujurVal::int(*num / *den))
+        }
+        other => Err(Error::type_error_in("int", "number", other.type_name())),
     }
 }
 

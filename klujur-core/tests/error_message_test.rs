@@ -147,7 +147,10 @@ fn test_type_error_collection_ops() {
     assert!(result.is_err());
     let err = result.unwrap_err().to_lowercase();
     assert!(
-        err.contains("seq") || err.contains("collection") || err.contains("type") || err.contains("argument"),
+        err.contains("seq")
+            || err.contains("collection")
+            || err.contains("type")
+            || err.contains("argument"),
         "Error should mention sequence/collection: {}",
         err
     );
@@ -279,7 +282,8 @@ fn test_recur_outside_loop() {
     assert!(result.is_err());
     let err = result.unwrap_err().to_lowercase();
     assert!(
-        err.contains("recur") && (err.contains("loop") || err.contains("context") || err.contains("tail")),
+        err.contains("recur")
+            && (err.contains("loop") || err.contains("context") || err.contains("tail")),
         "Error should mention recur/loop context: {}",
         err
     );
@@ -309,7 +313,10 @@ fn test_apply_non_function() {
     assert!(result.is_err());
     let err = result.unwrap_err().to_lowercase();
     assert!(
-        err.contains("call") || err.contains("function") || err.contains("apply") || err.contains("invoke"),
+        err.contains("call")
+            || err.contains("function")
+            || err.contains("apply")
+            || err.contains("invoke"),
         "Error should mention function/call: {}",
         err
     );
@@ -384,7 +391,10 @@ fn test_destructure_non_sequential() {
     assert!(result.is_err());
     let err = result.unwrap_err().to_lowercase();
     assert!(
-        err.contains("destruct") || err.contains("sequential") || err.contains("sequence") || err.contains("type"),
+        err.contains("destruct")
+            || err.contains("sequential")
+            || err.contains("sequence")
+            || err.contains("type"),
         "Error should mention destructuring issue: {}",
         err
     );
@@ -397,7 +407,10 @@ fn test_destructure_map_non_associative() {
     assert!(result.is_err());
     let err = result.unwrap_err().to_lowercase();
     assert!(
-        err.contains("destruct") || err.contains("map") || err.contains("associative") || err.contains("type"),
+        err.contains("destruct")
+            || err.contains("map")
+            || err.contains("associative")
+            || err.contains("type"),
         "Error should mention destructuring issue: {}",
         err
     );
@@ -413,7 +426,10 @@ fn test_unmatched_paren() {
     assert!(result.is_err());
     let err = result.unwrap_err().to_lowercase();
     assert!(
-        err.contains("unexpected") || err.contains("eof") || err.contains("paren") || err.contains("unmatched"),
+        err.contains("unexpected")
+            || err.contains("eof")
+            || err.contains("paren")
+            || err.contains("unmatched"),
         "Error should mention parsing issue: {}",
         err
     );
@@ -425,7 +441,10 @@ fn test_unmatched_bracket() {
     assert!(result.is_err());
     let err = result.unwrap_err().to_lowercase();
     assert!(
-        err.contains("unexpected") || err.contains("eof") || err.contains("bracket") || err.contains("unmatched"),
+        err.contains("unexpected")
+            || err.contains("eof")
+            || err.contains("bracket")
+            || err.contains("unmatched"),
         "Error should mention parsing issue: {}",
         err
     );
@@ -524,7 +543,9 @@ fn test_type_errors_consistent_format() {
     for err in &errors {
         let err_lower = err.to_lowercase();
         assert!(
-            err_lower.contains("type") || err_lower.contains("expected") || err_lower.contains("number"),
+            err_lower.contains("type")
+                || err_lower.contains("expected")
+                || err_lower.contains("number"),
             "Type errors should have consistent format: {}",
             err
         );
@@ -544,7 +565,9 @@ fn test_arity_errors_consistent_format() {
     for err in &errors {
         let err_lower = err.to_lowercase();
         assert!(
-            err_lower.contains("arity") || err_lower.contains("argument") || err_lower.contains("expected"),
+            err_lower.contains("arity")
+                || err_lower.contains("argument")
+                || err_lower.contains("expected"),
             "Arity errors should have consistent format: {}",
             err
         );

@@ -199,29 +199,30 @@
     (:a :b) \"got a or b\"
     :c \"got c\")"
   [expr & clauses]
-  (let [default (if (odd? (count clauses))
-                  (last clauses)
-                  `(throw (ex-info (str "No matching clause: " ~expr)
-                                   {:value ~expr})))
-        pairs   (vec (if (odd? (count clauses)) (butlast clauses) clauses))
-        g       (gensym "case_")
-        ;; Build indexed result fns: {0 (fn [] result0), 1 (fn [] result1), ...}
+  (let [default       (if (odd? (count clauses))
+                        (last clauses)
+                        `(throw (ex-info (str "No matching clause: " ~expr)
+                                         {:value ~expr})))
+        pairs         (vec
+                       (if (odd? (count clauses)) (butlast clauses) clauses))
+        g             (gensym "case_")
+        ;; Build indexed result fns: {0 (fn [] result0), 1 (fn [] result1),
+        ;; ...}
         ;; We use thunks to avoid evaluating all branches
         indexed-pairs (vec (map-indexed vector (partition 2 pairs)))
         ;; Build the dispatch map: {test-val index, ...}
         ;; We build this manually to avoid lazy-seq issues with into
-        dispatch-map (reduce (fn [m [idx [test _then]]]
-                               (if (list? test)
-                                 ;; Multiple values map to same index
-                                 (reduce (fn [m2 t] (assoc m2 t idx)) m test)
-                                 (assoc m test idx)))
-                             {}
-                             indexed-pairs)
+        dispatch-map  (reduce (fn [m [idx [test _then]]]
+                                (if (list? test)
+                                  ;; Multiple values map to same index
+                                  (reduce (fn [m2 t] (assoc m2 t idx)) m test)
+                                  (assoc m test idx)))
+                              {}
+                              indexed-pairs)
         ;; Build thunks for each branch
-        thunks (vec (map (fn [[_idx [_test then]]]
-                           `(fn [] ~then))
-                         indexed-pairs))
-        thunks-sym (gensym "thunks_")]
+        thunks        (vec (map (fn [[_idx [_test then]]] `(fn [] ~then))
+                                indexed-pairs))
+        thunks-sym    (gensym "thunks_")]
     `(let [~g ~expr
            ~thunks-sym ~thunks]
        (if-let [idx# (get ~dispatch-map ~g)]
@@ -312,7 +313,7 @@
   [f s]
   (lazy-seq (when s
               (let [result (f (first s))]
-                (if (and (seq? result) (= (first result) :for-while-stop))
+                (if (and (vector? result) (= (first result) :for-while-stop))
                   nil ;; :while terminated - stop iteration
                   (concat result (for-step f (next s))))))))
 

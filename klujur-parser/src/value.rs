@@ -2572,6 +2572,16 @@ impl PartialEq for KlujurVal {
                 normalize_float_bits(*a) == normalize_float_bits(*b as f64)
             }
             (KlujurVal::Ratio(an, ad), KlujurVal::Ratio(bn, bd)) => an == bn && ad == bd,
+            // Ratio-Int equality: a/b == c iff a == b*c (after normalisation, so gcd(a,b)=1)
+            (KlujurVal::Ratio(num, den), KlujurVal::Int(n)) => *den == 1 && *num == *n,
+            (KlujurVal::Int(n), KlujurVal::Ratio(num, den)) => *den == 1 && *num == *n,
+            // Ratio-Float equality: convert ratio to float and compare
+            (KlujurVal::Ratio(num, den), KlujurVal::Float(f)) => {
+                normalize_float_bits(*num as f64 / *den as f64) == normalize_float_bits(*f)
+            }
+            (KlujurVal::Float(f), KlujurVal::Ratio(num, den)) => {
+                normalize_float_bits(*f) == normalize_float_bits(*num as f64 / *den as f64)
+            }
             (KlujurVal::Char(a), KlujurVal::Char(b)) => a == b,
             (KlujurVal::String(a), KlujurVal::String(b)) => a == b,
             (KlujurVal::Symbol(a, _), KlujurVal::Symbol(b, _)) => a == b, // ignore metadata

@@ -51,9 +51,9 @@ use additional_predicates::{
     builtin_true_p,
 };
 use arithmetic::{
-    builtin_abs, builtin_add, builtin_dec, builtin_div, builtin_even_p, builtin_inc, builtin_max,
-    builtin_min, builtin_mod, builtin_mul, builtin_neg_p, builtin_odd_p, builtin_pos_p,
-    builtin_quot, builtin_rem, builtin_sub, builtin_zero_p,
+    builtin_abs, builtin_add, builtin_dec, builtin_div, builtin_double, builtin_even_p,
+    builtin_inc, builtin_int, builtin_max, builtin_min, builtin_mod, builtin_mul, builtin_neg_p,
+    builtin_odd_p, builtin_pos_p, builtin_quot, builtin_rem, builtin_sub, builtin_zero_p,
 };
 use atoms::{
     builtin_add_watch, builtin_atom, builtin_atom_p, builtin_compare_and_set,
@@ -119,10 +119,10 @@ use multimethods::{
     builtin_prefers, builtin_remove_all_methods, builtin_remove_method,
 };
 use predicates::{
-    builtin_boolean_p, builtin_coll_p, builtin_float_p, builtin_fn_p, builtin_integer_p,
-    builtin_keyword_p, builtin_list_p, builtin_map_p, builtin_nil_p, builtin_number_p,
-    builtin_seq_p, builtin_set_p, builtin_some_p, builtin_string_p, builtin_symbol_p,
-    builtin_vector_p,
+    builtin_boolean_p, builtin_coll_p, builtin_denominator, builtin_float_p, builtin_fn_p,
+    builtin_integer_p, builtin_keyword_p, builtin_list_p, builtin_map_p, builtin_nil_p,
+    builtin_number_p, builtin_numerator, builtin_ratio_p, builtin_seq_p, builtin_set_p,
+    builtin_some_p, builtin_string_p, builtin_symbol_p, builtin_vector_p,
 };
 use random::{
     builtin_gensym, builtin_hash, builtin_rand, builtin_rand_int, builtin_rand_nth, builtin_shuffle,
@@ -162,6 +162,8 @@ pub fn register_builtins(env: &Env) {
     core_ns.define_native("max", builtin_max);
     core_ns.define_native("min", builtin_min);
     core_ns.define_native("abs", builtin_abs);
+    core_ns.define_native("double", builtin_double);
+    core_ns.define_native("int", builtin_int);
 
     // Numeric predicates
     core_ns.define_native("even?", builtin_even_p);
@@ -225,6 +227,9 @@ pub fn register_builtins(env: &Env) {
     core_ns.define_native("number?", builtin_number_p);
     core_ns.define_native("integer?", builtin_integer_p);
     core_ns.define_native("float?", builtin_float_p);
+    core_ns.define_native("ratio?", builtin_ratio_p);
+    core_ns.define_native("numerator", builtin_numerator);
+    core_ns.define_native("denominator", builtin_denominator);
     core_ns.define_native("string?", builtin_string_p);
     core_ns.define_native("symbol?", builtin_symbol_p);
     core_ns.define_native("keyword?", builtin_keyword_p);
@@ -532,10 +537,42 @@ pub(crate) fn compare_numbers(a: &KlujurVal, b: &KlujurVal) -> Result<std::cmp::
             x.partial_cmp(&fy)
                 .ok_or_else(|| Error::EvalError("Cannot compare NaN".into()))
         }
+        // Ratio comparisons: compare a/b with c/d by comparing a*d with b*c
+        (KlujurVal::Ratio(an, ad), KlujurVal::Ratio(bn, bd)) => {
+            // a/b < c/d  iff  a*d < b*c (when b,d > 0, which they are after normalisation)
+            let lhs = (*an as i128) * (*bd as i128);
+            let rhs = (*ad as i128) * (*bn as i128);
+            Ok(lhs.cmp(&rhs))
+        }
+        (KlujurVal::Ratio(num, den), KlujurVal::Int(y)) => {
+            // num/den vs y/1: compare num with den*y
+            let lhs = *num as i128;
+            let rhs = (*den as i128) * (*y as i128);
+            Ok(lhs.cmp(&rhs))
+        }
+        (KlujurVal::Int(x), KlujurVal::Ratio(num, den)) => {
+            // x/1 vs num/den: compare x*den with num
+            let lhs = (*x as i128) * (*den as i128);
+            let rhs = *num as i128;
+            Ok(lhs.cmp(&rhs))
+        }
+        (KlujurVal::Ratio(num, den), KlujurVal::Float(y)) => {
+            let fx = *num as f64 / *den as f64;
+            fx.partial_cmp(y)
+                .ok_or_else(|| Error::EvalError("Cannot compare NaN".into()))
+        }
+        (KlujurVal::Float(x), KlujurVal::Ratio(num, den)) => {
+            let fy = *num as f64 / *den as f64;
+            x.partial_cmp(&fy)
+                .ok_or_else(|| Error::EvalError("Cannot compare NaN".into()))
+        }
         (a, b) => Err(Error::type_error_in(
             "comparison",
             "number",
-            if !matches!(a, KlujurVal::Int(_) | KlujurVal::Float(_)) {
+            if !matches!(
+                a,
+                KlujurVal::Int(_) | KlujurVal::Float(_) | KlujurVal::Ratio(_, _)
+            ) {
                 a.type_name()
             } else {
                 b.type_name()

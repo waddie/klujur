@@ -117,11 +117,8 @@ fn test_ratio_division_by_zero() {
 // =============================================================================
 // Ratio predicates
 // =============================================================================
-//
-// NOTE: ratio? predicate is not yet implemented
 
 #[test]
-#[ignore = "ratio? not implemented"]
 fn test_ratio_predicate() {
     assert_eval!("(ratio? 1/2)", KlujurVal::bool(true));
     assert_eval!("(ratio? 1)", KlujurVal::bool(false));
@@ -135,7 +132,6 @@ fn test_ratio_is_number() {
 }
 
 #[test]
-#[ignore = "numerator/denominator not implemented"]
 fn test_numerator_denominator() {
     assert_eval!("(numerator 3/4)", KlujurVal::int(3));
     assert_eval!("(denominator 3/4)", KlujurVal::int(4));
@@ -147,12 +143,7 @@ fn test_numerator_denominator() {
 // Ratio arithmetic
 // =============================================================================
 //
-// NOTE: Ratio arithmetic (+, -, *, /) with ratios is NOT YET IMPLEMENTED.
-// The parser can read ratio literals, but arithmetic operations only work
-// with integers and floats. These tests document the expected behaviour.
-
 #[test]
-#[ignore = "Ratio arithmetic not implemented"]
 fn test_ratio_addition() {
     // 1/2 + 1/3 = 5/6
     assert_eval_str!("(+ 1/2 1/3)", "5/6");
@@ -163,7 +154,6 @@ fn test_ratio_addition() {
 }
 
 #[test]
-#[ignore = "Ratio arithmetic not implemented"]
 fn test_ratio_subtraction() {
     // 3/4 - 1/4 = 1/2
     assert_eval_str!("(- 3/4 1/4)", "1/2");
@@ -174,7 +164,6 @@ fn test_ratio_subtraction() {
 }
 
 #[test]
-#[ignore = "Ratio arithmetic not implemented"]
 fn test_ratio_multiplication() {
     // 1/2 * 1/3 = 1/6
     assert_eval_str!("(* 1/2 1/3)", "1/6");
@@ -185,7 +174,6 @@ fn test_ratio_multiplication() {
 }
 
 #[test]
-#[ignore = "Ratio arithmetic not implemented"]
 fn test_ratio_division() {
     // (1/2) / (1/4) = 2
     assert_eval!("(/ 1/2 1/4)", KlujurVal::int(2));
@@ -194,7 +182,6 @@ fn test_ratio_division() {
 }
 
 #[test]
-#[ignore = "Ratio arithmetic not implemented"]
 fn test_ratio_negation() {
     // - (1/2) = -1/2
     assert_eval_str!("(- 1/2)", "-1/2");
@@ -207,7 +194,6 @@ fn test_ratio_negation() {
 // =============================================================================
 
 #[test]
-#[ignore = "Ratio arithmetic not implemented"]
 fn test_ratio_plus_integer() {
     // 1/2 + 1 = 3/2
     assert_eval_str!("(+ 1/2 1)", "3/2");
@@ -218,7 +204,6 @@ fn test_ratio_plus_integer() {
 }
 
 #[test]
-#[ignore = "Ratio arithmetic not implemented"]
 fn test_ratio_plus_float() {
     // Ratio + Float = Float
     let result = eval_str("(+ 1/2 0.5)").unwrap();
@@ -229,7 +214,6 @@ fn test_ratio_plus_float() {
 }
 
 #[test]
-#[ignore = "Ratio arithmetic not implemented"]
 fn test_ratio_times_integer() {
     // 1/3 * 3 = 1
     assert_eval!("(* 1/3 3)", KlujurVal::int(1));
@@ -262,7 +246,6 @@ fn test_ratio_equality() {
 }
 
 #[test]
-#[ignore = "Ratio comparison not implemented"]
 fn test_ratio_less_than() {
     assert_eval!("(< 1/3 1/2)", KlujurVal::bool(true));
     assert_eval!("(< 1/2 1/3)", KlujurVal::bool(false));
@@ -270,14 +253,12 @@ fn test_ratio_less_than() {
 }
 
 #[test]
-#[ignore = "Ratio comparison not implemented"]
 fn test_ratio_greater_than() {
     assert_eval!("(> 1/2 1/3)", KlujurVal::bool(true));
     assert_eval!("(> 1/3 1/2)", KlujurVal::bool(false));
 }
 
 #[test]
-#[ignore = "Ratio comparison not implemented"]
 fn test_ratio_compare_with_integer() {
     assert_eval!("(< 1/2 1)", KlujurVal::bool(true));
     assert_eval!("(> 3/2 1)", KlujurVal::bool(true));
@@ -285,7 +266,6 @@ fn test_ratio_compare_with_integer() {
 }
 
 #[test]
-#[ignore = "Ratio comparison not implemented"]
 fn test_ratio_compare_with_float() {
     assert_eval!("(< 1/2 0.6)", KlujurVal::bool(true));
     assert_eval!("(> 1/2 0.4)", KlujurVal::bool(true));
@@ -298,11 +278,10 @@ fn test_ratio_compare_with_float() {
 // =============================================================================
 
 #[test]
-#[ignore = "Ratio arithmetic not implemented"]
 fn test_ratio_large_numerator_denominator() {
     // Large but valid ratios
     assert_eval_str!("1000000/3000000", "1/3");
-    assert_eval_str!("(+ 1000000/1000001 1/1000001)", "1000001/1000001");
+    assert_eval!("(+ 1000000/1000001 1/1000001)", KlujurVal::int(1));
 }
 
 #[test]
@@ -318,7 +297,6 @@ fn test_ratio_gcd_reduction() {
 // =============================================================================
 
 #[test]
-#[ignore = "Ratio arithmetic not implemented"]
 fn test_negative_ratio_arithmetic() {
     // -1/2 + -1/2 = -1
     assert_eval!("(+ -1/2 -1/2)", KlujurVal::int(-1));
@@ -329,7 +307,6 @@ fn test_negative_ratio_arithmetic() {
 }
 
 #[test]
-#[ignore = "Division / returns float, not ratio"]
 fn test_negative_denominator_normalisation() {
     // Negative should always be in numerator
     assert_eval_str!("(/ 1 -2)", "-1/2");
@@ -342,10 +319,7 @@ fn test_negative_denominator_normalisation() {
 
 #[test]
 fn test_ratio_in_collection() {
-    assert_eval!(
-        "(first [1/2 1/3 1/4])",
-        KlujurVal::ratio(1, 2)
-    );
+    assert_eval!("(first [1/2 1/3 1/4])", KlujurVal::ratio(1, 2));
 }
 
 #[test]
@@ -370,7 +344,6 @@ fn test_ratio_hash_consistency() {
 // =============================================================================
 
 #[test]
-#[ignore = "abs not implemented for ratios"]
 fn test_ratio_abs() {
     assert_eval_str!("(abs -1/2)", "1/2");
     assert_eval_str!("(abs 1/2)", "1/2");
@@ -381,7 +354,6 @@ fn test_ratio_abs() {
 // =============================================================================
 
 #[test]
-#[ignore = "double not implemented"]
 fn test_ratio_to_double() {
     let result = eval_str("(double 1/2)").unwrap();
     if let KlujurVal::Float(f) = result {
@@ -392,7 +364,6 @@ fn test_ratio_to_double() {
 }
 
 #[test]
-#[ignore = "int not implemented"]
 fn test_int_truncates_ratio() {
     // int should truncate towards zero
     assert_eval!("(int 5/2)", KlujurVal::int(2));

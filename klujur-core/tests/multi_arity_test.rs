@@ -31,7 +31,6 @@ fn setup_env_with_stdlib() -> Env {
     env
 }
 
-
 // =============================================================================
 // Basic Multi-Arity
 // =============================================================================
@@ -158,11 +157,7 @@ fn test_defn_rest_only_arity() {
     let env = setup_env_with_stdlib();
 
     // Function with only a rest parameter arity
-    eval_str_with_env(
-        "(defn collect-all [& items] (vec items))",
-        &env,
-    )
-    .unwrap();
+    eval_str_with_env("(defn collect-all [& items] (vec items))", &env).unwrap();
 
     assert_eq!(
         eval_str_with_env("(collect-all)", &env).unwrap(),
@@ -303,11 +298,7 @@ fn test_defn_single_arity_still_works() {
     // Ensure single-arity defn still works (not multi-arity form)
     let env = setup_env_with_stdlib();
 
-    eval_str_with_env(
-        "(defn single [x y] (+ x y))",
-        &env,
-    )
-    .unwrap();
+    eval_str_with_env("(defn single [x y] (+ x y))", &env).unwrap();
 
     assert_eq!(
         eval_str_with_env("(single 3 4)", &env).unwrap(),

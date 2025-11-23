@@ -92,16 +92,10 @@ const I64_MIN: i64 = -9223372036854775808;
 #[test]
 fn test_add_at_max_boundary() {
     // i64::MAX is the largest valid integer
-    assert_eval!(
-        "9223372036854775807",
-        KlujurVal::int(I64_MAX)
-    );
+    assert_eval!("9223372036854775807", KlujurVal::int(I64_MAX));
 
     // Adding 0 to MAX is fine
-    assert_eval!(
-        "(+ 9223372036854775807 0)",
-        KlujurVal::int(I64_MAX)
-    );
+    assert_eval!("(+ 9223372036854775807 0)", KlujurVal::int(I64_MAX));
 }
 
 #[test]
@@ -120,16 +114,10 @@ fn test_add_overflow_max_plus_max() {
 fn test_add_at_min_boundary() {
     // Construct i64::MIN via arithmetic (parser can't parse it directly)
     // i64::MIN = -9223372036854775807 - 1
-    assert_eval!(
-        "(- -9223372036854775807 1)",
-        KlujurVal::int(I64_MIN)
-    );
+    assert_eval!("(- -9223372036854775807 1)", KlujurVal::int(I64_MIN));
 
     // Adding 0 to MIN is fine
-    assert_eval!(
-        "(+ (- -9223372036854775807 1) 0)",
-        KlujurVal::int(I64_MIN)
-    );
+    assert_eval!("(+ (- -9223372036854775807 1) 0)", KlujurVal::int(I64_MIN));
 }
 
 #[test]
@@ -148,10 +136,7 @@ fn test_add_near_boundaries_no_overflow() {
     );
 
     // Slightly below max
-    assert_eval!(
-        "(+ 9223372036854775806 1)",
-        KlujurVal::int(I64_MAX)
-    );
+    assert_eval!("(+ 9223372036854775806 1)", KlujurVal::int(I64_MAX));
 }
 
 // =============================================================================
@@ -161,16 +146,10 @@ fn test_add_near_boundaries_no_overflow() {
 #[test]
 fn test_sub_at_boundaries() {
     // MAX - 0 is fine
-    assert_eval!(
-        "(- 9223372036854775807 0)",
-        KlujurVal::int(I64_MAX)
-    );
+    assert_eval!("(- 9223372036854775807 0)", KlujurVal::int(I64_MAX));
 
     // MIN - 0 is fine (construct MIN via arithmetic)
-    assert_eval!(
-        "(- (- -9223372036854775807 1) 0)",
-        KlujurVal::int(I64_MIN)
-    );
+    assert_eval!("(- (- -9223372036854775807 1) 0)", KlujurVal::int(I64_MIN));
 }
 
 #[test]
@@ -208,10 +187,7 @@ fn test_sub_near_boundaries_no_overflow() {
 #[test]
 fn test_negate_max() {
     // -MAX is valid
-    assert_eval!(
-        "(- 9223372036854775807)",
-        KlujurVal::int(-I64_MAX)
-    );
+    assert_eval!("(- 9223372036854775807)", KlujurVal::int(-I64_MAX));
 }
 
 #[test]
@@ -225,10 +201,7 @@ fn test_negate_min_overflows() {
 #[test]
 fn test_negate_min_plus_one() {
     // -(MIN + 1) = -(-9223372036854775807) = 9223372036854775807 = MAX
-    assert_eval!(
-        "(- -9223372036854775807)",
-        KlujurVal::int(I64_MAX)
-    );
+    assert_eval!("(- -9223372036854775807)", KlujurVal::int(I64_MAX));
 }
 
 // =============================================================================
@@ -238,22 +211,13 @@ fn test_negate_min_plus_one() {
 #[test]
 fn test_mul_at_boundaries() {
     // MAX * 1 is fine
-    assert_eval!(
-        "(* 9223372036854775807 1)",
-        KlujurVal::int(I64_MAX)
-    );
+    assert_eval!("(* 9223372036854775807 1)", KlujurVal::int(I64_MAX));
 
     // MIN * 1 is fine (construct MIN via arithmetic)
-    assert_eval!(
-        "(* (- -9223372036854775807 1) 1)",
-        KlujurVal::int(I64_MIN)
-    );
+    assert_eval!("(* (- -9223372036854775807 1) 1)", KlujurVal::int(I64_MIN));
 
     // MAX * 0 = 0
-    assert_eval!(
-        "(* 9223372036854775807 0)",
-        KlujurVal::int(0)
-    );
+    assert_eval!("(* 9223372036854775807 0)", KlujurVal::int(0));
 }
 
 #[test]
@@ -297,10 +261,7 @@ fn test_inc_at_max_overflows() {
 #[test]
 fn test_inc_near_max() {
     // inc on MAX - 1 = MAX
-    assert_eval!(
-        "(inc 9223372036854775806)",
-        KlujurVal::int(I64_MAX)
-    );
+    assert_eval!("(inc 9223372036854775806)", KlujurVal::int(I64_MAX));
 }
 
 #[test]
@@ -312,10 +273,7 @@ fn test_dec_at_min_overflows() {
 #[test]
 fn test_dec_near_min() {
     // dec on MIN + 1 = MIN
-    assert_eval!(
-        "(dec -9223372036854775807)",
-        KlujurVal::int(I64_MIN)
-    );
+    assert_eval!("(dec -9223372036854775807)", KlujurVal::int(I64_MIN));
 }
 
 // =============================================================================
@@ -325,10 +283,7 @@ fn test_dec_near_min() {
 #[test]
 fn test_abs_max() {
     // abs(MAX) = MAX
-    assert_eval!(
-        "(abs 9223372036854775807)",
-        KlujurVal::int(I64_MAX)
-    );
+    assert_eval!("(abs 9223372036854775807)", KlujurVal::int(I64_MAX));
 }
 
 #[test]
@@ -340,10 +295,7 @@ fn test_abs_min_overflows() {
 #[test]
 fn test_abs_min_plus_one() {
     // abs(MIN + 1) = MAX
-    assert_eval!(
-        "(abs -9223372036854775807)",
-        KlujurVal::int(I64_MAX)
-    );
+    assert_eval!("(abs -9223372036854775807)", KlujurVal::int(I64_MAX));
 }
 
 // =============================================================================

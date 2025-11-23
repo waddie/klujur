@@ -136,3 +136,40 @@ pub(crate) fn builtin_seq_p(args: &[KlujurVal]) -> Result<KlujurVal> {
     }
     Ok(KlujurVal::bool(matches!(args[0], KlujurVal::List(_, _))))
 }
+
+pub(crate) fn builtin_ratio_p(args: &[KlujurVal]) -> Result<KlujurVal> {
+    if args.len() != 1 {
+        return Err(Error::arity_named("ratio?", 1, args.len()));
+    }
+    Ok(KlujurVal::bool(matches!(args[0], KlujurVal::Ratio(_, _))))
+}
+
+pub(crate) fn builtin_numerator(args: &[KlujurVal]) -> Result<KlujurVal> {
+    if args.len() != 1 {
+        return Err(Error::arity_named("numerator", 1, args.len()));
+    }
+    match &args[0] {
+        KlujurVal::Ratio(num, _) => Ok(KlujurVal::int(*num)),
+        KlujurVal::Int(n) => Ok(KlujurVal::int(*n)), // int has numerator of itself
+        other => Err(Error::type_error_in(
+            "numerator",
+            "ratio",
+            other.type_name(),
+        )),
+    }
+}
+
+pub(crate) fn builtin_denominator(args: &[KlujurVal]) -> Result<KlujurVal> {
+    if args.len() != 1 {
+        return Err(Error::arity_named("denominator", 1, args.len()));
+    }
+    match &args[0] {
+        KlujurVal::Ratio(_, den) => Ok(KlujurVal::int(*den)),
+        KlujurVal::Int(_) => Ok(KlujurVal::int(1)), // int has denominator of 1
+        other => Err(Error::type_error_in(
+            "denominator",
+            "ratio",
+            other.type_name(),
+        )),
+    }
+}

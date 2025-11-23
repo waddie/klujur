@@ -57,17 +57,10 @@ fn test_for_nested_bindings() {
     let env = setup_env_with_stdlib();
 
     // Cartesian product
-    let result = eval_str_with_env(
-        "(vec (for [x [1 2] y [:a :b]] [x y]))",
-        &env,
-    )
-    .unwrap();
+    let result = eval_str_with_env("(vec (for [x [1 2] y [:a :b]] [x y]))", &env).unwrap();
 
     // Should produce [[1 :a] [1 :b] [2 :a] [2 :b]]
-    assert_eq!(
-        result.to_string(),
-        "[[1 :a] [1 :b] [2 :a] [2 :b]]"
-    );
+    assert_eq!(result.to_string(), "[[1 :a] [1 :b] [2 :a] [2 :b]]");
 }
 
 #[test]
@@ -87,11 +80,7 @@ fn test_for_when_basic() {
     let env = setup_env_with_stdlib();
 
     // Filter even numbers
-    let result = eval_str_with_env(
-        "(vec (for [x (range 10) :when (even? x)] x))",
-        &env,
-    )
-    .unwrap();
+    let result = eval_str_with_env("(vec (for [x (range 10) :when (even? x)] x))", &env).unwrap();
 
     assert_eq!(
         result,
@@ -110,11 +99,7 @@ fn test_for_when_filters_all() {
     let env = setup_env_with_stdlib();
 
     // When condition is always false - empty result
-    let result = eval_str_with_env(
-        "(vec (for [x [1 2 3] :when false] x))",
-        &env,
-    )
-    .unwrap();
+    let result = eval_str_with_env("(vec (for [x [1 2 3] :when false] x))", &env).unwrap();
 
     assert_eq!(result, KlujurVal::empty_vector());
 }
@@ -124,11 +109,7 @@ fn test_for_when_passes_all() {
     let env = setup_env_with_stdlib();
 
     // When condition is always true
-    let result = eval_str_with_env(
-        "(vec (for [x [1 2 3] :when true] x))",
-        &env,
-    )
-    .unwrap();
+    let result = eval_str_with_env("(vec (for [x [1 2 3] :when true] x))", &env).unwrap();
 
     assert_eq!(
         result,
@@ -152,10 +133,7 @@ fn test_for_when_with_nested() {
     .unwrap();
 
     // Pairs where x < y: [1 2] [1 3] [2 3]
-    assert_eq!(
-        result.to_string(),
-        "[[1 2] [1 3] [2 3]]"
-    );
+    assert_eq!(result.to_string(), "[[1 2] [1 3] [2 3]]");
 }
 
 #[test]
@@ -189,11 +167,7 @@ fn test_for_let_basic() {
     let env = setup_env_with_stdlib();
 
     // Introduce local binding
-    let result = eval_str_with_env(
-        "(vec (for [x [1 2 3] :let [y (* x 2)]] y))",
-        &env,
-    )
-    .unwrap();
+    let result = eval_str_with_env("(vec (for [x [1 2 3] :let [y (* x 2)]] y))", &env).unwrap();
 
     assert_eq!(
         result,
@@ -210,18 +184,15 @@ fn test_for_let_multiple_bindings() {
     let env = setup_env_with_stdlib();
 
     // Multiple bindings in one :let
-    let result = eval_str_with_env(
-        "(vec (for [x [1 2 3] :let [y (* x 2) z (+ y 1)]] z))",
-        &env,
-    )
-    .unwrap();
+    let result =
+        eval_str_with_env("(vec (for [x [1 2 3] :let [y (* x 2) z (+ y 1)]] z))", &env).unwrap();
 
     assert_eq!(
         result,
         KlujurVal::vector(vec![
-            KlujurVal::int(3),  // 1*2+1
-            KlujurVal::int(5),  // 2*2+1
-            KlujurVal::int(7)   // 3*2+1
+            KlujurVal::int(3), // 1*2+1
+            KlujurVal::int(5), // 2*2+1
+            KlujurVal::int(7)  // 3*2+1
         ])
     );
 }
@@ -240,8 +211,8 @@ fn test_for_let_can_reference_earlier() {
     assert_eq!(
         result,
         KlujurVal::vector(vec![
-            KlujurVal::int(4),  // 1*2*2
-            KlujurVal::int(8)   // 2*2*2
+            KlujurVal::int(4), // 1*2*2
+            KlujurVal::int(8)  // 2*2*2
         ])
     );
 }
@@ -273,22 +244,13 @@ fn test_for_let_with_when() {
 // =============================================================================
 // :while modifier
 // =============================================================================
-//
-// NOTE: The :while modifier has a known bug where the :for-while-stop sentinel
-// leaks into the output. These tests are marked #[ignore] until the bug is fixed.
-// See CODE_REVIEW.md for details on the for-step function.
 
 #[test]
-#[ignore = "BUG: :for-while-stop sentinel leaks into output"]
 fn test_for_while_basic() {
     let env = setup_env_with_stdlib();
 
     // Stop when condition becomes false
-    let result = eval_str_with_env(
-        "(vec (for [x (range 100) :while (< x 5)] x))",
-        &env,
-    )
-    .unwrap();
+    let result = eval_str_with_env("(vec (for [x (range 100) :while (< x 5)] x))", &env).unwrap();
 
     assert_eq!(
         result,
@@ -303,22 +265,16 @@ fn test_for_while_basic() {
 }
 
 #[test]
-#[ignore = "BUG: :for-while-stop sentinel leaks into output"]
 fn test_for_while_immediate_stop() {
     let env = setup_env_with_stdlib();
 
     // :while false immediately - no elements
-    let result = eval_str_with_env(
-        "(vec (for [x [1 2 3] :while false] x))",
-        &env,
-    )
-    .unwrap();
+    let result = eval_str_with_env("(vec (for [x [1 2 3] :while false] x))", &env).unwrap();
 
     assert_eq!(result, KlujurVal::empty_vector());
 }
 
 #[test]
-#[ignore = "BUG: :for-while-stop sentinel leaks into output"]
 fn test_for_while_with_when() {
     let env = setup_env_with_stdlib();
 
@@ -343,7 +299,6 @@ fn test_for_while_with_when() {
 }
 
 #[test]
-#[ignore = "BUG: :for-while-stop sentinel leaks into output"]
 fn test_for_while_with_let() {
     let env = setup_env_with_stdlib();
 
@@ -369,7 +324,6 @@ fn test_for_while_with_let() {
 }
 
 #[test]
-#[ignore = "BUG: :for-while-stop sentinel leaks into output"]
 fn test_for_while_in_inner_loop() {
     let env = setup_env_with_stdlib();
 
@@ -381,10 +335,7 @@ fn test_for_while_in_inner_loop() {
     .unwrap();
 
     // For x=1: [1 0] [1 1] [1 2], for x=2: [2 0] [2 1] [2 2]
-    assert_eq!(
-        result.to_string(),
-        "[[1 0] [1 1] [1 2] [2 0] [2 1] [2 2]]"
-    );
+    assert_eq!(result.to_string(), "[[1 0] [1 1] [1 2] [2 0] [2 1] [2 2]]");
 }
 
 // =============================================================================
@@ -392,7 +343,6 @@ fn test_for_while_in_inner_loop() {
 // =============================================================================
 
 #[test]
-#[ignore = "BUG: :for-while-stop sentinel leaks into output"]
 fn test_for_all_modifiers() {
     let env = setup_env_with_stdlib();
 
@@ -425,11 +375,7 @@ fn test_for_deeply_nested() {
     let env = setup_env_with_stdlib();
 
     // Three levels of nesting
-    let result = eval_str_with_env(
-        "(vec (for [x [1 2] y [1 2] z [1 2]] [x y z]))",
-        &env,
-    )
-    .unwrap();
+    let result = eval_str_with_env("(vec (for [x [1 2] y [1 2] z [1 2]] [x y z]))", &env).unwrap();
 
     // 2^3 = 8 combinations
     assert_eq!(result.to_string().matches('[').count() - 1, 8);
@@ -453,16 +399,10 @@ fn test_for_with_nil_in_collection() {
     let env = setup_env_with_stdlib();
 
     // Handle nil values in collection
-    let result = eval_str_with_env(
-        "(vec (for [x [1 nil 3]] (if (nil? x) :was-nil x)))",
-        &env,
-    )
-    .unwrap();
+    let result =
+        eval_str_with_env("(vec (for [x [1 nil 3]] (if (nil? x) :was-nil x)))", &env).unwrap();
 
-    assert_eq!(
-        result.to_string(),
-        "[1 :was-nil 3]"
-    );
+    assert_eq!(result.to_string(), "[1 :was-nil 3]");
 }
 
 #[test]
