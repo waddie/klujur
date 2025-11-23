@@ -58,7 +58,7 @@ A comprehensive comparison of Klujur against Clojure (the reference) and SCI (Sm
 | `defrecord`                     | ✓      | ✓       | ✓   |                            |
 | `deftype`                       | ✗      | ✓       | ✗   |                            |
 | `reify`                         | ✗      | ✓       | ✓   |                            |
-| `letfn`                         | ✓      | ✓       | ✓   |                            |
+| `letfn`                         | ~      | ✓       | ✓   | No mutual recursion        |
 
 ## Core Macros (klujur-std/core.cljc)
 
@@ -69,14 +69,14 @@ A comprehensive comparison of Klujur against Clojure (the reference) and SCI (Sm
 | `if-not`                | ✓      | ✓       | ✓   |                    |
 | `cond`                  | ✓      | ✓       | ✓   |                    |
 | `case`                  | ✓      | ✓       | ✓   |                    |
-| `condp`                 | ✓      | ✓       | ✓   |                    |
+| `condp`                 | ~      | ✓       | ✓   | `:>>` handling broken |
 | `if-let` / `when-let`   | ✓      | ✓       | ✓   |                    |
 | `if-some` / `when-some` | ✓      | ✓       | ✓   |                    |
 | `when-first`            | ✓      | ✓       | ✓   |                    |
 | `->` / `->>`            | ✓      | ✓       | ✓   |                    |
 | `as->`                  | ✓      | ✓       | ✓   |                    |
-| `cond->` / `cond->>`    | ✓      | ✓       | ✓   |                    |
-| `some->` / `some->>`    | ✓      | ✓       | ✓   |                    |
+| `cond->` / `cond->>`    | ~      | ✓       | ✓   | Slightly different expansion |
+| `some->` / `some->>`    | ~      | ✓       | ✓   | Slightly different expansion |
 | `and` / `or`            | ✓      | ✓       | ✓   |                    |
 | `doto`                  | ✓      | ✓       | ✓   |                    |
 | `..`                    | ✗      | ✓       | ✓   | Java interop       |
@@ -214,7 +214,7 @@ A comprehensive comparison of Klujur against Clojure (the reference) and SCI (Sm
 | `(partition-by f)` transducer  | ✓      | ✓       | ✓   |       |
 | `(dedupe)` transducer          | ✓      | ✓       | ✓   |       |
 | `(distinct)` transducer        | ✓      | ✓       | ✓   |       |
-| `(cat)` transducer             | ✓      | ✓       | ✓   |       |
+| `cat` transducer               | ~      | ✓       | ✓   | Wrong arity (takes 0 args, should take rf) |
 | `(mapcat f)` transducer        | ✓      | ✓       | ✓   |       |
 | `(interpose sep)` transducer   | ✓      | ✓       | ✓   |       |
 
@@ -393,3 +393,31 @@ A comprehensive comparison of Klujur against Clojure (the reference) and SCI (Sm
 2. **Transient collections** - Not planned for v1.0
 3. **Concurrency primitives** - Not planned (single-threaded by design)
 4. **Java/JS interop** - Not applicable
+
+---
+
+## Known Issues (Code Review 2025-11-23)
+
+Issues identified during code review that affect parity. See `CODE_REVIEW.md` for full details.
+
+### Critical Bugs
+
+| Issue | Location | Impact |
+|-------|----------|--------|
+| `condp` `:>>` handling broken | `core.cljc:191-212` | `:>>` threading form doesn't work |
+| `letfn` no mutual recursion | `core.cljc:268-275` | Can't define mutually recursive functions |
+| `cat` wrong arity | `core.cljc:741-748` | Breaks transducer composition patterns |
+| Parser positions always `1:1` | `parser.rs:46-64` | Error locations useless |
+| Ratio comparison overflow | `value.rs:2372-2375` | Incorrect ordering for large ratios |
+| Float Hash/Eq/Ord inconsistent | `value.rs` | Violates Rust trait contracts |
+
+### Semantic Differences
+
+| Feature | Difference |
+|---------|------------|
+| `cond->` / `cond->>` | Uses `reduce` instead of rebinding pattern |
+| `some->` / `some->>` | Uses `reduce` instead of rebinding pattern |
+
+### Missing (Despite Being Tested)
+
+- `for` macro - list comprehension (tests exist, implementation missing)

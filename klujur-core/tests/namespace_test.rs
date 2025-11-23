@@ -9,7 +9,7 @@ use klujur_core::builtins::register_builtins;
 use klujur_core::env::Env;
 use klujur_core::eval::eval;
 use klujur_core::init_stdlib;
-use klujur_parser::{KlujurVal, Parser, Symbol};
+use klujur_parser::{Keyword, KlujurVal, Parser, Symbol};
 use std::fs;
 
 /// Helper to evaluate a string and return the result.
@@ -411,4 +411,285 @@ fn test_ns_macro_with_require() {
 
     // Clean up
     fs::remove_dir_all(&temp_dir).ok();
+}
+
+// =============================================================================
+// use
+// =============================================================================
+
+#[test]
+fn test_use_basic() {
+    let env = Env::new();
+    register_builtins(&env);
+    init_stdlib(&env).unwrap();
+
+    // Create a namespace with vars
+    eval_str_with_env("(in-ns 'lib.math)", &env).unwrap();
+    eval_str_with_env("(def add1 (fn [x] (+ x 1)))", &env).unwrap();
+    eval_str_with_env("(def add2 (fn [x] (+ x 2)))", &env).unwrap();
+    eval_str_with_env("(in-ns 'user)", &env).unwrap();
+
+    // Use the namespace - all vars should be available
+    eval_str_with_env("(use 'lib.math)", &env).unwrap();
+
+    assert_eval_eq_with_env!("(add1 10)", KlujurVal::int(11), &env);
+    assert_eval_eq_with_env!("(add2 10)", KlujurVal::int(12), &env);
+}
+
+#[test]
+fn test_use_with_only() {
+    let env = Env::new();
+    register_builtins(&env);
+    init_stdlib(&env).unwrap();
+
+    // Create a namespace with vars
+    eval_str_with_env("(in-ns 'lib.math)", &env).unwrap();
+    eval_str_with_env("(def add1 (fn [x] (+ x 1)))", &env).unwrap();
+    eval_str_with_env("(def add2 (fn [x] (+ x 2)))", &env).unwrap();
+    eval_str_with_env("(in-ns 'user)", &env).unwrap();
+
+    // Use with :only filter
+    eval_str_with_env("(use '[lib.math :only [add1]])", &env).unwrap();
+
+    // add1 should be available
+    assert_eval_eq_with_env!("(add1 10)", KlujurVal::int(11), &env);
+
+    // add2 should NOT be available
+    assert!(eval_str_with_env("add2", &env).is_err());
+}
+
+// =============================================================================
+// require edge cases
+// =============================================================================
+
+#[test]
+fn test_require_multiple_namespaces() {
+    let env = Env::new();
+    register_builtins(&env);
+    init_stdlib(&env).unwrap();
+
+    // Create two namespaces
+    eval_str_with_env("(in-ns 'lib.a)", &env).unwrap();
+    eval_str_with_env("(def a-val 1)", &env).unwrap();
+    eval_str_with_env("(in-ns 'lib.b)", &env).unwrap();
+    eval_str_with_env("(def b-val 2)", &env).unwrap();
+    eval_str_with_env("(in-ns 'user)", &env).unwrap();
+
+    // Require multiple namespaces
+    eval_str_with_env("(require '[lib.a :as a] '[lib.b :as b])", &env).unwrap();
+
+    assert_eval_eq_with_env!("a/a-val", KlujurVal::int(1), &env);
+    assert_eval_eq_with_env!("b/b-val", KlujurVal::int(2), &env);
+}
+
+#[test]
+fn test_require_refer_all() {
+    let env = Env::new();
+    register_builtins(&env);
+    init_stdlib(&env).unwrap();
+
+    // Create a namespace with vars
+    eval_str_with_env("(in-ns 'lib.util)", &env).unwrap();
+    eval_str_with_env("(def x 1)", &env).unwrap();
+    eval_str_with_env("(def y 2)", &env).unwrap();
+    eval_str_with_env("(in-ns 'user)", &env).unwrap();
+
+    // Require with :refer :all
+    eval_str_with_env("(require '[lib.util :refer :all])", &env).unwrap();
+
+    // All vars should be directly accessible
+    assert_eval_eq_with_env!("x", KlujurVal::int(1), &env);
+    assert_eval_eq_with_env!("y", KlujurVal::int(2), &env);
+}
+
+#[test]
+fn test_require_nonexistent_error() {
+    let env = Env::new();
+    register_builtins(&env);
+    init_stdlib(&env).unwrap();
+
+    // Requiring a namespace that doesn't exist should error
+    let result = eval_str_with_env("(require 'nonexistent.namespace.xyz)", &env);
+    assert!(result.is_err());
+}
+
+// =============================================================================
+// ns macro advanced
+// =============================================================================
+
+#[test]
+fn test_ns_macro_with_multiple_requires() {
+    let env = Env::new();
+    register_builtins(&env);
+    init_stdlib(&env).unwrap();
+
+    // Create two namespaces
+    eval_str_with_env("(in-ns 'lib.a)", &env).unwrap();
+    eval_str_with_env("(def a-fn (fn [] :a))", &env).unwrap();
+    eval_str_with_env("(in-ns 'lib.b)", &env).unwrap();
+    eval_str_with_env("(def b-fn (fn [] :b))", &env).unwrap();
+    eval_str_with_env("(in-ns 'user)", &env).unwrap();
+
+    // Use ns macro with multiple requires
+    eval_str_with_env(
+        "(ns my.app
+           (:require [lib.a :as a]
+                     [lib.b :as b]))",
+        &env,
+    )
+    .unwrap();
+
+    assert_eval_eq_with_env!("(a/a-fn)", KlujurVal::keyword(Keyword::new("a")), &env);
+    assert_eval_eq_with_env!("(b/b-fn)", KlujurVal::keyword(Keyword::new("b")), &env);
+}
+
+#[test]
+fn test_ns_macro_with_use_clause() {
+    let env = Env::new();
+    register_builtins(&env);
+    init_stdlib(&env).unwrap();
+
+    // Create a namespace
+    eval_str_with_env("(in-ns 'lib.core)", &env).unwrap();
+    eval_str_with_env("(def core-fn (fn [] :core))", &env).unwrap();
+    eval_str_with_env("(in-ns 'user)", &env).unwrap();
+
+    // Use ns macro with :use clause
+    eval_str_with_env("(ns my.app (:use [lib.core :only [core-fn]]))", &env).unwrap();
+
+    // core-fn should be directly accessible
+    assert_eval_eq_with_env!("(core-fn)", KlujurVal::keyword(Keyword::new("core")), &env);
+}
+
+// =============================================================================
+// ns-* functions
+// =============================================================================
+
+#[test]
+#[ignore] // TODO: ns-resolve not implemented yet
+fn test_ns_resolve() {
+    let env = Env::new();
+    register_builtins(&env);
+    init_stdlib(&env).unwrap();
+
+    // Define a var
+    eval_str_with_env("(def my-var 42)", &env).unwrap();
+
+    // ns-resolve should return the var
+    let result = eval_str_with_env("(ns-resolve 'user 'my-var)", &env);
+    assert!(result.is_ok());
+    // The result should be a var
+    if let KlujurVal::Var(var) = result.unwrap() {
+        assert_eq!(var.deref(), KlujurVal::int(42));
+    } else {
+        panic!("Expected var");
+    }
+}
+
+#[test]
+#[ignore] // TODO: ns-resolve not implemented yet
+fn test_ns_resolve_nonexistent() {
+    let env = Env::new();
+    register_builtins(&env);
+    init_stdlib(&env).unwrap();
+
+    // ns-resolve for nonexistent var should return nil
+    let result = eval_str_with_env("(ns-resolve 'user 'nonexistent-var)", &env).unwrap();
+    assert_eq!(result, KlujurVal::Nil);
+}
+
+#[test]
+fn test_ns_name() {
+    let env = Env::new();
+    register_builtins(&env);
+    init_stdlib(&env).unwrap();
+
+    // ns-name should return the name of the namespace
+    assert_eval_eq_with_env!(
+        "(ns-name (the-ns 'user))",
+        KlujurVal::symbol(Symbol::new("user")),
+        &env
+    );
+}
+
+#[test]
+fn test_ns_publics() {
+    let env = Env::new();
+    register_builtins(&env);
+    init_stdlib(&env).unwrap();
+
+    // Create namespace with public vars
+    eval_str_with_env("(in-ns 'test.ns)", &env).unwrap();
+    eval_str_with_env("(def public-var 1)", &env).unwrap();
+    eval_str_with_env("(in-ns 'user)", &env).unwrap();
+
+    // ns-publics should return a map
+    let result = eval_str_with_env("(ns-publics 'test.ns)", &env);
+    assert!(result.is_ok());
+    if let KlujurVal::Map(map, _) = result.unwrap() {
+        // Should contain public-var
+        assert!(!map.is_empty());
+    } else {
+        panic!("Expected map");
+    }
+}
+
+// =============================================================================
+// Edge cases
+// =============================================================================
+
+#[test]
+fn test_qualified_symbol_access() {
+    let env = Env::new();
+    register_builtins(&env);
+    init_stdlib(&env).unwrap();
+
+    // Define a var in user namespace
+    eval_str_with_env("(def my-val 123)", &env).unwrap();
+
+    // Access via qualified symbol
+    assert_eval_eq_with_env!("user/my-val", KlujurVal::int(123), &env);
+}
+
+#[test]
+fn test_refer_exclude() {
+    let env = Env::new();
+    register_builtins(&env);
+    init_stdlib(&env).unwrap();
+
+    // Create namespace with multiple vars
+    eval_str_with_env("(in-ns 'lib.all)", &env).unwrap();
+    eval_str_with_env("(def keep-me 1)", &env).unwrap();
+    eval_str_with_env("(def exclude-me 2)", &env).unwrap();
+    eval_str_with_env("(in-ns 'user)", &env).unwrap();
+
+    // Refer with :exclude
+    eval_str_with_env("(refer 'lib.all :exclude [exclude-me])", &env).unwrap();
+
+    // keep-me should be accessible
+    assert_eval_eq_with_env!("keep-me", KlujurVal::int(1), &env);
+
+    // exclude-me should NOT be accessible
+    assert!(eval_str_with_env("exclude-me", &env).is_err());
+}
+
+#[test]
+fn test_refer_rename() {
+    let env = Env::new();
+    register_builtins(&env);
+    init_stdlib(&env).unwrap();
+
+    // Create namespace with a var
+    eval_str_with_env("(in-ns 'lib.rename)", &env).unwrap();
+    eval_str_with_env("(def orig-name 42)", &env).unwrap();
+    eval_str_with_env("(in-ns 'user)", &env).unwrap();
+
+    // Refer with :rename
+    eval_str_with_env("(refer 'lib.rename :rename {orig-name new-name})", &env).unwrap();
+
+    // Should be accessible via new name
+    assert_eval_eq_with_env!("new-name", KlujurVal::int(42), &env);
+
+    // Original name should NOT be accessible
+    assert!(eval_str_with_env("orig-name", &env).is_err());
 }

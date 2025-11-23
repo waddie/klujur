@@ -6,20 +6,22 @@
 //! Lexer and parser for the Klujur programming language.
 //! Produces `KlujurVal` AST from source code strings.
 
+pub mod hierarchy;
 pub mod keyword;
 pub mod lexer;
 pub mod parser;
 pub mod symbol;
 pub mod value;
 
+pub use hierarchy::KlujurHierarchy;
 pub use im::{OrdMap, OrdSet, Vector};
 pub use keyword::Keyword;
 pub use lexer::Lexer;
 pub use parser::Parser;
 pub use symbol::Symbol;
 pub use value::{
-    FnArity, KlujurAtom, KlujurDelay, KlujurFn, KlujurHierarchy, KlujurLazySeq, KlujurMultimethod,
-    KlujurNativeFn, KlujurProtocol, KlujurVal, KlujurVar, KlujurVolatile, LazySeqState, Meta,
-    MethodSignature, Protocol, RecordDef, RecordInstance, SeqResult, TypeImpl, TypeKey,
-    get_print_length, set_print_length,
+    FnArity, KlujurAtom, KlujurDelay, KlujurFn, KlujurLazySeq, KlujurMultimethod, KlujurNativeFn,
+    KlujurProtocol, KlujurVal, KlujurVar, KlujurVolatile, LazySeqState, Meta, MethodSignature,
+    Protocol, RecordDef, RecordInstance, SeqResult, TypeImpl, TypeKey, get_print_length,
+    set_print_length,
 };

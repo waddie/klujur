@@ -165,3 +165,249 @@ pub fn deref_var(var: &KlujurVar) -> KlujurVal {
     // Fall back to root value
     var.deref()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Create a dynamic var for testing
+    fn make_dynamic_var(name: &str, value: KlujurVal) -> KlujurVar {
+        let var = KlujurVar::new(name.to_string(), value);
+        var.set_dynamic(true);
+        var
+    }
+
+    /// Create a non-dynamic var for testing
+    fn make_static_var(name: &str, value: KlujurVal) -> KlujurVar {
+        KlujurVar::new(name.to_string(), value)
+    }
+
+    // =========================================================================
+    // Basic push/pop mechanics
+    // =========================================================================
+
+    #[test]
+    fn test_push_bindings_creates_binding() {
+        let var = make_dynamic_var("*test*", KlujurVal::int(1));
+
+        // No binding initially
+        assert!(!has_thread_binding(&var));
+        assert_eq!(get_thread_binding(&var), None);
+
+        // Push a binding
+        let _guard = push_bindings(vec![(&var, KlujurVal::int(42))]);
+
+        // Now there's a binding
+        assert!(has_thread_binding(&var));
+        assert_eq!(get_thread_binding(&var), Some(KlujurVal::int(42)));
+    }
+
+    #[test]
+    fn test_binding_guard_pops_on_drop() {
+        let var = make_dynamic_var("*test*", KlujurVal::int(1));
+
+        {
+            let _guard = push_bindings(vec![(&var, KlujurVal::int(42))]);
+            assert!(has_thread_binding(&var));
+        }
+
+        // Guard dropped, binding should be gone
+        assert!(!has_thread_binding(&var));
+    }
+
+    #[test]
+    fn test_nested_bindings() {
+        let var = make_dynamic_var("*test*", KlujurVal::int(1));
+
+        let _outer = push_bindings(vec![(&var, KlujurVal::int(10))]);
+        assert_eq!(get_thread_binding(&var), Some(KlujurVal::int(10)));
+
+        {
+            let _inner = push_bindings(vec![(&var, KlujurVal::int(20))]);
+            assert_eq!(get_thread_binding(&var), Some(KlujurVal::int(20)));
+        }
+
+        // Inner dropped, should see outer binding again
+        assert_eq!(get_thread_binding(&var), Some(KlujurVal::int(10)));
+    }
+
+    #[test]
+    fn test_multiple_vars_in_single_frame() {
+        let var1 = make_dynamic_var("*a*", KlujurVal::int(1));
+        let var2 = make_dynamic_var("*b*", KlujurVal::int(2));
+
+        let _guard = push_bindings(vec![
+            (&var1, KlujurVal::int(100)),
+            (&var2, KlujurVal::int(200)),
+        ]);
+
+        assert_eq!(get_thread_binding(&var1), Some(KlujurVal::int(100)));
+        assert_eq!(get_thread_binding(&var2), Some(KlujurVal::int(200)));
+    }
+
+    // =========================================================================
+    // Non-dynamic vars
+    // =========================================================================
+
+    #[test]
+    fn test_non_dynamic_var_returns_none() {
+        let var = make_static_var("regular-var", KlujurVal::int(1));
+
+        // Even if we try to push a binding
+        let _guard = push_bindings(vec![(&var, KlujurVal::int(42))]);
+
+        // Non-dynamic vars always return None
+        assert!(!has_thread_binding(&var));
+        assert_eq!(get_thread_binding(&var), None);
+    }
+
+    #[test]
+    fn test_set_thread_binding_fails_for_non_dynamic() {
+        let var = make_static_var("regular-var", KlujurVal::int(1));
+
+        // Can't set binding for non-dynamic var
+        assert!(!set_thread_binding(&var, KlujurVal::int(42)));
+    }
+
+    // =========================================================================
+    // set_thread_binding
+    // =========================================================================
+
+    #[test]
+    fn test_set_thread_binding_updates_value() {
+        let var = make_dynamic_var("*test*", KlujurVal::int(1));
+
+        let _guard = push_bindings(vec![(&var, KlujurVal::int(10))]);
+        assert_eq!(get_thread_binding(&var), Some(KlujurVal::int(10)));
+
+        // Update the binding
+        assert!(set_thread_binding(&var, KlujurVal::int(99)));
+        assert_eq!(get_thread_binding(&var), Some(KlujurVal::int(99)));
+    }
+
+    #[test]
+    fn test_set_thread_binding_fails_without_existing_binding() {
+        let var = make_dynamic_var("*test*", KlujurVal::int(1));
+
+        // No binding exists, set should fail
+        assert!(!set_thread_binding(&var, KlujurVal::int(42)));
+    }
+
+    #[test]
+    fn test_set_thread_binding_only_affects_current_frame() {
+        let var = make_dynamic_var("*test*", KlujurVal::int(1));
+
+        let _outer = push_bindings(vec![(&var, KlujurVal::int(10))]);
+
+        {
+            let _inner = push_bindings(vec![(&var, KlujurVal::int(20))]);
+            set_thread_binding(&var, KlujurVal::int(25));
+            assert_eq!(get_thread_binding(&var), Some(KlujurVal::int(25)));
+        }
+
+        // Outer binding should be unchanged
+        assert_eq!(get_thread_binding(&var), Some(KlujurVal::int(10)));
+    }
+
+    // =========================================================================
+    // deref_var
+    // =========================================================================
+
+    #[test]
+    fn test_deref_var_uses_thread_binding() {
+        let var = make_dynamic_var("*test*", KlujurVal::int(1));
+
+        // Root value
+        assert_eq!(deref_var(&var), KlujurVal::int(1));
+
+        let _guard = push_bindings(vec![(&var, KlujurVal::int(42))]);
+
+        // Thread binding takes precedence
+        assert_eq!(deref_var(&var), KlujurVal::int(42));
+    }
+
+    #[test]
+    fn test_deref_var_falls_back_to_root() {
+        let var = make_dynamic_var("*test*", KlujurVal::int(99));
+
+        // No thread binding, should return root
+        assert_eq!(deref_var(&var), KlujurVal::int(99));
+    }
+
+    #[test]
+    fn test_deref_var_with_nil_binding() {
+        let var = make_dynamic_var("*test*", KlujurVal::int(1));
+
+        let _guard = push_bindings(vec![(&var, KlujurVal::Nil)]);
+
+        // Binding to nil should work and return nil
+        assert_eq!(deref_var(&var), KlujurVal::Nil);
+    }
+
+    // =========================================================================
+    // BindingFrame internal tests
+    // =========================================================================
+
+    #[test]
+    fn test_binding_frame_get_from_ancestor() {
+        let mut bindings1 = HashMap::new();
+        bindings1.insert("a".to_string(), KlujurVal::int(1));
+        let frame1 = Rc::new(BindingFrame::with_bindings(bindings1, None));
+
+        let mut bindings2 = HashMap::new();
+        bindings2.insert("b".to_string(), KlujurVal::int(2));
+        let frame2 = BindingFrame::with_bindings(bindings2, Some(frame1));
+
+        // Can get from current frame
+        assert_eq!(frame2.get("b"), Some(KlujurVal::int(2)));
+
+        // Can get from ancestor frame
+        assert_eq!(frame2.get("a"), Some(KlujurVal::int(1)));
+
+        // Missing key returns None
+        assert_eq!(frame2.get("c"), None);
+    }
+
+    #[test]
+    fn test_binding_frame_has_binding_checks_ancestors() {
+        let mut bindings1 = HashMap::new();
+        bindings1.insert("a".to_string(), KlujurVal::int(1));
+        let frame1 = Rc::new(BindingFrame::with_bindings(bindings1, None));
+
+        let bindings2 = HashMap::new();
+        let frame2 = BindingFrame::with_bindings(bindings2, Some(frame1));
+
+        // Has binding from ancestor
+        assert!(frame2.has_binding("a"));
+
+        // Doesn't have missing binding
+        assert!(!frame2.has_binding("b"));
+    }
+
+    #[test]
+    fn test_binding_frame_set_only_affects_current_frame() {
+        let mut bindings1 = HashMap::new();
+        bindings1.insert("a".to_string(), KlujurVal::int(1));
+        let frame1 = Rc::new(BindingFrame::with_bindings(bindings1, None));
+
+        let mut bindings2 = HashMap::new();
+        bindings2.insert("a".to_string(), KlujurVal::int(10));
+        let mut frame2 = BindingFrame::with_bindings(bindings2, Some(frame1.clone()));
+
+        // Set in current frame
+        assert!(frame2.set("a", KlujurVal::int(20)));
+        assert_eq!(frame2.get("a"), Some(KlujurVal::int(20)));
+
+        // Ancestor frame unchanged
+        assert_eq!(frame1.get("a"), Some(KlujurVal::int(1)));
+    }
+
+    #[test]
+    fn test_binding_frame_set_returns_false_for_missing() {
+        let bindings = HashMap::new();
+        let mut frame = BindingFrame::with_bindings(bindings, None);
+
+        // Can't set a binding that doesn't exist
+        assert!(!frame.set("missing", KlujurVal::int(1)));
+    }
+}

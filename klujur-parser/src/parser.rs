@@ -54,12 +54,15 @@ impl<'a> Parser<'a> {
     /// Create a new parser for the given source code.
     pub fn new(source: &'a str) -> Result<Self, ParseError> {
         let mut lexer = Lexer::new(source);
+        // Capture position before first token
+        let line = lexer.line();
+        let column = lexer.column();
         let current = lexer.next_token()?;
         Ok(Parser {
             lexer,
             current,
-            line: 1,
-            column: 1,
+            line,
+            column,
         })
     }
 
@@ -100,6 +103,9 @@ impl<'a> Parser<'a> {
 
     fn advance(&mut self) -> Result<Token, ParseError> {
         let prev = std::mem::replace(&mut self.current, Token::Eof);
+        // Capture position of the next token before fetching it
+        self.line = self.lexer.line();
+        self.column = self.lexer.column();
         self.current = self.lexer.next_token()?;
         Ok(prev)
     }

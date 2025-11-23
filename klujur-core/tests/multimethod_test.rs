@@ -478,3 +478,242 @@ fn test_derive_cyclic_error() {
     ]);
     assert!(result.is_err());
 }
+
+// =============================================================================
+// prefer-method tests
+// =============================================================================
+
+#[test]
+fn test_prefer_method_basic() {
+    let env = Env::new();
+    register_builtins(&env);
+
+    // Create a hierarchy with multiple inheritance
+    eval_forms_with_env(
+        &[
+            "(derive ::rect ::shape)",
+            "(derive ::rect ::fillable)",
+            "(defmulti draw :type)",
+            "(defmethod draw ::shape [_] \"drawing shape\")",
+            "(defmethod draw ::fillable [_] \"filling\")",
+        ],
+        &env,
+    )
+    .unwrap();
+
+    // Without prefer-method, this would be ambiguous
+    // Prefer ::shape over ::fillable
+    eval_forms_with_env(&["(prefer-method draw ::shape ::fillable)"], &env).unwrap();
+
+    // Now dispatch should use ::shape method
+    let result = eval_forms_with_env(&["(draw {:type ::rect})"], &env).unwrap();
+    assert_eq!(result, KlujurVal::string("drawing shape"));
+}
+
+#[test]
+#[ignore] // TODO: prefers not implemented yet
+fn test_prefer_method_with_prefers() {
+    let env = Env::new();
+    register_builtins(&env);
+
+    eval_forms_with_env(
+        &[
+            "(defmulti f :type)",
+            "(defmethod f ::a [_] :a)",
+            "(defmethod f ::b [_] :b)",
+            "(prefer-method f ::a ::b)",
+        ],
+        &env,
+    )
+    .unwrap();
+
+    // prefers should return the preference map
+    let result = eval_forms_with_env(&["(prefers f)"], &env).unwrap();
+    // Should be a map with ::a -> #{::b}
+    if let KlujurVal::Map(map, _) = result {
+        assert!(!map.is_empty());
+    } else {
+        panic!("Expected map from prefers");
+    }
+}
+
+// =============================================================================
+// Custom hierarchy with multimethod
+// =============================================================================
+
+#[test]
+#[ignore] // BUG: :hierarchy option expects hierarchy value directly, not var reference
+fn test_multimethod_with_custom_hierarchy() {
+    let env = Env::new();
+    register_builtins(&env);
+
+    // Create a custom hierarchy
+    eval_forms_with_env(
+        &[
+            "(def my-h (make-hierarchy))",
+            "(def my-h (derive my-h ::poodle ::dog))",
+            "(def my-h (derive my-h ::dog ::animal))",
+        ],
+        &env,
+    )
+    .unwrap();
+
+    // Create multimethod with custom hierarchy
+    eval_forms_with_env(
+        &[
+            "(defmulti speak :type :hierarchy #'my-h)",
+            "(defmethod speak ::animal [_] \"generic sound\")",
+            "(defmethod speak ::dog [_] \"woof\")",
+        ],
+        &env,
+    )
+    .unwrap();
+
+    // ::poodle should dispatch to ::dog (its parent in the custom hierarchy)
+    let result = eval_forms_with_env(&["(speak {:type ::poodle})"], &env).unwrap();
+    assert_eq!(result, KlujurVal::string("woof"));
+
+    // ::dog should dispatch to ::dog directly
+    let result = eval_forms_with_env(&["(speak {:type ::dog})"], &env).unwrap();
+    assert_eq!(result, KlujurVal::string("woof"));
+}
+
+// =============================================================================
+// Additional edge cases
+// =============================================================================
+
+#[test]
+fn test_multimethod_redefine_method() {
+    let env = Env::new();
+    register_builtins(&env);
+
+    eval_forms_with_env(
+        &[
+            "(defmulti greet :lang)",
+            "(defmethod greet :en [_] \"Hello\")",
+        ],
+        &env,
+    )
+    .unwrap();
+
+    // First call
+    let result = eval_forms_with_env(&["(greet {:lang :en})"], &env).unwrap();
+    assert_eq!(result, KlujurVal::string("Hello"));
+
+    // Redefine the method
+    eval_forms_with_env(&["(defmethod greet :en [_] \"Hi\")"], &env).unwrap();
+
+    // Second call should use new implementation
+    let result = eval_forms_with_env(&["(greet {:lang :en})"], &env).unwrap();
+    assert_eq!(result, KlujurVal::string("Hi"));
+}
+
+#[test]
+fn test_multimethod_no_method_error() {
+    // Without a default method, missing dispatch value should error
+    let result = eval_forms(&[
+        "(defmulti process :type)",
+        "(defmethod process :a [_] :a)",
+        "(process {:type :unknown})", // No method for :unknown
+    ]);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_get_method_with_hierarchy_fallback() {
+    let env = Env::new();
+    register_builtins(&env);
+
+    eval_forms_with_env(
+        &[
+            "(derive ::child ::parent)",
+            "(defmulti f :type)",
+            "(defmethod f ::parent [_] \"parent\")",
+        ],
+        &env,
+    )
+    .unwrap();
+
+    // get-method for ::child finds method through hierarchy
+    // (this is actually correct Clojure behaviour)
+    let result = eval_forms_with_env(&["(fn? (get-method f ::child))"], &env).unwrap();
+    assert_eq!(result, KlujurVal::Bool(true));
+
+    // Calling with ::child should work
+    let result = eval_forms_with_env(&["(f {:type ::child})"], &env).unwrap();
+    assert_eq!(result, KlujurVal::string("parent"));
+}
+
+#[test]
+#[ignore] // TODO: remove-all-methods not implemented yet
+fn test_remove_all_methods() {
+    let env = Env::new();
+    register_builtins(&env);
+
+    eval_forms_with_env(
+        &[
+            "(defmulti f identity)",
+            "(defmethod f :a [_] :a)",
+            "(defmethod f :b [_] :b)",
+            "(defmethod f :default [_] :default)",
+        ],
+        &env,
+    )
+    .unwrap();
+
+    // Verify methods exist
+    let result = eval_forms_with_env(&["(count (methods f))"], &env).unwrap();
+    assert_eq!(result, KlujurVal::int(3));
+
+    // Remove all methods
+    eval_forms_with_env(&["(remove-all-methods f)"], &env).unwrap();
+
+    // Should have no methods
+    let result = eval_forms_with_env(&["(count (methods f))"], &env).unwrap();
+    assert_eq!(result, KlujurVal::int(0));
+}
+
+#[test]
+fn test_multimethod_dispatch_on_nil() {
+    assert_eval_forms!(
+        &[
+            "(defmulti f identity)",
+            "(defmethod f nil [_] \"was nil\")",
+            "(f nil)",
+        ],
+        KlujurVal::string("was nil")
+    );
+}
+
+#[test]
+fn test_multimethod_dispatch_on_false() {
+    assert_eval_forms!(
+        &[
+            "(defmulti f identity)",
+            "(defmethod f false [_] \"was false\")",
+            "(f false)",
+        ],
+        KlujurVal::string("was false")
+    );
+}
+
+#[test]
+fn test_isa_with_class() {
+    // isa? should work with nil
+    assert_eval_forms!(&["(isa? nil nil)"], KlujurVal::Bool(true));
+}
+
+#[test]
+fn test_multimethod_multiple_args() {
+    // Dispatch function can use multiple arguments
+    // Note: type returns string names like "int", "string"
+    assert_eval_forms!(
+        &[
+            "(defmulti combine (fn [a b] [(type a) (type b)]))",
+            "(defmethod combine [\"int\" \"int\"] [a b] (+ a b))",
+            "(defmethod combine [\"string\" \"string\"] [a b] (str a b))",
+            "(combine 1 2)",
+        ],
+        KlujurVal::int(3)
+    );
+}
