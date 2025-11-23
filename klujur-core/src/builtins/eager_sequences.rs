@@ -54,7 +54,14 @@ pub(crate) fn builtin_sort(args: &[KlujurVal]) -> Result<KlujurVal> {
                     }
                 }
                 Ok(KlujurVal::Bool(true)) => std::cmp::Ordering::Less,
-                Ok(KlujurVal::Bool(false)) => std::cmp::Ordering::Greater,
+                Ok(KlujurVal::Bool(false)) => {
+                    // For boolean comparators: false could mean a >= b
+                    // Check (comp b a) to distinguish Greater from Equal
+                    match apply(comp, &[b.clone(), a.clone()]) {
+                        Ok(KlujurVal::Bool(true)) => std::cmp::Ordering::Greater,
+                        _ => std::cmp::Ordering::Equal,
+                    }
+                }
                 _ => std::cmp::Ordering::Equal,
             });
             Ok(KlujurVal::list(items))
@@ -122,7 +129,14 @@ pub(crate) fn builtin_sort_by(args: &[KlujurVal]) -> Result<KlujurVal> {
                         }
                     }
                     Ok(KlujurVal::Bool(true)) => std::cmp::Ordering::Less,
-                    Ok(KlujurVal::Bool(false)) => std::cmp::Ordering::Greater,
+                    Ok(KlujurVal::Bool(false)) => {
+                        // For boolean comparators: false could mean a >= b
+                        // Check (comp b a) to distinguish Greater from Equal
+                        match apply(comp, &[b.clone(), a.clone()]) {
+                            Ok(KlujurVal::Bool(true)) => std::cmp::Ordering::Greater,
+                            _ => std::cmp::Ordering::Equal,
+                        }
+                    }
                     _ => std::cmp::Ordering::Equal,
                 },
             );

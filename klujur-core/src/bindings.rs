@@ -4,8 +4,7 @@
 //! Thread-local binding frames for dynamic vars.
 //!
 //! This module provides the infrastructure for Clojure-style dynamic binding.
-//! Since Klujur uses `Rc` (single-threaded), we use a global `RefCell` instead
-//! of true thread-local storage.
+//! We use `thread_local!` with a `RefCell` to store the binding frame stack.
 
 use std::cell::RefCell;
 use std::collections::HashMap;

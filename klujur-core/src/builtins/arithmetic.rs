@@ -2,6 +2,15 @@
 // Copyright (c) 2025 Tom Waddington. MIT licensed.
 
 //! Arithmetic operations: +, -, *, /, quot, rem, mod, inc, dec, max, min, abs
+//!
+//! ## Integer Overflow Behaviour
+//!
+//! Unlike Clojure, which automatically promotes to BigInteger on overflow,
+//! Klujur uses checked arithmetic and returns an error on integer overflow.
+//! This includes operations: +, -, *, inc, dec, abs (for i64::MIN), and
+//! unary negation (for i64::MIN).
+//!
+//! Operations involving floats do not check for overflow.
 
 use klujur_parser::KlujurVal;
 
@@ -28,7 +37,9 @@ pub(crate) fn builtin_add(args: &[KlujurVal]) -> Result<KlujurVal> {
                 if is_float {
                     float_sum += *n as f64;
                 } else {
-                    int_sum += n;
+                    int_sum = int_sum
+                        .checked_add(*n)
+                        .ok_or(Error::IntegerOverflow { operation: "+" })?;
                 }
             }
             KlujurVal::Float(n) => {
@@ -59,7 +70,10 @@ pub(crate) fn builtin_sub(args: &[KlujurVal]) -> Result<KlujurVal> {
     if args.len() == 1 {
         // Unary negation
         return match &args[0] {
-            KlujurVal::Int(n) => Ok(KlujurVal::int(-n)),
+            KlujurVal::Int(n) => Ok(KlujurVal::int(
+                n.checked_neg()
+                    .ok_or(Error::IntegerOverflow { operation: "-" })?,
+            )),
             KlujurVal::Float(n) => Ok(KlujurVal::float(-n)),
             other => Err(Error::type_error_in("-", "number", other.type_name())),
         };
@@ -81,7 +95,9 @@ pub(crate) fn builtin_sub(args: &[KlujurVal]) -> Result<KlujurVal> {
                 } else if is_float {
                     result -= *n as f64;
                 } else {
-                    int_result -= n;
+                    int_result = int_result
+                        .checked_sub(*n)
+                        .ok_or(Error::IntegerOverflow { operation: "-" })?;
                 }
             }
             KlujurVal::Float(n) => {
@@ -123,7 +139,9 @@ pub(crate) fn builtin_mul(args: &[KlujurVal]) -> Result<KlujurVal> {
                 if is_float {
                     float_prod *= *n as f64;
                 } else {
-                    int_prod *= n;
+                    int_prod = int_prod
+                        .checked_mul(*n)
+                        .ok_or(Error::IntegerOverflow { operation: "*" })?;
                 }
             }
             KlujurVal::Float(n) => {
@@ -245,7 +263,10 @@ pub(crate) fn builtin_inc(args: &[KlujurVal]) -> Result<KlujurVal> {
         return Err(Error::arity_named("inc", 1, args.len()));
     }
     match &args[0] {
-        KlujurVal::Int(n) => Ok(KlujurVal::int(n + 1)),
+        KlujurVal::Int(n) => Ok(KlujurVal::int(
+            n.checked_add(1)
+                .ok_or(Error::IntegerOverflow { operation: "inc" })?,
+        )),
         KlujurVal::Float(n) => Ok(KlujurVal::float(n + 1.0)),
         other => Err(Error::type_error_in("inc", "number", other.type_name())),
     }
@@ -256,7 +277,10 @@ pub(crate) fn builtin_dec(args: &[KlujurVal]) -> Result<KlujurVal> {
         return Err(Error::arity_named("dec", 1, args.len()));
     }
     match &args[0] {
-        KlujurVal::Int(n) => Ok(KlujurVal::int(n - 1)),
+        KlujurVal::Int(n) => Ok(KlujurVal::int(
+            n.checked_sub(1)
+                .ok_or(Error::IntegerOverflow { operation: "dec" })?,
+        )),
         KlujurVal::Float(n) => Ok(KlujurVal::float(n - 1.0)),
         other => Err(Error::type_error_in("dec", "number", other.type_name())),
     }
@@ -293,7 +317,10 @@ pub(crate) fn builtin_abs(args: &[KlujurVal]) -> Result<KlujurVal> {
         return Err(Error::arity_named("abs", 1, args.len()));
     }
     match &args[0] {
-        KlujurVal::Int(n) => Ok(KlujurVal::int(n.abs())),
+        KlujurVal::Int(n) => Ok(KlujurVal::int(
+            n.checked_abs()
+                .ok_or(Error::IntegerOverflow { operation: "abs" })?,
+        )),
         KlujurVal::Float(n) => Ok(KlujurVal::float(n.abs())),
         other => Err(Error::type_error_in("abs", "number", other.type_name())),
     }

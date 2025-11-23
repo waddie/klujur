@@ -588,7 +588,7 @@ impl fmt::Display for KlujurSortedMapBy {
         let entries = self.entries.borrow();
         for (i, (k, v)) in entries.iter().enumerate() {
             if i > 0 {
-                write!(f, ", ")?;
+                write!(f, " ")?;
             }
             write!(f, "{} {}", k, v)?;
         }
@@ -1841,27 +1841,32 @@ impl Ord for KlujurMultimethod {
 
 impl KlujurVal {
     /// Create a nil value
+    #[must_use]
     pub fn nil() -> Self {
         KlujurVal::Nil
     }
 
     /// Create a boolean value
+    #[must_use]
     pub fn bool(b: bool) -> Self {
         KlujurVal::Bool(b)
     }
 
     /// Create an integer value
+    #[must_use]
     pub fn int(n: i64) -> Self {
         KlujurVal::Int(n)
     }
 
     /// Create a float value
+    #[must_use]
     pub fn float(n: f64) -> Self {
         KlujurVal::Float(n)
     }
 
     /// Create a ratio value, reducing to lowest terms.
     /// Returns `None` if denominator is zero.
+    #[must_use]
     pub fn try_ratio(num: i64, den: i64) -> Option<Self> {
         if den == 0 {
             return None;
@@ -1881,91 +1886,109 @@ impl KlujurVal {
 
     /// Create a ratio value, reducing to lowest terms.
     /// Panics if denominator is zero.
+    #[must_use]
     pub fn ratio(num: i64, den: i64) -> Self {
         Self::try_ratio(num, den).expect("Division by zero in ratio")
     }
 
     /// Create a character value
+    #[must_use]
     pub fn char(c: char) -> Self {
         KlujurVal::Char(c)
     }
 
     /// Create a string value
+    #[must_use]
     pub fn string(s: impl Into<Rc<str>>) -> Self {
         KlujurVal::String(s.into())
     }
 
     /// Create a symbol value
+    #[must_use]
     pub fn symbol(sym: Symbol) -> Self {
         KlujurVal::Symbol(sym, None)
     }
 
     /// Create a symbol value with metadata
+    #[must_use]
     pub fn symbol_with_meta(sym: Symbol, meta: Rc<Meta>) -> Self {
         KlujurVal::Symbol(sym, Some(meta))
     }
 
     /// Create a keyword value
+    #[must_use]
     pub fn keyword(kw: Keyword) -> Self {
         KlujurVal::Keyword(kw)
     }
 
     /// Create an empty list
+    #[must_use]
     pub fn empty_list() -> Self {
         KlujurVal::List(Vector::new(), None)
     }
 
     /// Create a list from elements
+    #[must_use]
     pub fn list(elements: Vec<KlujurVal>) -> Self {
         KlujurVal::List(elements.into_iter().collect(), None)
     }
 
     /// Create a list from elements with metadata
+    #[must_use]
     pub fn list_with_meta(elements: Vec<KlujurVal>, meta: Rc<Meta>) -> Self {
         KlujurVal::List(elements.into_iter().collect(), Some(meta))
     }
 
     /// Create an empty vector
+    #[must_use]
     pub fn empty_vector() -> Self {
         KlujurVal::Vector(Vector::new(), None)
     }
 
     /// Create a vector from elements
+    #[must_use]
     pub fn vector(elements: Vec<KlujurVal>) -> Self {
         KlujurVal::Vector(elements.into_iter().collect(), None)
     }
 
     /// Create a vector from elements with metadata
+    #[must_use]
     pub fn vector_with_meta(elements: Vec<KlujurVal>, meta: Rc<Meta>) -> Self {
         KlujurVal::Vector(elements.into_iter().collect(), Some(meta))
     }
 
     /// Create an empty map
+    #[must_use]
     pub fn empty_map() -> Self {
         KlujurVal::Map(OrdMap::new(), None)
     }
 
     /// Create a map from key-value pairs
+    #[must_use]
     pub fn map(pairs: Vec<(KlujurVal, KlujurVal)>) -> Self {
         KlujurVal::Map(pairs.into_iter().collect(), None)
     }
 
     /// Create a map from key-value pairs with metadata
+    #[must_use]
     pub fn map_with_meta(pairs: Vec<(KlujurVal, KlujurVal)>, meta: Rc<Meta>) -> Self {
         KlujurVal::Map(pairs.into_iter().collect(), Some(meta))
     }
 
     /// Create an empty set
+    #[must_use]
     pub fn empty_set() -> Self {
         KlujurVal::Set(OrdSet::new(), None)
     }
 
     /// Create a set from elements
+    #[must_use]
     pub fn set(elements: Vec<KlujurVal>) -> Self {
         KlujurVal::Set(elements.into_iter().collect(), None)
     }
 
     /// Create a set from elements with metadata
+    #[must_use]
     pub fn set_with_meta(elements: Vec<KlujurVal>, meta: Rc<Meta>) -> Self {
         KlujurVal::Set(elements.into_iter().collect(), Some(meta))
     }
@@ -2224,7 +2247,7 @@ impl fmt::Display for KlujurVal {
                 write!(f, "{{")?;
                 for (i, (k, v)) in map.iter().enumerate() {
                     if i > 0 {
-                        write!(f, ", ")?;
+                        write!(f, " ")?;
                     }
                     write!(f, "{} {}", k, v)?;
                 }

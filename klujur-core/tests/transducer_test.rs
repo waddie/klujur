@@ -126,9 +126,9 @@ fn test_volatile_vswap() {
 // =============================================================================
 
 #[test]
-fn test_map_xf() {
+fn test_map_transducer() {
     assert_eval!(
-        "(into [] (map-xf inc) [1 2 3])",
+        "(into [] (map inc) [1 2 3])",
         KlujurVal::vector(vec![
             KlujurVal::int(2),
             KlujurVal::int(3),
@@ -138,17 +138,17 @@ fn test_map_xf() {
 }
 
 #[test]
-fn test_filter_xf() {
+fn test_filter_transducer() {
     assert_eval!(
-        "(into [] (filter-xf even?) [1 2 3 4 5])",
+        "(into [] (filter even?) [1 2 3 4 5])",
         KlujurVal::vector(vec![KlujurVal::int(2), KlujurVal::int(4)])
     );
 }
 
 #[test]
-fn test_remove_xf() {
+fn test_remove_transducer() {
     assert_eval!(
-        "(into [] (remove-xf even?) [1 2 3 4 5])",
+        "(into [] (remove even?) [1 2 3 4 5])",
         KlujurVal::vector(vec![
             KlujurVal::int(1),
             KlujurVal::int(3),
@@ -161,7 +161,7 @@ fn test_remove_xf() {
 fn test_transducer_composition() {
     // (comp (map inc) (filter even?)) on [1 2 3 4] should give [2 4]
     assert_eval!(
-        "(into [] (comp (map-xf inc) (filter-xf even?)) [1 2 3 4])",
+        "(into [] (comp (map inc) (filter even?)) [1 2 3 4])",
         KlujurVal::vector(vec![KlujurVal::int(2), KlujurVal::int(4)])
     );
 }
@@ -171,9 +171,9 @@ fn test_transducer_composition() {
 // =============================================================================
 
 #[test]
-fn test_take_xf() {
+fn test_take_transducer() {
     assert_eval!(
-        "(into [] (take-xf 3) [1 2 3 4 5])",
+        "(into [] (take 3) [1 2 3 4 5])",
         KlujurVal::vector(vec![
             KlujurVal::int(1),
             KlujurVal::int(2),
@@ -183,10 +183,10 @@ fn test_take_xf() {
 }
 
 #[test]
-fn test_take_xf_from_range() {
+fn test_take_transducer_from_range() {
     // Should terminate early from infinite range
     assert_eval!(
-        "(into [] (take-xf 3) (range 1000000))",
+        "(into [] (take 3) (range 1000000))",
         KlujurVal::vector(vec![
             KlujurVal::int(0),
             KlujurVal::int(1),
@@ -196,9 +196,9 @@ fn test_take_xf_from_range() {
 }
 
 #[test]
-fn test_drop_xf() {
+fn test_drop_transducer() {
     assert_eval!(
-        "(into [] (drop-xf 2) [1 2 3 4 5])",
+        "(into [] (drop 2) [1 2 3 4 5])",
         KlujurVal::vector(vec![
             KlujurVal::int(3),
             KlujurVal::int(4),
@@ -208,9 +208,9 @@ fn test_drop_xf() {
 }
 
 #[test]
-fn test_take_while_xf() {
+fn test_take_while_transducer() {
     assert_eval!(
-        "(into [] (take-while-xf #(< % 4)) [1 2 3 4 5])",
+        "(into [] (take-while #(< % 4)) [1 2 3 4 5])",
         KlujurVal::vector(vec![
             KlujurVal::int(1),
             KlujurVal::int(2),
@@ -220,9 +220,9 @@ fn test_take_while_xf() {
 }
 
 #[test]
-fn test_drop_while_xf() {
+fn test_drop_while_transducer() {
     assert_eval!(
-        "(into [] (drop-while-xf #(< % 3)) [1 2 3 4 5])",
+        "(into [] (drop-while #(< % 3)) [1 2 3 4 5])",
         KlujurVal::vector(vec![
             KlujurVal::int(3),
             KlujurVal::int(4),
@@ -232,9 +232,9 @@ fn test_drop_while_xf() {
 }
 
 #[test]
-fn test_take_nth_xf() {
+fn test_take_nth_transducer() {
     assert_eval!(
-        "(into [] (take-nth-xf 2) [1 2 3 4 5 6])",
+        "(into [] (take-nth 2) [1 2 3 4 5 6])",
         KlujurVal::vector(vec![
             KlujurVal::int(1),
             KlujurVal::int(3),
@@ -248,19 +248,19 @@ fn test_take_nth_xf() {
 // =============================================================================
 
 #[test]
-fn test_keep_xf() {
+fn test_keep_transducer() {
     // Keep non-nil results
     assert_eval!(
-        "(into [] (keep-xf #(if (even? %) % nil)) [1 2 3 4 5])",
+        "(into [] (keep #(if (even? %) % nil)) [1 2 3 4 5])",
         KlujurVal::vector(vec![KlujurVal::int(2), KlujurVal::int(4)])
     );
 }
 
 #[test]
-fn test_keep_indexed_xf() {
+fn test_keep_indexed_transducer() {
     // Keep items at even indices
     assert_eval!(
-        "(into [] (keep-indexed-xf (fn [i x] (if (even? i) x nil))) [:a :b :c :d])",
+        "(into [] (keep-indexed (fn [i x] (if (even? i) x nil))) [:a :b :c :d])",
         KlujurVal::vector(vec![
             KlujurVal::Keyword(Keyword::new("a")),
             KlujurVal::Keyword(Keyword::new("c"))
@@ -269,9 +269,9 @@ fn test_keep_indexed_xf() {
 }
 
 #[test]
-fn test_map_indexed_xf() {
+fn test_map_indexed_transducer() {
     assert_eval!(
-        "(into [] (map-indexed-xf vector) [:a :b :c])",
+        "(into [] (map-indexed vector) [:a :b :c])",
         KlujurVal::vector(vec![
             KlujurVal::vector(vec![
                 KlujurVal::int(0),
@@ -294,9 +294,9 @@ fn test_map_indexed_xf() {
 // =============================================================================
 
 #[test]
-fn test_dedupe_xf() {
+fn test_dedupe_transducer() {
     assert_eval!(
-        "(into [] (dedupe-xf) [1 1 2 2 2 3 1 1])",
+        "(into [] (dedupe) [1 1 2 2 2 3 1 1])",
         KlujurVal::vector(vec![
             KlujurVal::int(1),
             KlujurVal::int(2),
@@ -307,9 +307,9 @@ fn test_dedupe_xf() {
 }
 
 #[test]
-fn test_distinct_xf() {
+fn test_distinct_transducer() {
     assert_eval!(
-        "(into [] (distinct-xf) [1 2 1 3 2 4])",
+        "(into [] (distinct) [1 2 1 3 2 4])",
         KlujurVal::vector(vec![
             KlujurVal::int(1),
             KlujurVal::int(2),
@@ -324,9 +324,9 @@ fn test_distinct_xf() {
 // =============================================================================
 
 #[test]
-fn test_partition_all_xf() {
+fn test_partition_all_transducer() {
     assert_eval!(
-        "(into [] (partition-all-xf 2) [1 2 3 4 5])",
+        "(into [] (partition-all 2) [1 2 3 4 5])",
         KlujurVal::vector(vec![
             KlujurVal::vector(vec![KlujurVal::int(1), KlujurVal::int(2)]),
             KlujurVal::vector(vec![KlujurVal::int(3), KlujurVal::int(4)]),
@@ -336,9 +336,9 @@ fn test_partition_all_xf() {
 }
 
 #[test]
-fn test_partition_by_xf() {
+fn test_partition_by_transducer() {
     assert_eval!(
-        "(into [] (partition-by-xf odd?) [1 1 2 2 3 3 4])",
+        "(into [] (partition-by odd?) [1 1 2 2 3 3 4])",
         KlujurVal::vector(vec![
             KlujurVal::vector(vec![KlujurVal::int(1), KlujurVal::int(1)]),
             KlujurVal::vector(vec![KlujurVal::int(2), KlujurVal::int(2)]),
@@ -353,9 +353,10 @@ fn test_partition_by_xf() {
 // =============================================================================
 
 #[test]
-fn test_cat_xf() {
+fn test_cat_transducer() {
+    // cat is directly a transducer (no parens needed)
     assert_eval!(
-        "(into [] (cat-xf) [[1 2] [3 4] [5]])",
+        "(into [] cat [[1 2] [3 4] [5]])",
         KlujurVal::vector(vec![
             KlujurVal::int(1),
             KlujurVal::int(2),
@@ -367,9 +368,9 @@ fn test_cat_xf() {
 }
 
 #[test]
-fn test_mapcat_xf() {
+fn test_mapcat_transducer() {
     assert_eval!(
-        "(into [] (mapcat-xf #(repeat 2 %)) [1 2 3])",
+        "(into [] (mapcat #(repeat 2 %)) [1 2 3])",
         KlujurVal::vector(vec![
             KlujurVal::int(1),
             KlujurVal::int(1),
@@ -386,9 +387,9 @@ fn test_mapcat_xf() {
 // =============================================================================
 
 #[test]
-fn test_interpose_xf() {
+fn test_interpose_transducer() {
     assert_eval!(
-        "(into [] (interpose-xf :sep) [1 2 3])",
+        "(into [] (interpose :sep) [1 2 3])",
         KlujurVal::vector(vec![
             KlujurVal::int(1),
             KlujurVal::Keyword(Keyword::new("sep")),
@@ -406,19 +407,19 @@ fn test_interpose_xf() {
 #[test]
 fn test_transduce_basic() {
     // (transduce (map inc) + [1 2 3]) => (+ (+ (+ 0 2) 3) 4) => 9
-    assert_eval!("(transduce (map-xf inc) + [1 2 3])", KlujurVal::int(9));
+    assert_eval!("(transduce (map inc) + [1 2 3])", KlujurVal::int(9));
 }
 
 #[test]
 fn test_transduce_with_init() {
-    assert_eval!("(transduce (map-xf inc) + 10 [1 2 3])", KlujurVal::int(19));
+    assert_eval!("(transduce (map inc) + 10 [1 2 3])", KlujurVal::int(19));
 }
 
 #[test]
 fn test_transduce_with_composition() {
     // (inc each) then (filter even?) then sum
     assert_eval!(
-        "(transduce (comp (map-xf inc) (filter-xf even?)) + [1 2 3 4])",
+        "(transduce (comp (map inc) (filter even?)) + [1 2 3 4])",
         KlujurVal::int(6) // 2 + 4
     );
 }
@@ -430,7 +431,7 @@ fn test_transduce_with_composition() {
 #[test]
 fn test_into_with_transducer() {
     assert_eval!(
-        "(into #{} (map-xf inc) [1 2 3])",
+        "(into #{} (map inc) [1 2 3])",
         KlujurVal::set(vec![
             KlujurVal::int(2),
             KlujurVal::int(3),
@@ -447,7 +448,7 @@ fn test_into_with_transducer() {
 fn test_complex_composition() {
     // Filter odds, increment, take first 3
     assert_eval!(
-        "(into [] (comp (filter-xf odd?) (map-xf inc) (take-xf 3)) (range 100))",
+        "(into [] (comp (filter odd?) (map inc) (take 3)) (range 100))",
         KlujurVal::vector(vec![
             KlujurVal::int(2),
             KlujurVal::int(4),
@@ -464,7 +465,7 @@ fn test_complex_composition() {
 fn test_completing() {
     // completing makes a simple 2-arity function work with transduce
     assert_eval!(
-        "(transduce (map-xf inc) (completing +) [1 2 3])",
+        "(transduce (map inc) (completing +) [1 2 3])",
         KlujurVal::int(9)
     );
 }

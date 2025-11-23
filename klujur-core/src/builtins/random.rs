@@ -4,6 +4,7 @@
 //! Random operations: rand, rand-int, rand-nth, shuffle
 //! Utility operations: gensym, hash
 
+use std::cell::Cell;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use klujur_parser::{KlujurVal, Symbol};
@@ -16,19 +17,48 @@ use super::{require_int, to_seq};
 // Random Number Generation
 // ============================================================================
 
+// LCG constants (same as used in glibc)
+const LCG_MULTIPLIER: u64 = 6364136223846793005;
+const LCG_INCREMENT: u64 = 1442695040888963407;
+
+thread_local! {
+    /// Persistent RNG state, seeded lazily from system time.
+    static RNG_STATE: Cell<u64> = const { Cell::new(0) };
+    static RNG_SEEDED: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Get the next random u64, advancing the RNG state.
+fn next_random_u64() -> u64 {
+    RNG_STATE.with(|state| {
+        RNG_SEEDED.with(|seeded| {
+            if !seeded.get() {
+                // Seed lazily from system time
+                use std::time::{SystemTime, UNIX_EPOCH};
+                let seed = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos() as u64;
+                state.set(seed);
+                seeded.set(true);
+            }
+        });
+        let current = state.get();
+        let next = current
+            .wrapping_mul(LCG_MULTIPLIER)
+            .wrapping_add(LCG_INCREMENT);
+        state.set(next);
+        next
+    })
+}
+
+/// Get a random f64 in [0, 1).
+fn next_random_f64() -> f64 {
+    (next_random_u64() as f64) / (u64::MAX as f64)
+}
+
 /// (rand) or (rand n) - random float 0-1 or 0-n
 pub(crate) fn builtin_rand(args: &[KlujurVal]) -> Result<KlujurVal> {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    // Simple random using time-based seed (not cryptographically secure)
-    let seed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos() as u64;
-    let random = ((seed
-        .wrapping_mul(6364136223846793005)
-        .wrapping_add(1442695040888963407)) as f64)
-        / (u64::MAX as f64);
+    let random = next_random_f64();
 
     match args.len() {
         0 => Ok(KlujurVal::float(random)),
@@ -55,14 +85,7 @@ pub(crate) fn builtin_rand_int(args: &[KlujurVal]) -> Result<KlujurVal> {
         return Err(Error::EvalError("rand-int: n must be positive".into()));
     }
 
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let seed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos() as u64;
-    let random = seed
-        .wrapping_mul(6364136223846793005)
-        .wrapping_add(1442695040888963407);
+    let random = next_random_u64();
     Ok(KlujurVal::int((random % (n as u64)) as i64))
 }
 
@@ -76,14 +99,7 @@ pub(crate) fn builtin_rand_nth(args: &[KlujurVal]) -> Result<KlujurVal> {
         return Err(Error::EvalError("rand-nth: collection is empty".into()));
     }
 
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let seed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos() as u64;
-    let random = seed
-        .wrapping_mul(6364136223846793005)
-        .wrapping_add(1442695040888963407);
+    let random = next_random_u64();
     let idx = (random % (items.len() as u64)) as usize;
     Ok(items[idx].clone())
 }
@@ -95,18 +111,9 @@ pub(crate) fn builtin_shuffle(args: &[KlujurVal]) -> Result<KlujurVal> {
     }
     let mut items = to_seq(&args[0])?;
 
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let mut seed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos() as u64;
-
     // Fisher-Yates shuffle
     for i in (1..items.len()).rev() {
-        seed = seed
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1442695040888963407);
-        let j = (seed % ((i + 1) as u64)) as usize;
+        let j = (next_random_u64() % ((i + 1) as u64)) as usize;
         items.swap(i, j);
     }
 
