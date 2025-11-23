@@ -8,6 +8,7 @@
 use klujur_core::builtins::register_builtins;
 use klujur_core::env::Env;
 use klujur_core::eval::eval;
+use klujur_core::init_stdlib;
 use klujur_parser::{KlujurVal, Parser};
 
 /// Helper to evaluate multiple expressions in shared env and return the last result.
@@ -326,4 +327,84 @@ fn test_protocol_method_with_three_args() {
         ],
         KlujurVal::int(13)
     );
+}
+
+// =============================================================================
+// extend (low-level map-based extension)
+// =============================================================================
+
+#[test]
+fn test_extend_with_keyword_method_map() {
+    assert_eval_forms!(
+        &[
+            "(defprotocol Greetable (greet [x]))",
+            "(def greeting-fn (fn [s] (str \"Hello, \" s)))",
+            "(extend String Greetable {:greet greeting-fn})",
+            "(greet \"World\")",
+        ],
+        KlujurVal::string("Hello, World")
+    );
+}
+
+#[test]
+fn test_extend_with_anonymous_fn() {
+    assert_eval_forms!(
+        &[
+            "(defprotocol Counter (count-it [x]))",
+            "(extend Vector Counter {:count-it (fn [v] (count v))})",
+            "(count-it [1 2 3])",
+        ],
+        KlujurVal::int(3)
+    );
+}
+
+#[test]
+fn test_extend_multiple_methods() {
+    assert_eval_forms!(
+        &[
+            "(defprotocol Describable (describe [x]) (summarize [x n]))",
+            "(extend String
+               Describable
+               {:describe (fn [s] (str \"String: \" s))
+                :summarize (fn [s n] (subs s 0 n))})",
+            "(describe \"hello\")",
+        ],
+        KlujurVal::string("String: hello")
+    );
+}
+
+#[test]
+fn test_extend_works_with_dispatch() {
+    let env = Env::new();
+    register_builtins(&env);
+    init_stdlib(&env).unwrap();
+
+    // Define protocol and extend using extend
+    eval_forms_with_env(
+        &[
+            "(defprotocol Greetable (greet [x]))",
+            "(extend String Greetable {:greet (fn [s] (str \"Str: \" s))})",
+            "(extend Int Greetable {:greet (fn [n] (str \"Num: \" n))})",
+        ],
+        &env,
+    )
+    .unwrap();
+
+    // Test dispatch to String
+    let str_result = eval_forms_with_env(&["(greet \"test\")"], &env);
+    assert_eq!(str_result.unwrap(), KlujurVal::string("Str: test"));
+
+    // Test dispatch to Int
+    let int_result = eval_forms_with_env(&["(greet 42)"], &env);
+    assert_eq!(int_result.unwrap(), KlujurVal::string("Num: 42"));
+}
+
+#[test]
+fn test_extend_error_unknown_method() {
+    let result = eval_forms(&[
+        "(defprotocol Greetable (greet [x]))",
+        "(extend String Greetable {:unknown-method (fn [s] s)})",
+    ]);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("not part of protocol"));
 }

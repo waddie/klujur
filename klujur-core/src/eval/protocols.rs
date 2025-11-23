@@ -284,6 +284,120 @@ pub(crate) fn eval_extend_type(args: &[KlujurVal], env: &Env) -> Result<KlujurVa
     Ok(KlujurVal::Nil)
 }
 
+/// (extend TypeName
+///   Protocol {:method-name fn, ...}
+///   Protocol2 {:method-name fn, ...})
+///
+/// Low-level protocol extension that takes a map of keyword->fn pairs.
+pub(crate) fn eval_extend(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
+    if args.is_empty() {
+        return Err(Error::syntax("extend", "requires a type name"));
+    }
+
+    // Get the type name
+    let type_name = match &args[0] {
+        KlujurVal::Symbol(s, _) => s.clone(),
+        other => {
+            return Err(Error::syntax(
+                "extend",
+                format!(
+                    "first argument must be a type symbol, got {}",
+                    other.type_name()
+                ),
+            ));
+        }
+    };
+
+    let type_key = symbol_to_type_key(&type_name)?;
+    let registry = env.registry();
+
+    // Process pairs of (Protocol method-map)
+    let mut i = 1;
+    while i < args.len() {
+        // Get protocol - can be a symbol or the protocol value itself
+        let protocol = match &args[i] {
+            KlujurVal::Symbol(s, _) => registry
+                .resolve_protocol(s.name())
+                .ok_or_else(|| Error::EvalError(format!("Unknown protocol: {}", s)))?,
+            KlujurVal::Protocol(p) => p.0.clone(),
+            other => {
+                return Err(Error::syntax(
+                    "extend",
+                    format!("expected protocol name or value, got {}", other.type_name()),
+                ));
+            }
+        };
+
+        i += 1;
+
+        if i >= args.len() {
+            return Err(Error::syntax(
+                "extend",
+                "protocol must be followed by a method map",
+            ));
+        }
+
+        // Get method map - must be a map
+        let method_map = eval(&args[i], env)?;
+        let methods = match &method_map {
+            KlujurVal::Map(m, _) => m,
+            other => {
+                return Err(Error::syntax(
+                    "extend",
+                    format!("expected method map, got {}", other.type_name()),
+                ));
+            }
+        };
+
+        // Process each method in the map
+        for (key, val) in methods.iter() {
+            let method_name = match key {
+                KlujurVal::Keyword(k) => k.name().to_string(),
+                KlujurVal::Symbol(s, _) => s.name().to_string(),
+                KlujurVal::String(s) => s.to_string(),
+                other => {
+                    return Err(Error::syntax(
+                        "extend",
+                        format!(
+                            "method key must be keyword, symbol, or string, got {}",
+                            other.type_name()
+                        ),
+                    ));
+                }
+            };
+
+            // Validate method exists in protocol
+            if !protocol.methods.contains_key(&method_name) {
+                return Err(Error::EvalError(format!(
+                    "Method {} is not part of protocol {}",
+                    method_name, protocol.name
+                )));
+            }
+
+            // Validate value is a function
+            match val {
+                KlujurVal::Fn(_) | KlujurVal::NativeFn(_) | KlujurVal::Macro(_) => {}
+                other => {
+                    return Err(Error::syntax(
+                        "extend",
+                        format!(
+                            "method implementation must be a function, got {}",
+                            other.type_name()
+                        ),
+                    ));
+                }
+            }
+
+            // Add the method implementation
+            protocol.add_method_impl(type_key.clone(), method_name, val.clone());
+        }
+
+        i += 1;
+    }
+
+    Ok(KlujurVal::Nil)
+}
+
 /// Convert a type name symbol to a TypeKey
 pub(crate) fn symbol_to_type_key(sym: &Symbol) -> Result<TypeKey> {
     match sym.name() {

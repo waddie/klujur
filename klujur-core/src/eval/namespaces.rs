@@ -954,9 +954,10 @@ pub(crate) fn eval_ns_resolve(args: &[KlujurVal], env: &Env) -> Result<KlujurVal
     // If symbol is qualified, resolve using its namespace (ignore ns argument)
     if let Some(sym_ns) = sym.namespace() {
         if let Some(target_ns) = registry.find(sym_ns)
-            && let Some(var) = target_ns.find_var(sym.name()) {
-                return Ok(KlujurVal::Var(var));
-            }
+            && let Some(var) = target_ns.find_var(sym.name())
+        {
+            return Ok(KlujurVal::Var(var));
+        }
         return Ok(KlujurVal::Nil);
     }
 

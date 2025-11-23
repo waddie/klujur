@@ -273,7 +273,9 @@
                         ~@body))
                (recur (next s#)))))))))
 
-(defn- for-emit
+;; NOTE: This must be public because macros expand in the calling namespace,
+;; and syntax-quote doesn't auto-qualify symbols yet.
+(defn for-emit
   "Helper for the for macro - emits code for bindings."
   [bindings body-expr]
   (if (empty? bindings)
@@ -762,13 +764,22 @@
 ;; Transducer-producing Functions (no lazy seq equivalent)
 ;; ============================================================================
 
+(defn preserving-reduced
+  "Wraps a reducing function to preserve reduced status through nested reductions.
+   Used by cat and mapcat to properly propagate early termination."
+  [rf]
+  (fn [acc input]
+    (let [result (rf acc input)]
+      (if (reduced? result) (reduced result) result))))
+
 (defn cat
   "A transducer which concatenates nested collections."
   [rf]
-  (fn
-    ([] (rf))
-    ([result] (rf result))
-    ([result input] (reduce rf result input))))
+  (let [rrf (preserving-reduced rf)]
+    (fn
+      ([] (rf))
+      ([result] (rf result))
+      ([result input] (reduce rrf result input)))))
 
 (defn dedupe
   "Returns a lazy sequence removing consecutive duplicates.
@@ -1110,10 +1121,11 @@
   "Transducer that concatenates nested collections."
   []
   (fn [rf]
-    (fn
-      ([] (rf))
-      ([result] (rf result))
-      ([result input] (reduce rf result input)))))
+    (let [rrf (preserving-reduced rf)]
+      (fn
+        ([] (rf))
+        ([result] (rf result))
+        ([result input] (reduce rrf result input))))))
 
 (defn mapcat-xf
   "Returns a transducer that maps f then concatenates results."
@@ -1133,6 +1145,88 @@
            (let [sepr (rf result sep)]
              (if (reduced? sepr) sepr (rf sepr input)))
            (do (vreset! started true) (rf result input))))))))
+
+;; ============================================================================
+;; Sequence with Transducer
+;; ============================================================================
+
+(defn sequence
+  "Coerces coll to a (possibly lazy) sequence. If coll is already a sequence,
+   returns it. If coll is empty, returns nil.
+
+   When a transducer is supplied, returns a lazy sequence of applications of
+   the transform to the items in coll(s). The transform should accept the
+   number of items provided in the colls."
+  ([coll] (seq coll))
+  ([xform coll]
+   ;; Implementation using a multi-step approach: We use a volatile to
+   ;; buffer items since transducers push while lazy-seqs pull. We step
+   ;; through one input at a time, collecting any outputs, then yield them.
+   (let [buffer (volatile! [])
+         ;; Reducing function that collects items into buffer
+         rf     (fn
+                  ([] nil)
+                  ([result] result)
+                  ([result item] (vswap! buffer conj item) result))
+         ;; Apply the transducer to get the transforming rf
+         xf     (xform rf)]
+     (letfn
+       [(step [s]
+          (lazy-seq
+           (if (seq s)
+             ;; Step one input element through the transducer
+             (let [result (xf nil (first s))]
+               (if (reduced? result)
+                 ;; Early termination - drain buffer and stop
+                 (let [items @buffer]
+                   (vreset! buffer [])
+                   (xf nil) ;; completion
+                   (when (seq items) (concat items nil)))
+                 ;; Normal case - drain buffer and continue
+                 (let [items @buffer]
+                   (vreset! buffer [])
+                   (if (seq items)
+                     (concat items (step (rest s)))
+                     (step (rest s))))))
+             ;; Input exhausted - call completion and drain final items
+             (do (xf nil) ;; completion
+                 (let [items @buffer]
+                   (vreset! buffer [])
+                   (when (seq items) items))))))]
+       (step (seq coll))))))
+
+(defn eduction
+  "Returns a reducible/iterable application of the transducers to the items
+   in coll. Transducers are applied in order as if combined with comp.
+   Note that these applications will be performed every time reduce/into/seq
+   is called - eduction does not cache results like sequence does.
+
+   Unlike sequence, eduction is not lazy - it represents a recipe for
+   transformation that gets applied fresh each time it's consumed."
+  [& xforms-and-coll]
+  (let [xforms (butlast xforms-and-coll)
+        coll   (last xforms-and-coll)
+        xform  (if (= 1 (count xforms)) (first xforms) (apply comp xforms))]
+    ;; Return a map-like structure that can be:
+    ;; - Reduced with (transduce identity rf init eduction)
+    ;; - Converted to seq with (sequence (:xform e) (:coll e))
+    (with-meta {:klujur/type :eduction :xform xform :coll coll}
+               {:type :klujur.core/Eduction})))
+
+(defn eduction?
+  "Returns true if x is an eduction."
+  [x]
+  (= :eduction (:klujur/type x)))
+
+(defn eduction-seq
+  "Converts an eduction to a lazy sequence."
+  [ed]
+  (sequence (:xform ed) (:coll ed)))
+
+(defn eduction-reduce
+  "Reduces an eduction with the given function and initial value."
+  ([ed f] (transduce (:xform ed) f (:coll ed)))
+  ([ed f init] (transduce (:xform ed) f init (:coll ed))))
 
 ;; ============================================================================
 ;; Protocol Support

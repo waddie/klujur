@@ -77,6 +77,14 @@ impl Namespace {
         var
     }
 
+    /// Intern a dynamic Var with the given name and value.
+    /// Dynamic vars can be rebound using the `binding` special form.
+    pub fn intern_dynamic(&self, name: impl Into<String>, value: KlujurVal) -> KlujurVar {
+        let var = self.intern_with_value(name, value);
+        var.set_dynamic(true);
+        var
+    }
+
     /// Look up a Var by name in this namespace.
     /// Does not check refers or aliases.
     pub fn find_var(&self, name: &str) -> Option<KlujurVar> {
@@ -177,10 +185,16 @@ struct RegistryInner {
 }
 
 impl NamespaceRegistry {
-    /// Create a new registry with a "user" namespace as current.
+    /// The name of the core namespace (analogous to clojure.core).
+    pub const CORE_NS: &'static str = "klujur.core";
+
+    /// Create a new registry with "klujur.core" and "user" namespaces.
+    /// The "user" namespace is set as current.
     pub fn new() -> Self {
         let mut namespaces = HashMap::new();
+        let klujur_core = Namespace::new(Self::CORE_NS);
         let user_ns = Namespace::new("user");
+        namespaces.insert(Self::CORE_NS.to_string(), klujur_core);
         namespaces.insert("user".to_string(), user_ns);
 
         NamespaceRegistry {
@@ -357,6 +371,7 @@ impl NamespaceRegistry {
     }
 
     /// Find a namespace by name, or create it if it doesn't exist.
+    /// New namespaces (except klujur.core) automatically refer all klujur.core publics.
     pub fn find_or_create(&self, name: impl Into<String>) -> Namespace {
         let name = name.into();
         let mut inner = self.inner.borrow_mut();
@@ -366,8 +381,29 @@ impl NamespaceRegistry {
         }
 
         let ns = Namespace::new(name.clone());
+
+        // Auto-refer klujur.core for all namespaces except klujur.core itself
+        if name != Self::CORE_NS
+            && let Some(core_ns) = inner.namespaces.get(Self::CORE_NS)
+        {
+            for (var_name, var) in core_ns.publics() {
+                ns.refer(var_name, var);
+            }
+        }
+
         inner.namespaces.insert(name, ns.clone());
         ns
+    }
+
+    /// Refer all public vars from klujur.core into the given namespace.
+    /// Called during initialization to set up the user namespace.
+    pub fn refer_core_to(&self, ns: &Namespace) {
+        let inner = self.inner.borrow();
+        if let Some(core_ns) = inner.namespaces.get(Self::CORE_NS) {
+            for (var_name, var) in core_ns.publics() {
+                ns.refer(var_name, var);
+            }
+        }
     }
 
     /// Find a namespace by name, returning None if it doesn't exist.

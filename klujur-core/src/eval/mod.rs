@@ -45,12 +45,25 @@ use namespaces::{
     eval_ns_name, eval_ns_publics, eval_ns_resolve, eval_refer, eval_remove_ns, eval_require,
     eval_the_ns, eval_use, eval_var,
 };
-use protocols::{eval_defprotocol, eval_extend_type};
+use protocols::{eval_defprotocol, eval_extend, eval_extend_type};
 use records::eval_defrecord;
 use special_forms::{
     eval_and, eval_as_thread, eval_cond, eval_eval, eval_if_not, eval_load_file, eval_load_string,
     eval_or, eval_thread_first, eval_thread_last, eval_time, eval_when, eval_when_not,
 };
+
+/// Convert a lazy seq to a list for evaluation (e.g., in macro expansion).
+/// Non-lazy-seq values are returned as-is.
+fn realize_for_eval(val: KlujurVal) -> Result<KlujurVal> {
+    match val {
+        KlujurVal::LazySeq(ls) => {
+            // Force the lazy seq and collect into a list
+            let items = crate::builtins::to_seq(&KlujurVal::LazySeq(ls))?;
+            Ok(KlujurVal::list(items))
+        }
+        other => Ok(other),
+    }
+}
 
 /// Evaluate a Klujur expression in the given environment.
 pub fn eval(expr: &KlujurVal, env: &Env) -> Result<KlujurVal> {
@@ -79,6 +92,13 @@ pub fn eval(expr: &KlujurVal, env: &Env) -> Result<KlujurVal> {
 
         // Symbol lookup - automatically dereferences Vars
         KlujurVal::Symbol(sym, _) => {
+            // Special handling for *ns* - returns the current namespace as a symbol
+            if sym.name() == "*ns*" && sym.namespace().is_none() {
+                let registry = env.registry();
+                let current_ns = registry.current();
+                return Ok(KlujurVal::symbol(Symbol::new(&current_ns.name())));
+            }
+
             // Check if this is a qualified symbol (ns/name)
             if let Some(ns_name) = sym.namespace() {
                 // Qualified symbol - resolve through namespace registry
@@ -258,6 +278,7 @@ fn eval_list(items: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
             "descendants" => return eval_descendants(&items[1..], env),
             "defprotocol" => return eval_defprotocol(&items[1..], env),
             "extend-type" => return eval_extend_type(&items[1..], env),
+            "extend" => return eval_extend(&items[1..], env),
             "defrecord" => return eval_defrecord(&items[1..], env),
             _ => {}
         }
@@ -270,6 +291,8 @@ fn eval_list(items: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
     if let KlujurVal::Macro(m) = &op {
         // Macro call - pass unevaluated args, then eval the result
         let expanded = apply_fn(m, &items[1..])?;
+        // If the macro returns a lazy seq, convert it to a list for evaluation
+        let expanded = realize_for_eval(expanded)?;
         return eval(&expanded, env);
     }
 

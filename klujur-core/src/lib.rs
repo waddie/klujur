@@ -28,9 +28,15 @@ const CORE_STDLIB: &str = include_str!("../../klujur-std/core.cljc");
 
 /// Initialise the standard library by evaluating embedded macros.
 ///
-/// Call this after `register_builtins` to load standard macros like
-/// `if-let`, `when-let`, `case`, `condp`, `dotimes`, `doseq`, etc.
+/// This loads the standard library into the `klujur.core` namespace,
+/// then refers all public vars into the `user` namespace. Call this
+/// after `register_builtins`.
 pub fn init_stdlib(env: &Env) -> Result<()> {
+    let registry = env.registry();
+
+    // Switch to klujur.core namespace to load the stdlib
+    registry.set_current(NamespaceRegistry::CORE_NS);
+
     let mut parser = klujur_parser::Parser::new(CORE_STDLIB)
         .map_err(|e| Error::EvalError(format!("Failed to parse stdlib: {:?}", e)))?;
 
@@ -40,6 +46,13 @@ pub fn init_stdlib(env: &Env) -> Result<()> {
     {
         eval::eval(&expr, env)?;
     }
+
+    // Refer all klujur.core publics into the user namespace
+    let user_ns = registry.find("user").expect("user namespace should exist");
+    registry.refer_core_to(&user_ns);
+
+    // Restore user as the current namespace
+    registry.set_current("user");
 
     Ok(())
 }
