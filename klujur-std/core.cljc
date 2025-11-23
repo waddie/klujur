@@ -186,23 +186,47 @@
 ;; ============================================================================
 
 (defmacro case
-  "Dispatch on constant values. No fall-through."
+  "Dispatch on constant values. Uses O(1) map lookup for efficient dispatch.
+
+  (case x
+    :a \"got a\"
+    :b \"got b\"
+    \"default\")
+
+  Multiple values can be matched with a list:
+
+  (case x
+    (:a :b) \"got a or b\"
+    :c \"got c\")"
   [expr & clauses]
   (let [default (if (odd? (count clauses))
                   (last clauses)
                   `(throw (ex-info (str "No matching clause: " ~expr)
                                    {:value ~expr})))
-        pairs   (if (odd? (count clauses)) (butlast clauses) clauses)
-        g       (gensym "case_")]
-    `(let [~g ~expr]
-       (cond ~@(mapcat (fn [[test then]]
-                         (if (list? test)
-                           ;; Multiple values
-                           `[(or ~@(map (fn [t] `(= ~g ~t)) test)) ~then]
-                           `[(= ~g ~test) ~then]))
-                (partition 2 pairs))
-             :else
-             ~default))))
+        pairs   (vec (if (odd? (count clauses)) (butlast clauses) clauses))
+        g       (gensym "case_")
+        ;; Build indexed result fns: {0 (fn [] result0), 1 (fn [] result1), ...}
+        ;; We use thunks to avoid evaluating all branches
+        indexed-pairs (vec (map-indexed vector (partition 2 pairs)))
+        ;; Build the dispatch map: {test-val index, ...}
+        ;; We build this manually to avoid lazy-seq issues with into
+        dispatch-map (reduce (fn [m [idx [test _then]]]
+                               (if (list? test)
+                                 ;; Multiple values map to same index
+                                 (reduce (fn [m2 t] (assoc m2 t idx)) m test)
+                                 (assoc m test idx)))
+                             {}
+                             indexed-pairs)
+        ;; Build thunks for each branch
+        thunks (vec (map (fn [[_idx [_test then]]]
+                           `(fn [] ~then))
+                         indexed-pairs))
+        thunks-sym (gensym "thunks_")]
+    `(let [~g ~expr
+           ~thunks-sym ~thunks]
+       (if-let [idx# (get ~dispatch-map ~g)]
+         ((nth ~thunks-sym idx#))
+         ~default))))
 
 (defmacro condp
   "Dispatch on predicate results."

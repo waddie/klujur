@@ -123,6 +123,40 @@ fn realize_for_eval(val: KlujurVal) -> Result<KlujurVal> {
 }
 
 /// Evaluate a Klujur expression in the given environment.
+///
+/// This is the main entry point for interpreting Klujur code. It handles
+/// all expression types including special forms, function application,
+/// and symbol resolution.
+///
+/// # Examples
+///
+/// ```
+/// use klujur_core::{Env, eval, register_builtins};
+/// use klujur_parser::{KlujurVal, Parser};
+///
+/// let env = Env::new();
+/// register_builtins(&env);
+///
+/// // Evaluate arithmetic
+/// let mut parser = Parser::new("(* 6 7)").unwrap();
+/// let expr = parser.parse().unwrap().unwrap();
+/// let result = eval(&expr, &env).unwrap();
+/// assert_eq!(result, KlujurVal::int(42));
+///
+/// // Evaluate nested expressions
+/// let mut parser = Parser::new("(+ 1 (* 2 3))").unwrap();
+/// let expr = parser.parse().unwrap().unwrap();
+/// let result = eval(&expr, &env).unwrap();
+/// assert_eq!(result, KlujurVal::int(7));
+/// ```
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - A symbol cannot be resolved
+/// - A function is called with wrong arity
+/// - Type mismatches occur during operations
+/// - Stack overflow occurs (configurable via [`set_max_eval_depth`])
 pub fn eval(expr: &KlujurVal, env: &Env) -> Result<KlujurVal> {
     // Check recursion depth to prevent stack overflow
     let _guard = EvalDepthGuard::new()?;

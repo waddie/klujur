@@ -2,6 +2,20 @@
 // Copyright (c) 2025 Tom Waddington. MIT licensed.
 
 //! Error types for Klujur evaluation.
+//!
+//! # Examples
+//!
+//! ```
+//! use klujur_core::{Error, Result};
+//!
+//! // Create typed errors
+//! let arity_err = Error::arity_named("my-fn", 2, 3);
+//! assert!(arity_err.to_string().contains("my-fn"));
+//! assert!(arity_err.to_string().contains("expected 2"));
+//!
+//! let type_err = Error::type_error("integer", "string");
+//! assert!(type_err.to_string().contains("expected integer"));
+//! ```
 
 use klujur_parser::{KlujurVal, Symbol};
 use std::fmt;
@@ -10,6 +24,26 @@ use std::fmt;
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Errors that can occur during evaluation.
+///
+/// # Examples
+///
+/// ```
+/// use klujur_core::Error;
+///
+/// // Arity errors include function name and expected/actual counts
+/// let err = Error::arity_named("inc", 1, 0);
+/// assert_eq!(
+///     err.to_string(),
+///     "Wrong number of arguments to 'inc': expected 1, got 0"
+/// );
+///
+/// // Type errors show expected vs actual types
+/// let err = Error::type_error("number", "string");
+/// assert_eq!(
+///     err.to_string(),
+///     "Type error: expected number, got string"
+/// );
+/// ```
 #[derive(Debug, Clone)]
 pub enum Error {
     /// Undefined symbol reference

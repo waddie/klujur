@@ -17,6 +17,31 @@ use crate::namespace::NamespaceRegistry;
 /// Environments form a chain through parent references, enabling
 /// lexical scoping. Each environment has its own bindings map
 /// and optionally a parent environment for outer scope lookup.
+///
+/// # Examples
+///
+/// ```
+/// use klujur_core::Env;
+/// use klujur_parser::{KlujurVal, Symbol};
+///
+/// // Create a root environment
+/// let env = Env::new();
+///
+/// // Define a binding
+/// env.define(Symbol::new("x"), KlujurVal::int(42));
+///
+/// // Look up the binding
+/// assert_eq!(env.lookup(&Symbol::new("x")).unwrap(), KlujurVal::int(42));
+///
+/// // Create a child environment that inherits parent bindings
+/// let child = env.child();
+/// assert_eq!(child.lookup(&Symbol::new("x")).unwrap(), KlujurVal::int(42));
+///
+/// // Child can shadow parent bindings
+/// child.define(Symbol::new("x"), KlujurVal::int(100));
+/// assert_eq!(child.lookup(&Symbol::new("x")).unwrap(), KlujurVal::int(100));
+/// assert_eq!(env.lookup(&Symbol::new("x")).unwrap(), KlujurVal::int(42));
+/// ```
 #[derive(Debug, Clone)]
 pub struct Env {
     inner: Rc<RefCell<EnvInner>>,
