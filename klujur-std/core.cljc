@@ -197,16 +197,16 @@
                  `(throw (ex-info (str "No matching clause") {:value ~g}))
                  (let [c  (first clauses)
                        cs (next clauses)]
-                   (if (= c :>>)
-                     ;; :>> threading form
-                     (let [form (first cs)]
-                       `(if-let [result# (~pred ~(first cs) ~g)]
-                          (~form result#)
-                          ~(emit (rest cs))))
-                     (if (nil? cs)
-                       ;; Default clause
-                       c
-                       ;; Normal clause
+                   (if (nil? cs)
+                     ;; Default clause (odd number of forms)
+                     c
+                     (if (= (first cs) :>>)
+                       ;; :>> threading form: test-expr :>> result-fn
+                       (let [result-fn (second cs)]
+                         `(if-let [result# (~pred ~c ~g)]
+                            (~result-fn result#)
+                            ~(emit (nnext cs))))
+                       ;; Normal clause: test-expr result-expr
                        `(if (~pred ~c ~g) ~(first cs) ~(emit (rest cs))))))))]
     `(let [~g ~expr]
        ~(emit clauses))))
@@ -261,17 +261,73 @@
                         ~@body))
                (recur (next s#)))))))))
 
+(defn- for-emit
+  "Helper for the for macro - emits code for bindings."
+  [bindings body-expr]
+  (if (empty? bindings)
+    ;; Base case: emit the body wrapped in list
+    `(list ~body-expr)
+    (let [b  (first bindings)
+          bs (rest bindings)]
+      (if (keyword? b)
+        ;; Handle modifiers
+        (cond (= b :when) `(if ~(first bs) ~(for-emit (rest bs) body-expr) ())
+              (= b :let) `(let ~(first bs)
+                               ~(for-emit (rest bs) body-expr))
+              (= b :while) `(if ~(first bs) ~(for-emit (rest bs) body-expr) ())
+              :else (for-emit (rest bs) body-expr))
+        ;; Sequence binding
+        (let [sym  (first bindings)
+              expr (second bindings)
+              more (drop 2 bindings)]
+          `(mapcat (fn [~sym] ~(for-emit (vec more) body-expr)) ~expr))))))
+
+(defmacro for
+  "List comprehension. Takes a vector of one or more binding-form/collection-expr
+   pairs, each followed by zero or more modifiers, and yields a lazy sequence of
+   evaluations of expr.
+
+   Supported modifiers:
+     :when test - only include results where test is truthy
+     :let bindings - introduce local bindings
+     :while test - continue while test is truthy, then stop"
+  [bindings body-expr]
+  `(lazy-seq ~(for-emit bindings body-expr)))
+
 ;; ============================================================================
 ;; Local Functions
 ;; ============================================================================
 
 (defmacro letfn
-  "Bind mutually recursive local functions."
+  "Bind mutually recursive local functions.
+   Uses volatiles to enable mutual recursion - each function can call
+   the others even though they're defined simultaneously."
   [fnspecs & body]
-  (let [names    (map first fnspecs)
-        bindings (vec (mapcat (fn [spec] [(first spec) `(fn ~@(rest spec))])
-                       fnspecs))]
-    `(let ~bindings
+  (let [names            (map first fnspecs)
+        ;; Create gensyms for the volatile references
+        vol-syms         (map (fn [n] (gensym (str n "_vol_"))) names)
+        ;; Bindings that create volatiles initialized to nil
+        vol-bindings     (vec (mapcat (fn [v] [v `(volatile! nil)]) vol-syms))
+        ;; Map from name to its volatile symbol
+        name->vol        (zipmap names vol-syms)
+        ;; Create wrapper functions that deref their volatiles
+        wrapper-bindings (vec (mapcat (fn [[name vol]] [name
+                                                        `(fn [& args#]
+                                                           (apply (deref ~vol)
+                                                                  args#))])
+                               name->vol))
+        ;; Create the actual function implementations
+        impl-syms        (map (fn [n] (gensym (str n "_impl_"))) names)
+        impl-bindings    (vec (mapcat (fn [spec impl-sym] [impl-sym
+                                                           `(fn ~@(rest spec))])
+                               fnspecs
+                               impl-syms))
+        ;; Set the volatiles to the implementations
+        set-exprs        (vec (map (fn [vol impl] `(vreset! ~vol ~impl))
+                                   vol-syms
+                                   impl-syms))]
+    `(let ~(vec (concat vol-bindings wrapper-bindings impl-bindings))
+          ~@set-exprs
           ~@body)))
 
 ;; ============================================================================
@@ -740,12 +796,11 @@
 
 (defn cat
   "A transducer which concatenates nested collections."
-  []
-  (fn [rf]
-    (fn
-      ([] (rf))
-      ([result] (rf result))
-      ([result input] (reduce rf result input)))))
+  [rf]
+  (fn
+    ([] (rf))
+    ([result] (rf result))
+    ([result input] (reduce rf result input))))
 
 (defn dedupe
   "Returns a lazy sequence removing consecutive duplicates.
@@ -1128,19 +1183,20 @@
 
    Expands to multiple extend-type forms."
   [protocol & specs]
-  (let [parse-specs
-        (fn parse-specs [specs]
-          (loop [remaining specs
-                 result []]
-            (if (empty? remaining)
-              result
-              (let [type-sym (first remaining)
-                    ;; Collect method impls until next symbol (type) or end
-                    methods (take-while list? (rest remaining))
-                    rest-specs (drop (inc (count methods)) remaining)]
-                (recur rest-specs
-                       (conj result
-                             `(extend-type ~type-sym
-                                ~protocol
-                                ~@methods)))))))]
+  (let [parse-specs (fn parse-specs [specs]
+                      (loop [remaining specs
+                             result    []]
+                        (if (empty? remaining)
+                          result
+                          (let [type-sym   (first remaining)
+                                ;; Collect method impls until next symbol
+                                ;; (type) or end
+                                methods    (take-while list? (rest remaining))
+                                rest-specs (drop (inc (count methods))
+                                                 remaining)]
+                            (recur rest-specs
+                                   (conj result
+                                         `(extend-type ~type-sym
+                                           ~protocol
+                                           ~@methods)))))))]
     `(do ~@(parse-specs specs))))

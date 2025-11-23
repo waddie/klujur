@@ -230,6 +230,16 @@ impl<'a> Lexer<'a> {
         self.regex_pattern.take()
     }
 
+    /// Get the current line number (1-indexed).
+    pub fn line(&self) -> usize {
+        self.line
+    }
+
+    /// Get the current column number (1-indexed).
+    pub fn column(&self) -> usize {
+        self.column
+    }
+
     // ========================================================================
     // Internal helpers
     // ========================================================================
