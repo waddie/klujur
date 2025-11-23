@@ -94,6 +94,49 @@ pub(crate) fn builtin_prefer_method(args: &[KlujurVal]) -> Result<KlujurVal> {
     Ok(KlujurVal::Multimethod(mm))
 }
 
+/// (prefers multimethod) - Returns a map of dispatch-val -> #{other-vals...} preferences
+pub(crate) fn builtin_prefers(args: &[KlujurVal]) -> Result<KlujurVal> {
+    if args.len() != 1 {
+        return Err(Error::arity_named("prefers", 1, args.len()));
+    }
+    let mm = match &args[0] {
+        KlujurVal::Multimethod(m) => m,
+        other => {
+            return Err(Error::type_error_in(
+                "prefers",
+                "multimethod",
+                other.type_name(),
+            ));
+        }
+    };
+    // Convert HashMap<KlujurVal, OrdSet<KlujurVal>> to OrdMap<KlujurVal, KlujurVal>
+    let prefers = mm.get_prefers();
+    let result: OrdMap<KlujurVal, KlujurVal> = prefers
+        .into_iter()
+        .map(|(k, v)| (k, KlujurVal::Set(v, None)))
+        .collect();
+    Ok(KlujurVal::Map(result, None))
+}
+
+/// (remove-all-methods multimethod) - Removes all methods from the multimethod
+pub(crate) fn builtin_remove_all_methods(args: &[KlujurVal]) -> Result<KlujurVal> {
+    if args.len() != 1 {
+        return Err(Error::arity_named("remove-all-methods", 1, args.len()));
+    }
+    let mm = match &args[0] {
+        KlujurVal::Multimethod(m) => m.clone(),
+        other => {
+            return Err(Error::type_error_in(
+                "remove-all-methods",
+                "multimethod",
+                other.type_name(),
+            ));
+        }
+    };
+    mm.clear_methods();
+    Ok(KlujurVal::Multimethod(mm))
+}
+
 // ============================================================================
 // Hierarchy Functions
 // ============================================================================

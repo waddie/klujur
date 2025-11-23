@@ -56,7 +56,12 @@ pub(crate) fn eval_defmulti(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> 
                     return Err(Error::syntax("defmulti", ":hierarchy requires a value"));
                 }
                 let h_val = eval(&args[i + 1], env)?;
-                match h_val {
+                // Handle both direct hierarchy and var reference (#'my-h)
+                let hierarchy_val = match &h_val {
+                    KlujurVal::Var(v) => deref_var(v),
+                    other => other.clone(),
+                };
+                match hierarchy_val {
                     KlujurVal::Hierarchy(h) => {
                         hierarchy = Some(h);
                     }

@@ -62,16 +62,18 @@ pub fn apply(func: &KlujurVal, args: &[KlujurVal]) -> Result<KlujurVal> {
             match &args[0] {
                 KlujurVal::Int(idx) => {
                     let i = *idx;
-                    let idx_usize = i as usize;
-                    if idx_usize < vec.len() {
-                        Ok(vec[idx_usize].clone())
-                    } else if args.len() == 2 {
-                        Ok(args[1].clone())
+                    // Check for negative index before casting to usize
+                    if i < 0 || i as usize >= vec.len() {
+                        if args.len() == 2 {
+                            Ok(args[1].clone())
+                        } else {
+                            Err(Error::IndexOutOfBounds {
+                                index: i,
+                                length: vec.len(),
+                            })
+                        }
                     } else {
-                        Err(Error::IndexOutOfBounds {
-                            index: i,
-                            length: vec.len(),
-                        })
+                        Ok(vec[i as usize].clone())
                     }
                 }
                 _ => Err(Error::type_error_in(
@@ -156,7 +158,7 @@ pub(crate) fn apply_fn(func: &KlujurFn, args: &[KlujurVal]) -> Result<KlujurVal>
     let captured_env = func
         .env
         .downcast_ref::<Env>()
-        .expect("Function environment must be Env type");
+        .ok_or_else(|| Error::Internal("Function environment has invalid type".into()))?;
 
     // Create function environment
     let fn_env = captured_env.child();
@@ -224,7 +226,7 @@ pub(crate) fn apply_native(func: &KlujurNativeFn, args: &[KlujurVal]) -> Result<
     let f = func
         .func()
         .downcast_ref::<Rc<NativeFnImpl>>()
-        .expect("Native function must have correct type");
+        .ok_or_else(|| Error::Internal("Native function has invalid type".into()))?;
     f(args)
 }
 

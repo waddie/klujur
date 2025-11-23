@@ -898,3 +898,90 @@ pub(crate) fn eval_ns_name(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
 
     Ok(KlujurVal::symbol(Symbol::new(&ns_name)))
 }
+
+/// (ns-resolve ns sym) or (ns-resolve ns env sym)
+/// Returns the var to which a symbol will be resolved in the namespace, else nil.
+/// If the symbol is qualified, the namespace argument is ignored.
+/// The 3-arity form accepts an environment map (for macro &env) - if the symbol
+/// is found in the env, returns nil (it's a local binding, not a var).
+pub(crate) fn eval_ns_resolve(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
+    // Parse arguments based on arity
+    let (ns_arg, env_map, sym) = match args.len() {
+        2 => {
+            // (ns-resolve ns sym)
+            let ns_arg = eval(&args[0], env)?;
+            let sym = eval(&args[1], env)?;
+            (ns_arg, None, sym)
+        }
+        3 => {
+            // (ns-resolve ns env sym)
+            let ns_arg = eval(&args[0], env)?;
+            let env_map = eval(&args[1], env)?;
+            let sym = eval(&args[2], env)?;
+            (ns_arg, Some(env_map), sym)
+        }
+        _ => {
+            return Err(Error::syntax(
+                "ns-resolve",
+                "requires 2 or 3 arguments: (ns-resolve ns sym) or (ns-resolve ns env sym)",
+            ));
+        }
+    };
+
+    // sym must be a symbol
+    let sym = match &sym {
+        KlujurVal::Symbol(s, _) => s.clone(),
+        other => {
+            return Err(Error::type_error_in(
+                "ns-resolve",
+                "symbol",
+                other.type_name(),
+            ));
+        }
+    };
+
+    // If env map is provided, check if symbol is a local binding
+    if let Some(KlujurVal::Map(map, _)) = &env_map {
+        let sym_val = KlujurVal::symbol(sym.clone());
+        if map.contains_key(&sym_val) {
+            // Symbol is a local binding, not a var
+            return Ok(KlujurVal::Nil);
+        }
+    }
+
+    let registry = env.registry();
+
+    // If symbol is qualified, resolve using its namespace (ignore ns argument)
+    if let Some(sym_ns) = sym.namespace() {
+        if let Some(target_ns) = registry.find(sym_ns)
+            && let Some(var) = target_ns.find_var(sym.name()) {
+                return Ok(KlujurVal::Var(var));
+            }
+        return Ok(KlujurVal::Nil);
+    }
+
+    // Get the namespace from argument
+    let ns_name = match &ns_arg {
+        KlujurVal::Symbol(s, _) => s.name().to_string(),
+        KlujurVal::String(s) => s.to_string(),
+        other => {
+            return Err(Error::type_error_in(
+                "ns-resolve",
+                "symbol or string",
+                other.type_name(),
+            ));
+        }
+    };
+
+    // Find the namespace
+    let target_ns = match registry.find(&ns_name) {
+        Some(ns) => ns,
+        None => return Ok(KlujurVal::Nil),
+    };
+
+    // Resolve the symbol in that namespace (checks local vars, then refers)
+    match target_ns.resolve(&sym) {
+        Some(var) => Ok(KlujurVal::Var(var)),
+        None => Ok(KlujurVal::Nil),
+    }
+}

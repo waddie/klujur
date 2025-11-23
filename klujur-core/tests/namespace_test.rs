@@ -566,7 +566,6 @@ fn test_ns_macro_with_use_clause() {
 // =============================================================================
 
 #[test]
-#[ignore] // TODO: ns-resolve not implemented yet
 fn test_ns_resolve() {
     let env = Env::new();
     register_builtins(&env);
@@ -587,7 +586,6 @@ fn test_ns_resolve() {
 }
 
 #[test]
-#[ignore] // TODO: ns-resolve not implemented yet
 fn test_ns_resolve_nonexistent() {
     let env = Env::new();
     register_builtins(&env);
@@ -595,6 +593,75 @@ fn test_ns_resolve_nonexistent() {
 
     // ns-resolve for nonexistent var should return nil
     let result = eval_str_with_env("(ns-resolve 'user 'nonexistent-var)", &env).unwrap();
+    assert_eq!(result, KlujurVal::Nil);
+}
+
+#[test]
+fn test_ns_resolve_qualified_symbol() {
+    let env = Env::new();
+    register_builtins(&env);
+    init_stdlib(&env).unwrap();
+
+    // Create a namespace with a var
+    eval_str_with_env("(in-ns 'test.ns)", &env).unwrap();
+    eval_str_with_env("(def foo 123)", &env).unwrap();
+    eval_str_with_env("(in-ns 'user)", &env).unwrap();
+
+    // ns-resolve with qualified symbol should ignore the ns argument
+    let result = eval_str_with_env("(ns-resolve 'user 'test.ns/foo)", &env);
+    assert!(result.is_ok());
+    if let KlujurVal::Var(var) = result.unwrap() {
+        assert_eq!(var.deref(), KlujurVal::int(123));
+    } else {
+        panic!("Expected var");
+    }
+}
+
+#[test]
+fn test_ns_resolve_with_env_map() {
+    let env = Env::new();
+    register_builtins(&env);
+    init_stdlib(&env).unwrap();
+
+    // Define a var
+    eval_str_with_env("(def my-var 42)", &env).unwrap();
+
+    // If symbol is in env map, should return nil (it's a local binding)
+    let result = eval_str_with_env("(ns-resolve 'user {'my-var true} 'my-var)", &env).unwrap();
+    assert_eq!(result, KlujurVal::Nil);
+
+    // If symbol is not in env map, should resolve normally
+    let result = eval_str_with_env("(ns-resolve 'user {'other true} 'my-var)", &env);
+    assert!(result.is_ok());
+    if let KlujurVal::Var(var) = result.unwrap() {
+        assert_eq!(var.deref(), KlujurVal::int(42));
+    } else {
+        panic!("Expected var");
+    }
+}
+
+#[test]
+fn test_ns_resolve_stdlib() {
+    let env = Env::new();
+    register_builtins(&env);
+    init_stdlib(&env).unwrap();
+
+    // ns-resolve should find vars defined by the stdlib
+    // Note: Native builtins like + are in the lexical env, not interned as vars
+    // The stdlib defines 'defn' as a macro in 'user' namespace
+    let result = eval_str_with_env("(ns-resolve 'user 'defn)", &env);
+    assert!(result.is_ok());
+    assert!(matches!(result.unwrap(), KlujurVal::Var(_)));
+}
+
+#[test]
+fn test_ns_resolve_nonexistent_namespace() {
+    let env = Env::new();
+    register_builtins(&env);
+    init_stdlib(&env).unwrap();
+
+    // ns-resolve for nonexistent namespace should return nil
+    let result = eval_str_with_env("(ns-resolve 'nonexistent.ns 'foo)", &env).unwrap();
     assert_eq!(result, KlujurVal::Nil);
 }
 

@@ -199,7 +199,6 @@ fn test_map_from_nil() {
 }
 
 #[test]
-#[ignore] // BUG: :or incorrectly overrides nil values - should only apply when key is missing
 fn test_map_or_with_nil_value() {
     // If key exists with nil value, :or should NOT override
     assert_eval_forms!(
@@ -245,7 +244,6 @@ fn test_map_as_only() {
 }
 
 #[test]
-#[ignore] // BUG: nested map destructuring not supported - "map destructuring key must be a symbol"
 fn test_map_nested_or_defaults() {
     // Nested map destructuring with :or at inner level
     assert_eval_forms!(
@@ -302,7 +300,6 @@ fn test_mixed_map_in_sequential() {
 }
 
 #[test]
-#[ignore] // BUG: vector keys in map destructuring not supported - "map destructuring key must be a symbol"
 fn test_mixed_sequential_in_map() {
     // Sequential pattern inside map
     assert_eval_forms!(
@@ -312,7 +309,6 @@ fn test_mixed_sequential_in_map() {
 }
 
 #[test]
-#[ignore] // BUG: vector keys in map destructuring not supported
 fn test_mixed_triple_nesting() {
     // Map -> sequential -> map
     assert_eval_forms!(
@@ -322,7 +318,6 @@ fn test_mixed_triple_nesting() {
 }
 
 #[test]
-#[ignore] // BUG: vector keys in map destructuring not supported
 fn test_mixed_sequential_map_sequential() {
     // Sequential -> map -> sequential
     assert_eval_forms!(
@@ -381,7 +376,6 @@ fn test_destructure_in_doseq() {
 // =============================================================================
 
 #[test]
-#[ignore] // BUG: :ns/keys shorthand not working - binds to nil
 fn test_ns_keys_shorthand() {
     // :ns/keys shorthand
     assert_eval_forms!(
@@ -391,7 +385,6 @@ fn test_ns_keys_shorthand() {
 }
 
 #[test]
-#[ignore] // BUG: namespaced keys in :keys not resolving correctly
 fn test_ns_keys_mixed_namespaces() {
     // Multiple different namespaces in :keys
     assert_eval_forms!(
