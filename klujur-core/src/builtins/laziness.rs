@@ -92,34 +92,27 @@ pub(crate) fn builtin_dorun(args: &[KlujurVal]) -> Result<KlujurVal> {
     Ok(KlujurVal::Nil)
 }
 
-/// (force x) - Force evaluation of delay (or return x if not a delay)
-pub(crate) fn builtin_force(args: &[KlujurVal]) -> Result<KlujurVal> {
-    if args.len() != 1 {
-        return Err(Error::arity_named("force", 1, args.len()));
-    }
-    match &args[0] {
-        KlujurVal::Delay(d) => {
-            // If already realized, return cached value
-            if let Some(val) = d.get_cached() {
-                return Ok(val);
-            }
-            // This should never be called directly - force needs to be a special form
-            // to evaluate the thunk. This builtin is here for error message.
-            Err(Error::syntax(
-                "force",
-                "force must be called directly to evaluate delays",
-            ))
-        }
-        // Non-delay values are returned unchanged
-        other => Ok(other.clone()),
-    }
-}
+// Note: force is implemented as a special form in eval/dynamic.rs
+// It is not registered as a builtin because it needs to evaluate the thunk
+// (which builtins cannot do).
 
 // ============================================================================
 // Memoization
 // ============================================================================
 
-/// A memoized wrapper around a function
+/// A memoized wrapper around a function.
+///
+/// # Reference Cycle Limitation
+///
+/// If a memoized function returns a value that captures a reference to itself
+/// (e.g., a recursive closure that is memoized), a reference cycle can form:
+/// `MemoizedFn -> cache -> result -> closure -> MemoizedFn`. This cycle
+/// prevents the `MemoizedFn` from being deallocated.
+///
+/// This is a known limitation. In practice, most memoized functions return
+/// simple values (numbers, strings, collections) that don't capture closures,
+/// so this is rarely an issue. If you need to memoize self-referential
+/// functions, consider using a separate cache data structure.
 struct MemoizedFn {
     /// The original function
     f: KlujurVal,

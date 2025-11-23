@@ -26,7 +26,8 @@ pub struct Namespace {
 #[derive(Debug)]
 struct NamespaceInner {
     /// The namespace name (e.g., "user", "clojure.core")
-    name: String,
+    /// Uses Rc<str> to avoid cloning on every name() call
+    name: Rc<str>,
     /// Mapping from symbol names to Vars
     vars: HashMap<String, KlujurVar>,
     /// Aliases to other namespaces (for require :as)
@@ -40,7 +41,7 @@ impl Namespace {
     pub fn new(name: impl Into<String>) -> Self {
         Namespace {
             inner: Rc::new(RefCell::new(NamespaceInner {
-                name: name.into(),
+                name: Rc::from(name.into()),
                 vars: HashMap::new(),
                 aliases: HashMap::new(),
                 refers: HashMap::new(),
@@ -49,7 +50,13 @@ impl Namespace {
     }
 
     /// Get the namespace name.
+    /// Returns a clone of the Rc<str>, which is cheap (just increments refcount).
     pub fn name(&self) -> String {
+        self.inner.borrow().name.to_string()
+    }
+
+    /// Get the namespace name as an Rc<str> for cheap sharing.
+    pub fn name_rc(&self) -> Rc<str> {
         self.inner.borrow().name.clone()
     }
 
@@ -63,7 +70,7 @@ impl Namespace {
             return var.clone();
         }
 
-        let ns_name = inner.name.clone();
+        let ns_name = inner.name.to_string();
         let var = KlujurVar::new_with_ns(ns_name, name.clone(), KlujurVal::Nil);
         inner.vars.insert(name, var.clone());
         var
@@ -171,7 +178,8 @@ pub struct NamespaceRegistry {
 #[derive(Debug)]
 struct RegistryInner {
     namespaces: HashMap<String, Namespace>,
-    current: String,
+    /// Current namespace name. Uses Rc<str> to avoid cloning on current_name() calls.
+    current: Rc<str>,
     /// Track which namespaces have been loaded from files
     loaded: HashSet<String>,
     /// Paths to search for namespace files
@@ -200,7 +208,7 @@ impl NamespaceRegistry {
         NamespaceRegistry {
             inner: Rc::new(RefCell::new(RegistryInner {
                 namespaces,
-                current: "user".to_string(),
+                current: Rc::from("user"),
                 loaded: HashSet::new(),
                 load_paths: vec![PathBuf::from("src"), PathBuf::from("lib")],
                 global_hierarchy: Rc::new(RefCell::new(KlujurHierarchy::new())),
@@ -416,13 +424,18 @@ impl NamespaceRegistry {
         let inner = self.inner.borrow();
         inner
             .namespaces
-            .get(&inner.current)
+            .get(&*inner.current)
             .cloned()
             .expect("Current namespace should always exist")
     }
 
     /// Get the current namespace name.
     pub fn current_name(&self) -> String {
+        self.inner.borrow().current.to_string()
+    }
+
+    /// Get the current namespace name as Rc<str> for cheap sharing.
+    pub fn current_name_rc(&self) -> Rc<str> {
         self.inner.borrow().current.clone()
     }
 
@@ -430,7 +443,7 @@ impl NamespaceRegistry {
     pub fn set_current(&self, name: impl Into<String>) -> Namespace {
         let name = name.into();
         let ns = self.find_or_create(name.clone());
-        self.inner.borrow_mut().current = name;
+        self.inner.borrow_mut().current = Rc::from(name);
         ns
     }
 
@@ -445,12 +458,12 @@ impl NamespaceRegistry {
                 return ns.find_var(sym.name());
             }
             // Also check aliases in current namespace
-            let current_ns = inner.namespaces.get(&inner.current)?;
+            let current_ns = inner.namespaces.get(&*inner.current)?;
             return current_ns.resolve(sym);
         }
 
         // Unqualified - use current namespace
-        let current_ns = inner.namespaces.get(&inner.current)?;
+        let current_ns = inner.namespaces.get(&*inner.current)?;
         current_ns.resolve(sym)
     }
 
@@ -464,7 +477,7 @@ impl NamespaceRegistry {
     /// Cannot remove the current namespace.
     pub fn remove_ns(&self, name: &str) -> bool {
         let mut inner = self.inner.borrow_mut();
-        if inner.current == name {
+        if &*inner.current == name {
             return false;
         }
         inner.loaded.remove(name);

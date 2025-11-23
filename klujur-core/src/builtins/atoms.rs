@@ -44,31 +44,9 @@ pub(crate) fn builtin_reset(args: &[KlujurVal]) -> Result<KlujurVal> {
     ))
 }
 
-/// (swap! atom f & args) - Apply f to current value (and optional args)
-/// This is a placeholder - swap! is implemented as a special form in eval.rs
-pub(crate) fn builtin_swap(args: &[KlujurVal]) -> Result<KlujurVal> {
-    if args.len() < 2 {
-        return Err(Error::arity_at_least(2, args.len()));
-    }
-    // This should never be called - swap! is handled as a special form
-    Err(Error::syntax(
-        "swap!",
-        "swap! must be called directly, not passed as a value",
-    ))
-}
-
-/// (swap-vals! atom f & args) - Like swap!, returns [old new]
-/// This is a placeholder - swap-vals! is implemented as a special form in eval.rs
-pub(crate) fn builtin_swap_vals(args: &[KlujurVal]) -> Result<KlujurVal> {
-    if args.len() < 2 {
-        return Err(Error::arity_at_least(2, args.len()));
-    }
-    // This should never be called - swap-vals! is handled as a special form
-    Err(Error::syntax(
-        "swap-vals!",
-        "swap-vals! must be called directly, not passed as a value",
-    ))
-}
+// Note: swap! and swap-vals! are implemented as special forms in eval/dynamic.rs
+// They are not registered as builtins because they need to evaluate the function
+// argument before applying it (which builtins cannot do).
 
 /// (reset-vals! atom newval) - Set atom value, returns [old new]
 /// This is a placeholder - reset-vals! is implemented as a special form in eval.rs

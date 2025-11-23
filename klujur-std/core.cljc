@@ -121,31 +121,35 @@
    Note that, unlike cond branching, cond-> threading does not short circuit
    after the first true test expression."
   [expr & clauses]
-  (let [g     (gensym "cond->_")
-        steps (vec (map (fn [[test step]]
-                          `(if ~test
-                             (-> ~g
-                                 ~step)
-                             ~g))
-                        (partition 2 clauses)))]
-    `(let [~g ~expr
-           ~@(mapcat (fn [step] [g step]) (butlast steps))]
-       ~(if (empty? steps) g (last steps)))))
+  (if (empty? clauses)
+    expr
+    (let [g     (gensym "cond->_")
+          steps (vec (map (fn [[test step]]
+                            `(if ~test
+                               (-> ~g
+                                   ~step)
+                               ~g))
+                          (partition 2 clauses)))]
+      `(let [~g ~expr
+             ~@(vec (mapcat (fn [step] [g step]) (butlast steps)))]
+         ~(last steps)))))
 
 (defmacro cond->>
   "Takes an expression and a set of test/form pairs. Threads expr (via ->>)
    through each form for which the corresponding test expression is true."
   [expr & clauses]
-  (let [g     (gensym "cond->>_")
-        steps (vec (map (fn [[test step]]
-                          `(if ~test
-                             (->> ~g
-                                  ~step)
-                             ~g))
-                        (partition 2 clauses)))]
-    `(let [~g ~expr
-           ~@(mapcat (fn [step] [g step]) (butlast steps))]
-       ~(if (empty? steps) g (last steps)))))
+  (if (empty? clauses)
+    expr
+    (let [g     (gensym "cond->>_")
+          steps (vec (map (fn [[test step]]
+                            `(if ~test
+                               (->> ~g
+                                    ~step)
+                               ~g))
+                          (partition 2 clauses)))]
+      `(let [~g ~expr
+             ~@(vec (mapcat (fn [step] [g step]) (butlast steps)))]
+         ~(last steps)))))
 
 (defmacro some->
   "When expr is not nil, threads it into the first form (via ->),
@@ -257,15 +261,15 @@
               (= b :let) `(let ~(first bs)
                                (doseq ~(rest bs)
                                       ~@body))
-              ;; :while returns :doseq-stop sentinel to terminate outer
-              ;; loop
+              ;; :while returns ::doseq-stop sentinel to terminate outer
+              ;; loop (namespaced to avoid collision with user keywords)
               (= b :while) `(if ~(first bs)
                               (doseq ~(rest bs)
                                      ~@body)
-                              :doseq-stop)
+                              ::doseq-stop)
               :else `(doseq ~(rest bs)
                             ~@body))
-        ;; Sequence binding - check for :doseq-stop to terminate early
+        ;; Sequence binding - check for ::doseq-stop to terminate early
         (let [sym  (first bindings)
               expr (second bindings)
               more (drop 2 bindings)]
@@ -274,7 +278,7 @@
                (let [result# (let [~sym (first s#)]
                                (doseq ~(vec more)
                                       ~@body))]
-                 (when-not (= result# :doseq-stop) (recur (next s#)))))))))))
+                 (when-not (= result# ::doseq-stop) (recur (next s#)))))))))))
 
 ;; NOTE: These must be public because macros expand in the calling namespace,
 ;; and syntax-quote doesn't auto-qualify symbols yet.
@@ -1005,14 +1009,23 @@
    is called - eduction does not cache results like sequence does.
 
    Unlike sequence, eduction is not lazy - it represents a recipe for
-   transformation that gets applied fresh each time it's consumed."
+   transformation that gets applied fresh each time it's consumed.
+
+   DEVIATION FROM CLOJURE: In Clojure, eduction returns an Eduction object
+   implementing IReduceInit, which allows direct participation in reduce/into.
+   In Klujur, eduction returns a map with :xform and :coll keys. Use
+   eduction-reduce to reduce an eduction, or eduction-seq to convert to a
+   lazy sequence. Example:
+     (def ed (eduction (map inc) (filter even?) [1 2 3 4]))
+     (eduction-reduce ed conj [])  ; => [2 4]
+     (eduction-seq ed)             ; => (2 4)"
   [& xforms-and-coll]
   (let [xforms (butlast xforms-and-coll)
         coll   (last xforms-and-coll)
         xform  (if (= 1 (count xforms)) (first xforms) (apply comp xforms))]
     ;; Return a map-like structure that can be:
-    ;; - Reduced with (transduce identity rf init eduction)
-    ;; - Converted to seq with (sequence (:xform e) (:coll e))
+    ;; - Reduced with (eduction-reduce ed f init)
+    ;; - Converted to seq with (eduction-seq ed)
     (with-meta {:klujur/type :eduction :xform xform :coll coll}
                {:type :klujur.core/Eduction})))
 

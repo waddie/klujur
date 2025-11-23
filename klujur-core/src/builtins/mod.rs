@@ -58,7 +58,7 @@ use arithmetic::{
 use atoms::{
     builtin_add_watch, builtin_atom, builtin_atom_p, builtin_compare_and_set,
     builtin_get_validator, builtin_remove_watch, builtin_reset, builtin_reset_vals,
-    builtin_set_validator, builtin_swap, builtin_swap_vals,
+    builtin_set_validator,
 };
 use bitwise::{
     builtin_bit_and, builtin_bit_and_not, builtin_bit_clear, builtin_bit_flip, builtin_bit_not,
@@ -99,8 +99,8 @@ use io::{
     builtin_set_print_length, builtin_setenv, builtin_slurp, builtin_spit, builtin_str,
 };
 use laziness::{
-    builtin_delay_p, builtin_doall, builtin_dorun, builtin_force, builtin_lazy_seq_p,
-    builtin_memoize, builtin_realized_p,
+    builtin_delay_p, builtin_doall, builtin_dorun, builtin_lazy_seq_p, builtin_memoize,
+    builtin_realized_p,
 };
 use logic::{builtin_boolean, builtin_not};
 use math::{
@@ -251,8 +251,7 @@ pub fn register_builtins(env: &Env) {
     core_ns.define_native("atom", builtin_atom);
     core_ns.define_native("atom?", builtin_atom_p);
     core_ns.define_native("reset!", builtin_reset);
-    core_ns.define_native("swap!", builtin_swap);
-    core_ns.define_native("swap-vals!", builtin_swap_vals);
+    // Note: swap! and swap-vals! are special forms (eval/dynamic.rs), not builtins
     core_ns.define_native("reset-vals!", builtin_reset_vals);
     core_ns.define_native("compare-and-set!", builtin_compare_and_set);
     core_ns.define_native("add-watch", builtin_add_watch);
@@ -262,7 +261,7 @@ pub fn register_builtins(env: &Env) {
 
     // Delays and Lazy Sequences
     core_ns.define_native("delay?", builtin_delay_p);
-    core_ns.define_native("force", builtin_force);
+    // Note: force is a special form (eval/dynamic.rs), not a builtin
     core_ns.define_native("realized?", builtin_realized_p);
     core_ns.define_native("lazy-seq?", builtin_lazy_seq_p);
     core_ns.define_native("doall", builtin_doall);
@@ -602,7 +601,28 @@ pub(crate) fn force_lazy_seq(ls: &KlujurLazySeq) -> Result<SeqResult> {
 
 // Old sequence functions removed - see sequences.rs
 
-/// Helper to convert a value to a sequence of values
+/// Helper to convert a value to a sequence of values.
+///
+/// # Eager Collection Limitation
+///
+/// This function eagerly collects all elements into a `Vec`. For lazy sequences,
+/// this means the entire sequence is realised before returning. **Infinite
+/// sequences will hang or cause an OOM error.**
+///
+/// Functions that use `to_seq` internally (e.g., `reduce`, `transduce`, `map*`,
+/// `filter*`) inherit this limitation. When working with potentially infinite
+/// sequences, use `take` or `take-while` to bound the sequence first:
+///
+/// ```clojure
+/// ;; This will hang:
+/// ;; (reduce + (range))
+///
+/// ;; Do this instead:
+/// (reduce + (take 1000 (range)))
+/// ```
+///
+/// Note: The lazy sequence functions in `core.cljc` (e.g., `map`, `filter`)
+/// work correctly with infinite sequences because they produce lazy sequences.
 pub(crate) fn to_seq(val: &KlujurVal) -> Result<Vec<KlujurVal>> {
     match val {
         KlujurVal::Nil => Ok(Vec::new()),

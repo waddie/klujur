@@ -72,6 +72,21 @@ impl KlujurHierarchy {
     }
 
     /// Remove a parent/child relationship.
+    ///
+    /// # Cache Invalidation Strategy
+    ///
+    /// Unlike `derive` which can do incremental cache updates (ancestors and
+    /// descendants can only grow), `underive` requires full cache recomputation.
+    /// This is because removing a relationship may or may not remove transitive
+    /// relationships depending on whether alternative paths exist.
+    ///
+    /// For example, in a diamond inheritance (A <- B, A <- C, B <- D, C <- D),
+    /// removing B <- D still leaves D as a descendant of A via C. Tracking these
+    /// alternative paths would require reference counting or path enumeration,
+    /// adding significant complexity for a rarely-used operation.
+    ///
+    /// In practice, `underive` is uncommon in Clojure code (hierarchies are
+    /// typically built once), so the O(n) full recomputation is acceptable.
     pub fn underive(&mut self, child: &KlujurVal, parent: &KlujurVal) {
         if let Some(parents) = self.parents.get_mut(child) {
             parents.remove(parent);
@@ -80,7 +95,7 @@ impl KlujurHierarchy {
             }
         }
 
-        // Recompute transitive closures (expensive but correct)
+        // Recompute transitive closures from scratch
         self.recompute_all_caches();
     }
 
