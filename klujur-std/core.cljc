@@ -666,9 +666,7 @@
   "Returns the result of applying concat to the result of applying map
    to f and colls. Thus function f should return a collection.
    When called with 1 arg (f), returns a transducer."
-  ([f]
-   (comp (map f)
-         (cat)))
+  ([f] (comp (map f) cat))
   ([f coll] (apply concat (map f coll)))
   ([f & colls] (apply concat (apply map f colls))))
 
@@ -944,225 +942,6 @@
   ([f cf]
    (fn ([] (f)) ([result] (cf result)) ([result input] (f result input)))))
 
-(defn map-xf
-  "Returns a transducer that transforms each element by f."
-  [f]
-  (fn [rf]
-    (fn
-      ([] (rf))
-      ([result] (rf result))
-      ([result input] (rf result (f input))))))
-
-(defn filter-xf
-  "Returns a transducer that filters elements by pred."
-  [pred]
-  (fn [rf]
-    (fn
-      ([] (rf))
-      ([result] (rf result))
-      ([result input] (if (pred input) (rf result input) result)))))
-
-(defn remove-xf
-  "Returns a transducer that removes elements matching pred."
-  [pred]
-  (filter-xf (complement pred)))
-
-(defn take-xf
-  "Returns a transducer that takes the first n elements."
-  [n]
-  (fn [rf]
-    (let [nv (volatile! n)]
-      (fn
-        ([] (rf))
-        ([result] (rf result))
-        ([result input]
-         (let [n      @nv
-               nn     (vswap! nv dec)
-               result (if (pos? n) (rf result input) result)]
-           (if (not (pos? nn)) (ensure-reduced result) result)))))))
-
-(defn drop-xf
-  "Returns a transducer that drops the first n elements."
-  [n]
-  (fn [rf]
-    (let [nv (volatile! n)]
-      (fn
-        ([] (rf))
-        ([result] (rf result))
-        ([result input]
-         (let [n @nv]
-           (vswap! nv dec)
-           (if (pos? n) result (rf result input))))))))
-
-(defn take-while-xf
-  "Returns a transducer that takes elements while pred returns true."
-  [pred]
-  (fn [rf]
-    (fn
-      ([] (rf))
-      ([result] (rf result))
-      ([result input] (if (pred input) (rf result input) (reduced result))))))
-
-(defn drop-while-xf
-  "Returns a transducer that drops elements while pred returns true."
-  [pred]
-  (fn [rf]
-    (let [done (volatile! false)]
-      (fn
-        ([] (rf))
-        ([result] (rf result))
-        ([result input]
-         (if @done
-           (rf result input)
-           (if (pred input)
-             result
-             (do (vreset! done true) (rf result input)))))))))
-
-(defn take-nth-xf
-  "Returns a transducer that takes every nth element."
-  [n]
-  (fn [rf]
-    (let [iv (volatile! -1)]
-      (fn
-        ([] (rf))
-        ([result] (rf result))
-        ([result input]
-         (let [i (vswap! iv inc)]
-           (if (zero? (rem i n)) (rf result input) result)))))))
-
-(defn keep-xf
-  "Returns a transducer that keeps non-nil results of f."
-  [f]
-  (fn [rf]
-    (fn
-      ([] (rf))
-      ([result] (rf result))
-      ([result input]
-       (let [v (f input)]
-         (if (nil? v) result (rf result v)))))))
-
-(defn keep-indexed-xf
-  "Returns a transducer that keeps non-nil results of (f index item)."
-  [f]
-  (fn [rf]
-    (let [iv (volatile! -1)]
-      (fn
-        ([] (rf))
-        ([result] (rf result))
-        ([result input]
-         (let [i (vswap! iv inc)
-               v (f i input)]
-           (if (nil? v) result (rf result v))))))))
-
-(defn map-indexed-xf
-  "Returns a transducer that maps (f index item) over elements."
-  [f]
-  (fn [rf]
-    (let [iv (volatile! -1)]
-      (fn
-        ([] (rf))
-        ([result] (rf result))
-        ([result input]
-         (let [i (vswap! iv inc)]
-           (rf result (f i input))))))))
-
-(defn dedupe-xf
-  "Returns a transducer that removes consecutive duplicates."
-  []
-  (fn [rf]
-    (let [pv (volatile! ::none)]
-      (fn
-        ([] (rf))
-        ([result] (rf result))
-        ([result input]
-         (let [prior @pv]
-           (vreset! pv input)
-           (if (= prior input) result (rf result input))))))))
-
-(defn distinct-xf
-  "Returns a transducer that removes all duplicates."
-  []
-  (fn [rf]
-    (let [seen (volatile! #{})]
-      (fn
-        ([] (rf))
-        ([result] (rf result))
-        ([result input]
-         (if (contains? @seen input)
-           result
-           (do (vswap! seen conj input) (rf result input))))))))
-
-(defn partition-all-xf
-  "Returns a transducer that partitions into groups of n."
-  [n]
-  (fn [rf]
-    (let [a (volatile! [])]
-      (fn
-        ([] (rf))
-        ([result]
-         (let [result (if (empty? @a)
-                        result
-                        (let [v @a]
-                          (vreset! a [])
-                          (unreduced (rf result v))))]
-           (rf result)))
-        ([result input]
-         (let [v (vswap! a conj input)]
-           (if (= n (count v)) (do (vreset! a []) (rf result v)) result)))))))
-
-(defn partition-by-xf
-  "Returns a transducer that partitions when f changes."
-  [f]
-  (fn [rf]
-    (let [a  (volatile! [])
-          pv (volatile! ::none)]
-      (fn
-        ([] (rf))
-        ([result]
-         (let [result (if (empty? @a)
-                        result
-                        (let [v @a]
-                          (vreset! a [])
-                          (unreduced (rf result v))))]
-           (rf result)))
-        ([result input]
-         (let [pval @pv
-               val  (f input)]
-           (vreset! pv val)
-           (if (or (= pval ::none) (= val pval))
-             (do (vswap! a conj input) result)
-             (let [v @a]
-               (vreset! a [input])
-               (rf result v)))))))))
-
-(defn cat-xf
-  "Transducer that concatenates nested collections."
-  []
-  (fn [rf]
-    (let [rrf (preserving-reduced rf)]
-      (fn
-        ([] (rf))
-        ([result] (rf result))
-        ([result input] (reduce rrf result input))))))
-
-(defn mapcat-xf
-  "Returns a transducer that maps f then concatenates results."
-  [f]
-  (comp (map-xf f) (cat-xf)))
-
-(defn interpose-xf
-  "Returns a transducer that interposes sep between elements."
-  [sep]
-  (fn [rf]
-    (let [started (volatile! false)]
-      (fn
-        ([] (rf))
-        ([result] (rf result))
-        ([result input]
-         (if @started
-           (let [sepr (rf result sep)]
-             (if (reduced? sepr) sepr (rf sepr input)))
-           (do (vreset! started true) (rf result input))))))))
 
 ;; ============================================================================
 ;; Sequence with Transducer
@@ -1180,38 +959,44 @@
    ;; Implementation using a multi-step approach: We use a volatile to
    ;; buffer items since transducers push while lazy-seqs pull. We step
    ;; through one input at a time, collecting any outputs, then yield them.
+   ;; We track a result value (a vector) that gets passed to completion.
    (let [buffer (volatile! [])
-         ;; Reducing function that collects items into buffer
+         ;; Reducing function that collects items into buffer. The result
+         ;; value is passed through unchanged; actual items go to buffer
          rf     (fn
-                  ([] nil)
+                  ([] [])
                   ([result] result)
                   ([result item] (vswap! buffer conj item) result))
          ;; Apply the transducer to get the transforming rf
          xf     (xform rf)]
      (letfn
-       [(step [s]
+       [(step [s acc]
           (lazy-seq
            (if (seq s)
              ;; Step one input element through the transducer
-             (let [result (xf nil (first s))]
+             (let [result (xf acc (first s))]
                (if (reduced? result)
                  ;; Early termination - drain buffer and stop
-                 (let [items @buffer]
+                 (let [items     @buffer
+                       unwrapped (unreduced result)]
                    (vreset! buffer [])
-                   (xf nil) ;; completion
-                   (when (seq items) (concat items nil)))
+                   (xf unwrapped) ;; completion with unwrapped result
+                   (let [final-items @buffer]
+                     (vreset! buffer [])
+                     (when (seq (concat items final-items))
+                       (concat items final-items))))
                  ;; Normal case - drain buffer and continue
                  (let [items @buffer]
                    (vreset! buffer [])
                    (if (seq items)
-                     (concat items (step (rest s)))
-                     (step (rest s))))))
+                     (concat items (step (rest s) result))
+                     (step (rest s) result)))))
              ;; Input exhausted - call completion and drain final items
-             (do (xf nil) ;; completion
+             (do (xf acc) ;; completion with accumulated result
                  (let [items @buffer]
                    (vreset! buffer [])
                    (when (seq items) items))))))]
-       (step (seq coll))))))
+       (step (seq coll) (xf))))))
 
 (defn eduction
   "Returns a reducible/iterable application of the transducers to the items

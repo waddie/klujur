@@ -772,7 +772,7 @@ fn builtin_into_3(args: &[KlujurVal]) -> Result<KlujurVal> {
     let xf = apply(xform, &[conj_fn])?;
 
     // Iterate lazily over source collection to support early termination
-    // This allows transducers like take-xf to terminate before realizing the entire sequence
+    // This allows transducers like (take n) to terminate before realizing the entire sequence
     let mut result = to.clone();
     let mut current = builtin_seq(std::slice::from_ref(from))?;
 

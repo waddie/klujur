@@ -30,6 +30,8 @@ pub enum Error {
     NotCallable(String),
     /// Division by zero
     DivisionByZero,
+    /// Integer overflow
+    IntegerOverflow { operation: &'static str },
     /// Index out of bounds
     IndexOutOfBounds { index: i64, length: usize },
     /// Invalid special form syntax
@@ -111,6 +113,9 @@ impl fmt::Display for Error {
             }
             Error::DivisionByZero => {
                 write!(f, "Division by zero")
+            }
+            Error::IntegerOverflow { operation } => {
+                write!(f, "Integer overflow in '{}'", operation)
             }
             Error::IndexOutOfBounds { index, length } => {
                 write!(

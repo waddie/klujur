@@ -378,13 +378,6 @@ pub fn register_builtins(env: &Env) {
     core_ns.define_native("compare", builtin_compare);
     core_ns.define_native("identical?", builtin_identical_p);
     core_ns.define_native("not-empty", builtin_not_empty);
-    core_ns.define_native("seqable?", builtin_seqable_p);
-    core_ns.define_native("sequential?", builtin_sequential_p);
-    core_ns.define_native("sorted?", builtin_sorted_p);
-    core_ns.define_native("counted?", builtin_counted_p);
-    core_ns.define_native("reversible?", builtin_reversible_p);
-    core_ns.define_native("associative?", builtin_associative_p);
-    core_ns.define_native("indexed?", builtin_indexed_p);
 
     // Collection utilities
     core_ns.define_native("keys", builtin_keys);

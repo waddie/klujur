@@ -1040,38 +1040,32 @@ fn eval_defmacro(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
                     "arity requires a parameter vector",
                 ));
             }
-            let params_vec: Vec<KlujurVal> = match &arity_list[0] {
-                KlujurVal::Vector(v, _) => v.iter().cloned().collect(),
-                other => {
-                    return Err(Error::syntax(
-                        "defmacro",
-                        format!("parameter vector expected, got {}", other.type_name()),
-                    ));
-                }
-            };
-            let (params, rest_param) = parse_params(&params_vec)?;
-            let body: Vec<KlujurVal> = arity_list[1..].to_vec();
-            arities.push(FnArity::new(params, rest_param, body));
+            let (params, rest_param, patterns, rest_pattern, body) =
+                parse_fn_arity(&arity_list[0], &arity_list[1..])?;
+            arities.push(FnArity::with_patterns(
+                params,
+                rest_param,
+                patterns,
+                rest_pattern,
+                body,
+            ));
         }
         arities
     } else {
         // Single-arity: (defmacro name [params] body...)
-        let params_vec: Vec<KlujurVal> = match &rest[0] {
-            KlujurVal::Vector(v, _) => v.iter().cloned().collect(),
-            other => {
-                return Err(Error::syntax(
-                    "defmacro",
-                    format!("parameter vector expected, got {}", other.type_name()),
-                ));
-            }
-        };
-        let (params, rest_param) = parse_params(&params_vec)?;
-        let body: Vec<KlujurVal> = rest[1..].to_vec();
+        let (params, rest_param, patterns, rest_pattern, body) =
+            parse_fn_arity(&rest[0], &rest[1..])?;
 
         if body.is_empty() {
             return Err(Error::syntax("defmacro", "requires a body"));
         }
-        vec![FnArity::new(params, rest_param, body)]
+        vec![FnArity::with_patterns(
+            params,
+            rest_param,
+            patterns,
+            rest_pattern,
+            body,
+        )]
     };
 
     // Create the macro (reuse KlujurFn structure)
@@ -1086,36 +1080,6 @@ fn eval_defmacro(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
     let var = current_ns.intern_with_value(name.name(), macro_val);
 
     Ok(KlujurVal::Var(var))
-}
-
-/// Helper to parse parameter vector into params and rest param
-fn parse_params(params_vec: &[KlujurVal]) -> Result<(Vec<Symbol>, Option<Symbol>)> {
-    let mut params = Vec::new();
-    let mut rest_param = None;
-    let mut found_amp = false;
-
-    for param in params_vec {
-        match param {
-            KlujurVal::Symbol(s, _) if s.name() == "&" => {
-                found_amp = true;
-            }
-            KlujurVal::Symbol(s, _) => {
-                if found_amp {
-                    rest_param = Some(s.clone());
-                } else {
-                    params.push(s.clone());
-                }
-            }
-            other => {
-                return Err(Error::syntax(
-                    "defmacro",
-                    format!("parameter must be a symbol, got {}", other.type_name()),
-                ));
-            }
-        }
-    }
-
-    Ok((params, rest_param))
 }
 
 /// (macroexpand-1 form) - expand a macro form once
