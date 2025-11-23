@@ -16,12 +16,14 @@ mod collection_utils;
 mod collections;
 pub mod comparators;
 mod comparison;
+mod datetime;
 mod eager_sequences;
 mod exceptions;
 mod higher_order;
 mod io;
 mod laziness;
 mod logic;
+mod math;
 mod metadata;
 mod multimethods;
 mod predicates;
@@ -77,6 +79,10 @@ use collections::{
     builtin_assoc, builtin_conj, builtin_dissoc, builtin_get, builtin_list, builtin_vector,
 };
 use comparison::{builtin_eq, builtin_ge, builtin_gt, builtin_le, builtin_lt, builtin_not_eq};
+use datetime::{
+    builtin_now_micros, builtin_now_millis, builtin_now_nanos, builtin_now_secs,
+    builtin_system_time,
+};
 use eager_sequences::{
     builtin_ffirst, builtin_fnext, builtin_frequencies, builtin_group_by, builtin_nfirst,
     builtin_nnext, builtin_rseq, builtin_sort, builtin_sort_by,
@@ -88,14 +94,22 @@ use higher_order::{
     builtin_reduce, builtin_remove, builtin_some,
 };
 use io::{
-    builtin_format, builtin_get_print_length, builtin_pr_str, builtin_print, builtin_println,
-    builtin_read_string, builtin_set_print_length, builtin_slurp, builtin_spit, builtin_str,
+    builtin_exit, builtin_flush, builtin_format, builtin_get_print_length, builtin_getenv,
+    builtin_pr_str, builtin_print, builtin_println, builtin_read_line, builtin_read_string,
+    builtin_set_print_length, builtin_setenv, builtin_slurp, builtin_spit, builtin_str,
 };
 use laziness::{
     builtin_delay_p, builtin_doall, builtin_dorun, builtin_force, builtin_lazy_seq_p,
     builtin_memoize, builtin_realized_p,
 };
 use logic::{builtin_boolean, builtin_not};
+use math::{
+    builtin_acos, builtin_asin, builtin_atan, builtin_atan2, builtin_cbrt, builtin_ceil,
+    builtin_cos, builtin_cosh, builtin_e, builtin_exp, builtin_floor, builtin_hypot,
+    builtin_infinite_q, builtin_log, builtin_log2, builtin_log10, builtin_nan_q, builtin_pi,
+    builtin_pow, builtin_round, builtin_signum, builtin_sin, builtin_sinh, builtin_sqrt,
+    builtin_tan, builtin_tanh, builtin_to_degrees, builtin_to_radians, builtin_trunc,
+};
 use metadata::{
     builtin_alter_meta, builtin_meta, builtin_reset_meta, builtin_vary_meta, builtin_with_meta,
 };
@@ -155,6 +169,46 @@ pub fn register_builtins(env: &Env) {
     core_ns.define_native("pos?", builtin_pos_p);
     core_ns.define_native("neg?", builtin_neg_p);
     core_ns.define_native("zero?", builtin_zero_p);
+
+    // Math functions registered in klujur.math namespace
+    let math_ns = registry.find_or_create("klujur.math");
+    math_ns.define_native("sqrt", builtin_sqrt);
+    math_ns.define_native("cbrt", builtin_cbrt);
+    math_ns.define_native("pow", builtin_pow);
+    math_ns.define_native("exp", builtin_exp);
+    math_ns.define_native("log", builtin_log);
+    math_ns.define_native("log10", builtin_log10);
+    math_ns.define_native("log2", builtin_log2);
+    math_ns.define_native("sin", builtin_sin);
+    math_ns.define_native("cos", builtin_cos);
+    math_ns.define_native("tan", builtin_tan);
+    math_ns.define_native("asin", builtin_asin);
+    math_ns.define_native("acos", builtin_acos);
+    math_ns.define_native("atan", builtin_atan);
+    math_ns.define_native("atan2", builtin_atan2);
+    math_ns.define_native("sinh", builtin_sinh);
+    math_ns.define_native("cosh", builtin_cosh);
+    math_ns.define_native("tanh", builtin_tanh);
+    math_ns.define_native("floor", builtin_floor);
+    math_ns.define_native("ceil", builtin_ceil);
+    math_ns.define_native("round", builtin_round);
+    math_ns.define_native("trunc", builtin_trunc);
+    math_ns.define_native("signum", builtin_signum);
+    math_ns.define_native("hypot", builtin_hypot);
+    math_ns.define_native("nan?", builtin_nan_q);
+    math_ns.define_native("infinite?", builtin_infinite_q);
+    math_ns.define_native("pi", builtin_pi);
+    math_ns.define_native("e", builtin_e);
+    math_ns.define_native("to-radians", builtin_to_radians);
+    math_ns.define_native("to-degrees", builtin_to_degrees);
+
+    // Date/time functions registered in klujur.time namespace
+    let time_ns = registry.find_or_create("klujur.time");
+    time_ns.define_native("system-time", builtin_system_time);
+    time_ns.define_native("now-millis", builtin_now_millis);
+    time_ns.define_native("now-micros", builtin_now_micros);
+    time_ns.define_native("now-nanos", builtin_now_nanos);
+    time_ns.define_native("now-secs", builtin_now_secs);
 
     // Comparison
     core_ns.define_native("=", builtin_eq);
@@ -276,6 +330,14 @@ pub fn register_builtins(env: &Env) {
     core_ns.define_native("identity", builtin_identity);
     core_ns.define_native("set-print-length!", builtin_set_print_length);
     core_ns.define_native("get-print-length", builtin_get_print_length);
+
+    // I/O functions registered in klujur.io namespace
+    let io_ns = registry.find_or_create("klujur.io");
+    io_ns.define_native("read-line", builtin_read_line);
+    io_ns.define_native("flush", builtin_flush);
+    io_ns.define_native("getenv", builtin_getenv);
+    io_ns.define_native("setenv", builtin_setenv);
+    io_ns.define_native("exit", builtin_exit);
 
     // Higher-order functions
     core_ns.define_native("apply", builtin_apply);

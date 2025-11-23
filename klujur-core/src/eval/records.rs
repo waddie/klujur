@@ -229,10 +229,7 @@ fn create_positional_record_constructor(
         )))
     };
 
-    KlujurVal::NativeFn(make_native_fn(
-        Box::leak(name.into_boxed_str()),
-        constructor,
-    ))
+    KlujurVal::NativeFn(make_native_fn(name, constructor))
 }
 
 /// Create a map constructor function: map->RecordName
@@ -283,10 +280,7 @@ fn create_map_record_constructor(
         )))
     };
 
-    KlujurVal::NativeFn(make_native_fn(
-        Box::leak(name.into_boxed_str()),
-        constructor,
-    ))
+    KlujurVal::NativeFn(make_native_fn(name, constructor))
 }
 
 /// Helper to create a function from params and body

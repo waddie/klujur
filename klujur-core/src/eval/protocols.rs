@@ -175,10 +175,7 @@ fn create_protocol_dispatch_fn(protocol: Rc<Protocol>, method_name: String) -> K
         apply(method_fn, args)
     };
 
-    KlujurVal::NativeFn(make_native_fn(
-        Box::leak(method_name.into_boxed_str()),
-        dispatch_fn,
-    ))
+    KlujurVal::NativeFn(make_native_fn(method_name, dispatch_fn))
 }
 
 /// (extend-type TypeName

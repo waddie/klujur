@@ -134,7 +134,7 @@ pub(crate) fn builtin_slurp(args: &[KlujurVal]) -> Result<KlujurVal> {
 
     std::fs::read_to_string(path)
         .map(KlujurVal::string)
-        .map_err(|e| Error::EvalError(format!("slurp: {}", e)))
+        .map_err(|e| Error::io("slurp", Some(path.to_string()), e))
 }
 
 /// (spit filename content) or (spit filename content opts) - write to file
@@ -176,11 +176,11 @@ pub(crate) fn builtin_spit(args: &[KlujurVal]) -> Result<KlujurVal> {
             .create(true)
             .append(true)
             .open(path)
-            .map_err(|e| Error::EvalError(format!("spit: {}", e)))?;
+            .map_err(|e| Error::io("spit", Some(path.to_string()), e))?;
         file.write_all(content.as_bytes())
-            .map_err(|e| Error::EvalError(format!("spit: {}", e)))?;
+            .map_err(|e| Error::io("spit", Some(path.to_string()), e))?;
     } else {
-        std::fs::write(path, content).map_err(|e| Error::EvalError(format!("spit: {}", e)))?;
+        std::fs::write(path, content).map_err(|e| Error::io("spit", Some(path.to_string()), e))?;
     }
 
     Ok(KlujurVal::Nil)
@@ -292,4 +292,112 @@ pub(crate) fn builtin_format(args: &[KlujurVal]) -> Result<KlujurVal> {
     }
 
     Ok(KlujurVal::string(result))
+}
+
+// ============================================================================
+// System I/O
+// ============================================================================
+
+/// (read-line) - reads a line from stdin
+/// Returns the line as a string (without trailing newline), or nil on EOF
+pub(crate) fn builtin_read_line(args: &[KlujurVal]) -> Result<KlujurVal> {
+    if !args.is_empty() {
+        return Err(Error::arity_named("read-line", 0, args.len()));
+    }
+    use std::io::BufRead;
+    let stdin = std::io::stdin();
+    let mut line = String::new();
+    match stdin.lock().read_line(&mut line) {
+        Ok(0) => Ok(KlujurVal::Nil), // EOF
+        Ok(_) => {
+            // Remove trailing newline
+            if line.ends_with('\n') {
+                line.pop();
+                if line.ends_with('\r') {
+                    line.pop();
+                }
+            }
+            Ok(KlujurVal::string(line))
+        }
+        Err(e) => Err(Error::io("read-line", None, e)),
+    }
+}
+
+/// (flush) - flushes stdout
+pub(crate) fn builtin_flush(args: &[KlujurVal]) -> Result<KlujurVal> {
+    if !args.is_empty() {
+        return Err(Error::arity_named("flush", 0, args.len()));
+    }
+    use std::io::Write;
+    std::io::stdout()
+        .flush()
+        .map_err(|e| Error::io("flush", None, e))?;
+    Ok(KlujurVal::Nil)
+}
+
+// ============================================================================
+// Environment Variables
+// ============================================================================
+
+/// (getenv name) - get environment variable value
+/// Returns the value as a string, or nil if not set
+pub(crate) fn builtin_getenv(args: &[KlujurVal]) -> Result<KlujurVal> {
+    if args.len() != 1 {
+        return Err(Error::arity_named("getenv", 1, args.len()));
+    }
+    let name = match &args[0] {
+        KlujurVal::String(s) => s.as_ref(),
+        other => return Err(Error::type_error_in("getenv", "string", other.type_name())),
+    };
+    match std::env::var(name) {
+        Ok(val) => Ok(KlujurVal::string(val)),
+        Err(std::env::VarError::NotPresent) => Ok(KlujurVal::Nil),
+        Err(std::env::VarError::NotUnicode(_)) => Err(Error::io_msg(
+            "getenv",
+            Some(name.to_string()),
+            "value is not valid UTF-8",
+        )),
+    }
+}
+
+/// (setenv name value) - set environment variable
+pub(crate) fn builtin_setenv(args: &[KlujurVal]) -> Result<KlujurVal> {
+    if args.len() != 2 {
+        return Err(Error::arity_named("setenv", 2, args.len()));
+    }
+    let name = match &args[0] {
+        KlujurVal::String(s) => s.as_ref(),
+        other => return Err(Error::type_error_in("setenv", "string", other.type_name())),
+    };
+    let value = match &args[1] {
+        KlujurVal::String(s) => s.to_string(),
+        other => format!("{}", other),
+    };
+    // SAFETY: This function is called from single-threaded Klujur code.
+    // We don't modify env vars while iterating over them.
+    unsafe { std::env::set_var(name, value) };
+    Ok(KlujurVal::Nil)
+}
+
+// ============================================================================
+// Process Control
+// ============================================================================
+
+/// (exit) or (exit code) - exit the process
+pub(crate) fn builtin_exit(args: &[KlujurVal]) -> Result<KlujurVal> {
+    let code = match args.len() {
+        0 => 0,
+        1 => match &args[0] {
+            KlujurVal::Int(n) => *n as i32,
+            other => return Err(Error::type_error_in("exit", "integer", other.type_name())),
+        },
+        _ => {
+            return Err(Error::ArityError {
+                expected: crate::error::AritySpec::Range(0, 1),
+                got: args.len(),
+                name: Some("exit".into()),
+            });
+        }
+    };
+    std::process::exit(code);
 }

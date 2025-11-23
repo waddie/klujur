@@ -54,15 +54,20 @@ impl Env {
     }
 
     /// Get the namespace registry from the root environment.
+    /// Uses iterative traversal to avoid stack overflow on deep environments.
     pub fn registry(&self) -> NamespaceRegistry {
-        let inner = self.inner.borrow();
-        if let Some(ref registry) = inner.registry {
-            registry.clone()
-        } else if let Some(ref parent) = inner.parent {
-            parent.registry()
-        } else {
-            // Should never happen - root env always has registry
-            panic!("Root environment missing namespace registry")
+        let mut current = self.clone();
+        loop {
+            let inner = current.inner.borrow();
+            if let Some(ref registry) = inner.registry {
+                return registry.clone();
+            }
+            let parent = inner.parent.clone();
+            drop(inner);
+            match parent {
+                Some(p) => current = p,
+                None => panic!("Root environment missing namespace registry"),
+            }
         }
     }
 
@@ -72,47 +77,62 @@ impl Env {
     }
 
     /// Look up a symbol in this environment or parent chain.
+    /// Uses iterative traversal to avoid stack overflow on deep environments.
     pub fn lookup(&self, sym: &Symbol) -> Result<KlujurVal> {
-        let inner = self.inner.borrow();
-        if let Some(val) = inner.bindings.get(sym) {
-            Ok(val.clone())
-        } else if let Some(parent) = &inner.parent {
-            parent.lookup(sym)
-        } else {
-            Err(Error::UndefinedSymbol(sym.clone()))
+        let mut current = self.clone();
+        loop {
+            let inner = current.inner.borrow();
+            if let Some(val) = inner.bindings.get(sym) {
+                return Ok(val.clone());
+            }
+            let parent = inner.parent.clone();
+            drop(inner);
+            match parent {
+                Some(p) => current = p,
+                None => return Err(Error::UndefinedSymbol(sym.clone())),
+            }
         }
     }
 
     /// Set a binding, looking up the chain to find where it's defined.
     /// Returns an error if the symbol is not defined anywhere.
+    /// Uses iterative traversal to avoid stack overflow on deep environments.
     pub fn set(&self, sym: &Symbol, val: KlujurVal) -> Result<()> {
-        // Check if defined locally first
-        {
-            let inner = self.inner.borrow();
-            if inner.bindings.contains_key(sym) {
-                drop(inner);
-                self.inner.borrow_mut().bindings.insert(sym.clone(), val);
-                return Ok(());
+        let mut current = self.clone();
+        loop {
+            // Check if defined in current environment
+            {
+                let inner = current.inner.borrow();
+                if inner.bindings.contains_key(sym) {
+                    drop(inner);
+                    current.inner.borrow_mut().bindings.insert(sym.clone(), val);
+                    return Ok(());
+                }
             }
-        }
-        // Check parent
-        let parent = self.inner.borrow().parent.clone();
-        if let Some(parent) = parent {
-            parent.set(sym, val)
-        } else {
-            Err(Error::UndefinedSymbol(sym.clone()))
+            // Move to parent
+            let parent = current.inner.borrow().parent.clone();
+            match parent {
+                Some(p) => current = p,
+                None => return Err(Error::UndefinedSymbol(sym.clone())),
+            }
         }
     }
 
     /// Check if a symbol is defined in this environment or parent chain.
+    /// Uses iterative traversal to avoid stack overflow on deep environments.
     pub fn is_defined(&self, sym: &Symbol) -> bool {
-        let inner = self.inner.borrow();
-        if inner.bindings.contains_key(sym) {
-            true
-        } else if let Some(parent) = &inner.parent {
-            parent.is_defined(sym)
-        } else {
-            false
+        let mut current = self.clone();
+        loop {
+            let inner = current.inner.borrow();
+            if inner.bindings.contains_key(sym) {
+                return true;
+            }
+            let parent = inner.parent.clone();
+            drop(inner);
+            match parent {
+                Some(p) => current = p,
+                None => return false,
+            }
         }
     }
 }

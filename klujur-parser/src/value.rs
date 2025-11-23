@@ -983,21 +983,24 @@ impl PartialEq for KlujurFn {
 /// A native (Rust) function.
 #[derive(Clone)]
 pub struct KlujurNativeFn {
-    /// Function name for display
-    pub name: &'static str,
+    /// Function name for display (using Rc<str> to avoid memory leaks from Box::leak)
+    pub name: Rc<str>,
     /// The actual function (type-erased)
     func: Rc<dyn Any>,
 }
 
 impl KlujurNativeFn {
     /// Create a new native function with a type-erased function.
-    pub fn new(name: &'static str, func: Rc<dyn Any>) -> Self {
-        KlujurNativeFn { name, func }
+    pub fn new(name: impl Into<Rc<str>>, func: Rc<dyn Any>) -> Self {
+        KlujurNativeFn {
+            name: name.into(),
+            func,
+        }
     }
 
     /// Get the function name.
-    pub fn name(&self) -> &'static str {
-        self.name
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     /// Get the inner function reference.
@@ -1857,10 +1860,11 @@ impl KlujurVal {
         KlujurVal::Float(n)
     }
 
-    /// Create a ratio value (automatically reduces)
-    pub fn ratio(num: i64, den: i64) -> Self {
+    /// Create a ratio value, reducing to lowest terms.
+    /// Returns `None` if denominator is zero.
+    pub fn try_ratio(num: i64, den: i64) -> Option<Self> {
         if den == 0 {
-            panic!("Division by zero in ratio");
+            return None;
         }
         let g = gcd(num.abs(), den.abs());
         let (num, den) = if den < 0 {
@@ -1869,10 +1873,16 @@ impl KlujurVal {
             (num / g, den / g)
         };
         if den == 1 {
-            KlujurVal::Int(num)
+            Some(KlujurVal::Int(num))
         } else {
-            KlujurVal::Ratio(num, den)
+            Some(KlujurVal::Ratio(num, den))
         }
+    }
+
+    /// Create a ratio value, reducing to lowest terms.
+    /// Panics if denominator is zero.
+    pub fn ratio(num: i64, den: i64) -> Self {
+        Self::try_ratio(num, den).expect("Division by zero in ratio")
     }
 
     /// Create a character value
@@ -2426,7 +2436,7 @@ impl Ord for KlujurVal {
             }
             (KlujurVal::Set(a, _), KlujurVal::Set(b, _)) => a.iter().cmp(b.iter()), // ignore metadata
             (KlujurVal::Fn(_), KlujurVal::Fn(_)) => Ordering::Equal,
-            (KlujurVal::NativeFn(a), KlujurVal::NativeFn(b)) => a.name.cmp(b.name),
+            (KlujurVal::NativeFn(a), KlujurVal::NativeFn(b)) => a.name.cmp(&b.name),
             (KlujurVal::Macro(_), KlujurVal::Macro(_)) => Ordering::Equal,
             (KlujurVal::Var(a), KlujurVal::Var(b)) => a.cmp(b),
             (KlujurVal::Atom(a), KlujurVal::Atom(b)) => a.cmp(b),

@@ -41,6 +41,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "klujur-embed"
+version = "0.1.0"
+dependencies = [
+ "klujur-core",
+ "klujur-parser",
+]
+
+[[package]]
 name = "klujur-parser"
 version = "0.1.0"
 dependencies = [

@@ -264,8 +264,11 @@ pub(crate) fn apply_native(func: &KlujurNativeFn, args: &[KlujurVal]) -> Result<
 }
 
 /// Create a native function value.
+///
+/// The `name` parameter accepts any type that can be converted to `Rc<str>`,
+/// including `&'static str` (zero-cost), `String`, or `Rc<str>`.
 pub fn make_native_fn(
-    name: &'static str,
+    name: impl Into<Rc<str>>,
     func: impl Fn(&[KlujurVal]) -> Result<KlujurVal> + 'static,
 ) -> KlujurNativeFn {
     let func_rc: Rc<NativeFnImpl> = Rc::new(func);

@@ -31,14 +31,15 @@ pub fn eval_or(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
         return Ok(KlujurVal::Nil);
     }
 
+    let mut result = KlujurVal::Nil;
     for expr in args {
-        let result = eval(expr, env)?;
+        result = eval(expr, env)?;
         if result.is_truthy() {
             return Ok(result);
         }
     }
-    // Return the last falsy value
-    eval(&args[args.len() - 1], env)
+    // Return the last falsy value (already evaluated)
+    Ok(result)
 }
 
 /// (when test body...) - execute body if test is truthy
