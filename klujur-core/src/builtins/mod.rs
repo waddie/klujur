@@ -111,7 +111,10 @@ use math::{
     builtin_tan, builtin_tanh, builtin_to_degrees, builtin_to_radians, builtin_trunc,
 };
 use metadata::{
-    builtin_alter_meta, builtin_meta, builtin_reset_meta, builtin_vary_meta, builtin_with_meta,
+    builtin_meta,
+    builtin_reset_meta,
+    builtin_with_meta,
+    // vary-meta and alter-meta! are implemented in stdlib (core.cljc)
 };
 use multimethods::{
     builtin_ancestors, builtin_descendants, builtin_get_method, builtin_isa,
@@ -130,9 +133,9 @@ use random::{
 use sequences::{
     builtin_butlast, builtin_concat, builtin_cons, builtin_count, builtin_drop, builtin_empty_p,
     builtin_first, builtin_into, builtin_last, builtin_mapcat, builtin_next, builtin_nth,
-    builtin_partition, builtin_range, builtin_repeat, builtin_rest, builtin_reverse,
-    builtin_second, builtin_seq, builtin_take,
+    builtin_partition, builtin_rest, builtin_reverse, builtin_second, builtin_seq, builtin_take,
 };
+// Note: range and repeat are implemented in stdlib (core.cljc) as lazy sequences
 use strings::{builtin_keyword, builtin_name, builtin_namespace, builtin_subs, builtin_symbol};
 use transducers::{
     builtin_ensure_reduced, builtin_reduced, builtin_reduced_p, builtin_transduce,
@@ -292,8 +295,7 @@ pub fn register_builtins(env: &Env) {
     core_ns.define_native("mapcat*", builtin_mapcat);
     core_ns.define_native("partition", builtin_partition);
     core_ns.define_native("reverse", builtin_reverse);
-    core_ns.define_native("range", builtin_range);
-    core_ns.define_native("repeat", builtin_repeat);
+    // range and repeat are implemented in stdlib (core.cljc) as lazy sequences
     core_ns.define_native("into", builtin_into);
     core_ns.define_native("seq", builtin_seq);
 
@@ -458,8 +460,7 @@ pub fn register_builtins(env: &Env) {
     // Metadata
     core_ns.define_native("meta", builtin_meta);
     core_ns.define_native("with-meta", builtin_with_meta);
-    core_ns.define_native("vary-meta", builtin_vary_meta);
-    core_ns.define_native("alter-meta!", builtin_alter_meta);
+    // vary-meta and alter-meta! are implemented in stdlib (core.cljc)
     core_ns.define_native("reset-meta!", builtin_reset_meta);
 
     // I/O & evaluation

@@ -198,8 +198,6 @@
 (deftest fn-literal-single-arg-test
   (testing "#() with single argument %"
     (is (= 2 (eval* "(#(+ % 1) 1)")))
-    (is (= 10 (eval* "(#(* % %) 10)"))) ; Wait, that's wrong - (* 10 10) =
-                                        ; 100
     (is (= 100 (eval* "(#(* % %) 10)")))))
 
 (deftest fn-literal-numbered-args-test

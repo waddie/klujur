@@ -335,6 +335,11 @@ pub(crate) fn builtin_second(args: &[KlujurVal]) -> Result<KlujurVal> {
         KlujurVal::Nil => Ok(KlujurVal::Nil),
         KlujurVal::List(items, _) => Ok(items.get(1).cloned().unwrap_or(KlujurVal::Nil)),
         KlujurVal::Vector(items, _) => Ok(items.get(1).cloned().unwrap_or(KlujurVal::Nil)),
+        KlujurVal::String(s) => Ok(s
+            .chars()
+            .nth(1)
+            .map(KlujurVal::char)
+            .unwrap_or(KlujurVal::Nil)),
         other => Err(Error::type_error_in("second", "seqable", other.type_name())),
     }
 }
@@ -347,6 +352,11 @@ pub(crate) fn builtin_last(args: &[KlujurVal]) -> Result<KlujurVal> {
         KlujurVal::Nil => Ok(KlujurVal::Nil),
         KlujurVal::List(items, _) => Ok(items.back().cloned().unwrap_or(KlujurVal::Nil)),
         KlujurVal::Vector(items, _) => Ok(items.back().cloned().unwrap_or(KlujurVal::Nil)),
+        KlujurVal::String(s) => Ok(s
+            .chars()
+            .last()
+            .map(KlujurVal::char)
+            .unwrap_or(KlujurVal::Nil)),
         other => Err(Error::type_error_in("last", "seqable", other.type_name())),
     }
 }
@@ -365,6 +375,17 @@ pub(crate) fn builtin_butlast(args: &[KlujurVal]) -> Result<KlujurVal> {
         KlujurVal::Vector(items, _) => Ok(KlujurVal::list(
             items.iter().take(items.len() - 1).cloned().collect(),
         )),
+        KlujurVal::String(s) if s.is_empty() => Ok(KlujurVal::Nil),
+        KlujurVal::String(s) => {
+            // Return all chars except the last as a list
+            let chars: Vec<char> = s.chars().collect();
+            Ok(KlujurVal::list(
+                chars[..chars.len() - 1]
+                    .iter()
+                    .map(|c| KlujurVal::char(*c))
+                    .collect(),
+            ))
+        }
         other => Err(Error::type_error_in(
             "butlast",
             "seqable",
@@ -382,6 +403,7 @@ pub(crate) fn builtin_take(args: &[KlujurVal]) -> Result<KlujurVal> {
         return Err(Error::arity_named("take", 2, args.len()));
     }
     let n = match &args[0] {
+        KlujurVal::Int(n) if *n < 0 => return Ok(KlujurVal::empty_list()), // negative n → empty
         KlujurVal::Int(n) => *n as usize,
         other => return Err(Error::type_error_in("take", "integer", other.type_name())),
     };
@@ -423,6 +445,7 @@ pub(crate) fn builtin_drop(args: &[KlujurVal]) -> Result<KlujurVal> {
         return Err(Error::arity_named("drop", 2, args.len()));
     }
     let n = match &args[0] {
+        KlujurVal::Int(n) if *n < 0 => 0usize, // negative n → drop nothing
         KlujurVal::Int(n) => *n as usize,
         other => return Err(Error::type_error_in("drop", "integer", other.type_name())),
     };
@@ -597,89 +620,8 @@ pub(crate) fn builtin_reverse(args: &[KlujurVal]) -> Result<KlujurVal> {
     }
 }
 
-// ============================================================================
-// Sequence Generators
-// ============================================================================
-
-pub(crate) fn builtin_range(args: &[KlujurVal]) -> Result<KlujurVal> {
-    let (start, end, step) = match args.len() {
-        0 => return Err(Error::syntax("range", "requires at least 1 argument")),
-        1 => {
-            let end = match &args[0] {
-                KlujurVal::Int(n) => *n,
-                other => return Err(Error::type_error_in("range", "integer", other.type_name())),
-            };
-            (0, end, 1)
-        }
-        2 => {
-            let start = match &args[0] {
-                KlujurVal::Int(n) => *n,
-                other => return Err(Error::type_error_in("range", "integer", other.type_name())),
-            };
-            let end = match &args[1] {
-                KlujurVal::Int(n) => *n,
-                other => return Err(Error::type_error_in("range", "integer", other.type_name())),
-            };
-            (start, end, 1)
-        }
-        3 => {
-            let start = match &args[0] {
-                KlujurVal::Int(n) => *n,
-                other => return Err(Error::type_error_in("range", "integer", other.type_name())),
-            };
-            let end = match &args[1] {
-                KlujurVal::Int(n) => *n,
-                other => return Err(Error::type_error_in("range", "integer", other.type_name())),
-            };
-            let step = match &args[2] {
-                KlujurVal::Int(n) => *n,
-                other => return Err(Error::type_error_in("range", "integer", other.type_name())),
-            };
-            (start, end, step)
-        }
-        _ => {
-            return Err(Error::ArityError {
-                expected: crate::error::AritySpec::Range(1, 3),
-                got: args.len(),
-                name: Some("range".into()),
-            });
-        }
-    };
-
-    if step == 0 {
-        return Err(Error::EvalError("range step cannot be zero".into()));
-    }
-
-    let mut result = Vec::new();
-    let mut i = start;
-    if step > 0 {
-        while i < end {
-            result.push(KlujurVal::int(i));
-            i += step;
-        }
-    } else {
-        while i > end {
-            result.push(KlujurVal::int(i));
-            i += step;
-        }
-    }
-    Ok(KlujurVal::list(result))
-}
-
-pub(crate) fn builtin_repeat(args: &[KlujurVal]) -> Result<KlujurVal> {
-    if args.len() != 2 {
-        return Err(Error::arity_named("repeat", 2, args.len()));
-    }
-    let n = match &args[0] {
-        KlujurVal::Int(n) if *n >= 0 => *n as usize,
-        KlujurVal::Int(_) => {
-            return Err(Error::EvalError("repeat count must be non-negative".into()));
-        }
-        other => return Err(Error::type_error_in("repeat", "integer", other.type_name())),
-    };
-    let val = args[1].clone();
-    Ok(KlujurVal::list(vec![val; n]))
-}
+// Note: range and repeat are implemented in stdlib (core.cljc) as lazy sequences
+// to support infinite sequences like (range) and (repeat x).
 
 // ============================================================================
 // Into (collection conversion)

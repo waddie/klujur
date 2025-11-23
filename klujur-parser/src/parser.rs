@@ -48,6 +48,9 @@ pub struct Parser<'a> {
     current: Token,
     line: usize,
     column: usize,
+    /// Track nesting depth of anonymous functions (#(...))
+    /// Used to detect illegal nested #() forms
+    in_anon_fn: bool,
 }
 
 impl<'a> Parser<'a> {
@@ -63,6 +66,7 @@ impl<'a> Parser<'a> {
             current,
             line,
             column,
+            in_anon_fn: false,
         })
     }
 
@@ -270,7 +274,15 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_anon_fn(&mut self) -> Result<KlujurVal, ParseError> {
+        // Check for illegal nesting of #() forms
+        if self.in_anon_fn {
+            return Err(self.error("nested #() are not allowed".to_string()));
+        }
+
         self.advance()?; // consume #(
+
+        // Set flag to detect nested anonymous functions
+        self.in_anon_fn = true;
 
         // Collect the body forms
         let mut body = Vec::new();
@@ -278,6 +290,9 @@ impl<'a> Parser<'a> {
             body.push(self.parse_form()?);
         }
         self.expect(&Token::RParen)?;
+
+        // Clear the flag after parsing the body
+        self.in_anon_fn = false;
 
         // Find the highest numbered argument (%, %1, %2, ..., %&)
         let (max_arg, has_rest) = Self::find_fn_args(&body);
@@ -407,6 +422,10 @@ impl<'a> Parser<'a> {
         self.advance()?; // consume #_
         // Parse and discard the next form
         self.parse_form()?;
+        // Check for EOF - if nothing follows the discarded form, return nil
+        if matches!(self.current, Token::Eof) {
+            return Ok(KlujurVal::Nil);
+        }
         // Return the form after the discarded one
         self.parse_form()
     }

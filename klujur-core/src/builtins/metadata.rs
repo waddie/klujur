@@ -63,42 +63,12 @@ pub(crate) fn builtin_with_meta(args: &[KlujurVal]) -> Result<KlujurVal> {
     }
 }
 
-/// (vary-meta obj f & args) - Returns obj with (apply f (meta obj) args) as metadata.
-/// Note: This is a simplified version that doesn't support extra args (requires apply).
-pub(crate) fn builtin_vary_meta(args: &[KlujurVal]) -> Result<KlujurVal> {
-    if args.len() < 2 {
-        return Err(Error::ArityError {
-            expected: crate::error::AritySpec::AtLeast(2),
-            got: args.len(),
-            name: Some("vary-meta".into()),
-        });
-    }
-    // vary-meta requires calling f - this needs access to apply/eval
-    // For now, we'll return an error suggesting use of with-meta directly
-    // A full implementation would need to be in eval.rs or receive an eval context
-    Err(Error::EvalError(
-        "vary-meta: not yet implemented (use with-meta with explicit meta manipulation)".into(),
-    ))
-}
+// Note: vary-meta and alter-meta! are implemented in stdlib (core.cljc)
+// because they require calling a user function (f) with apply.
 
 // ============================================================================
 // Metadata Mutation (for references)
 // ============================================================================
-
-/// (alter-meta! ref f & args) - Atomically alters ref's metadata.
-pub(crate) fn builtin_alter_meta(args: &[KlujurVal]) -> Result<KlujurVal> {
-    if args.len() < 2 {
-        return Err(Error::ArityError {
-            expected: crate::error::AritySpec::AtLeast(2),
-            got: args.len(),
-            name: Some("alter-meta!".into()),
-        });
-    }
-    // alter-meta! requires calling f - this needs access to apply/eval
-    Err(Error::EvalError(
-        "alter-meta!: not yet implemented (use reset-meta! for direct assignment)".into(),
-    ))
-}
 
 /// (reset-meta! ref m) - Sets ref's metadata to m.
 pub(crate) fn builtin_reset_meta(args: &[KlujurVal]) -> Result<KlujurVal> {

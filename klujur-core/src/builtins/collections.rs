@@ -107,6 +107,13 @@ pub(crate) fn builtin_assoc(args: &[KlujurVal]) -> Result<KlujurVal> {
             let mut new_vec = items.clone();
             for pair in args[1..].chunks(2) {
                 if let KlujurVal::Int(idx_i64) = &pair[0] {
+                    // Reject negative indices
+                    if *idx_i64 < 0 {
+                        return Err(Error::IndexOutOfBounds {
+                            index: *idx_i64,
+                            length: new_vec.len(),
+                        });
+                    }
                     let idx = *idx_i64 as usize;
                     if idx < new_vec.len() {
                         new_vec.set(idx, pair[1].clone());

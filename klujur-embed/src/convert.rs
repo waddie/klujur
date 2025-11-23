@@ -2,8 +2,60 @@
 // Copyright (c) 2025 Tom Waddington. MIT licensed.
 
 //! Type conversion between Rust and Klujur values.
+//!
+//! This module provides the [`IntoKlujurVal`] and [`FromKlujurVal`] traits for
+//! converting between Rust types and [`KlujurVal`].
+//!
+//! # Built-in Conversions
+//!
+//! The following types have built-in conversions:
+//!
+//! | Rust Type | Klujur Type |
+//! |-----------|-------------|
+//! | `()` | `nil` |
+//! | `bool` | `bool` |
+//! | `i32`, `i64`, `usize` | `int` |
+//! | `f32`, `f64` | `float` |
+//! | `char` | `char` |
+//! | `String`, `&str` | `string` |
+//! | `Vec<T>` | `vector` |
+//! | `Option<T>` | `T` or `nil` |
+//!
+//! # Custom Conversions
+//!
+//! You can implement these traits for your own types:
+//!
+//! ```rust
+//! use klujur_embed::{IntoKlujurVal, FromKlujurVal, KlujurVal, Result, Error};
+//!
+//! struct Point { x: i64, y: i64 }
+//!
+//! impl IntoKlujurVal for Point {
+//!     fn into_klujur_val(self) -> KlujurVal {
+//!         // Convert to a Klujur vector [x y]
+//!         KlujurVal::vector(vec![
+//!             KlujurVal::int(self.x),
+//!             KlujurVal::int(self.y),
+//!         ])
+//!     }
+//! }
+//!
+//! impl FromKlujurVal for Point {
+//!     fn from_klujur_val(val: &KlujurVal) -> Result<Self> {
+//!         match val {
+//!             KlujurVal::Vector(v, _) if v.len() == 2 => {
+//!                 let x = i64::from_klujur_val(&v[0])?;
+//!                 let y = i64::from_klujur_val(&v[1])?;
+//!                 Ok(Point { x, y })
+//!             }
+//!             _ => Err(Error::type_error("vector of 2 ints", val.type_name())),
+//!         }
+//!     }
+//! }
+//! ```
 
 use std::collections::HashMap;
+use std::hash::Hash;
 use std::rc::Rc;
 
 use klujur_core::{Error, Result};
@@ -215,9 +267,26 @@ impl FromKlujurVal for f64 {
 impl FromKlujurVal for f32 {
     fn from_klujur_val(val: &KlujurVal) -> Result<Self> {
         match val {
-            KlujurVal::Float(n) => Ok(*n as f32),
+            KlujurVal::Float(n) => {
+                let result = *n as f32;
+                if result.is_infinite() && n.is_finite() {
+                    Err(Error::EvalError(format!("f64 value {} overflows f32", n)))
+                } else {
+                    Ok(result)
+                }
+            }
             KlujurVal::Int(n) => Ok(*n as f32),
-            KlujurVal::Ratio(num, den) => Ok(*num as f32 / *den as f32),
+            KlujurVal::Ratio(num, den) => {
+                let result = *num as f32 / *den as f32;
+                if result.is_infinite() {
+                    Err(Error::EvalError(format!(
+                        "ratio {}/{} overflows f32",
+                        num, den
+                    )))
+                } else {
+                    Ok(result)
+                }
+            }
             other => Err(Error::type_error("number", other.type_name())),
         }
     }
@@ -256,6 +325,21 @@ impl<T: FromKlujurVal> FromKlujurVal for Option<T> {
         match val {
             KlujurVal::Nil => Ok(None),
             other => T::from_klujur_val(other).map(Some),
+        }
+    }
+}
+
+impl<K: FromKlujurVal + Eq + Hash, V: FromKlujurVal> FromKlujurVal for HashMap<K, V> {
+    fn from_klujur_val(val: &KlujurVal) -> Result<Self> {
+        match val {
+            KlujurVal::Map(m, _) => {
+                let mut result = HashMap::with_capacity(m.len());
+                for (k, v) in m.iter() {
+                    result.insert(K::from_klujur_val(k)?, V::from_klujur_val(v)?);
+                }
+                Ok(result)
+            }
+            other => Err(Error::type_error("map", other.type_name())),
         }
     }
 }

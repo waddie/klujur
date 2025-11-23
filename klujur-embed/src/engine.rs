@@ -18,6 +18,13 @@ use crate::convert::{FromKlujurVal, IntoKlujurVal};
 /// `Engine` provides a high-level interface for evaluating Klujur code,
 /// registering Rust functions, and interacting with Klujur values.
 ///
+/// # Thread Safety
+///
+/// **`Engine` is NOT thread-safe.** It uses `Rc` and `RefCell` internally for
+/// performance in single-threaded contexts. Do not share an `Engine` between
+/// threads. If you need concurrent evaluation, create separate `Engine` instances
+/// for each thread.
+///
 /// # Example
 ///
 /// ```rust
@@ -62,6 +69,13 @@ impl Engine {
     ///
     /// Returns the result of the last expression.
     ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The code contains syntax errors
+    /// - Evaluation fails (undefined symbol, type error, etc.)
+    /// - A user-thrown exception is not caught
+    ///
     /// # Example
     ///
     /// ```rust
@@ -88,6 +102,13 @@ impl Engine {
     /// Evaluate a file of Klujur code.
     ///
     /// Returns the result of the last expression.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The file cannot be read (not found, permission denied)
+    /// - The file contains syntax errors
+    /// - Evaluation fails
     pub fn eval_file(&self, path: impl AsRef<Path>) -> Result<KlujurVal> {
         let code = std::fs::read_to_string(path.as_ref())
             .map_err(|e| Error::io("eval_file", Some(path.as_ref().display().to_string()), e))?;
@@ -109,6 +130,35 @@ impl Engine {
     /// Returns `None` if the symbol is not defined or cannot be converted.
     pub fn get_as<T: FromKlujurVal>(&self, name: &str) -> Option<T> {
         self.get(name).and_then(|v| T::from_klujur_val(&v).ok())
+    }
+
+    /// Get a typed value from the current namespace with error details.
+    ///
+    /// Unlike `get_as`, this method distinguishes between:
+    /// - Symbol not found: returns `Ok(None)`
+    /// - Conversion error: returns `Err(...)` with the conversion error
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use klujur_embed::Engine;
+    ///
+    /// let engine = Engine::new().unwrap();
+    /// engine.eval("(def x \"hello\")").unwrap();
+    ///
+    /// // Symbol not found
+    /// let result: Result<Option<i64>, _> = engine.try_get_as("y");
+    /// assert!(result.unwrap().is_none());
+    ///
+    /// // Conversion error (string -> i64)
+    /// let result: Result<Option<i64>, _> = engine.try_get_as("x");
+    /// assert!(result.is_err());
+    /// ```
+    pub fn try_get_as<T: FromKlujurVal>(&self, name: &str) -> Result<Option<T>> {
+        match self.get(name) {
+            Some(v) => T::from_klujur_val(&v).map(Some),
+            None => Ok(None),
+        }
     }
 
     /// Set a value in the current namespace.
@@ -204,8 +254,6 @@ impl Engine {
     }
 }
 
-impl Default for Engine {
-    fn default() -> Self {
-        Self::new().expect("Failed to create default Engine")
-    }
-}
+// Note: Default is intentionally not implemented for Engine because
+// Engine::new() can fail (e.g., stdlib loading errors). Users should
+// call Engine::new() directly and handle the Result.

@@ -231,17 +231,29 @@ pub(crate) fn eval_extend_type(args: &[KlujurVal], env: &Env) -> Result<KlujurVa
                     if let KlujurVal::Symbol(method_sym, _) = &items[0] {
                         let method_name = method_sym.name().to_string();
 
-                        // Check if this method exists in the protocol
-                        if !protocol.methods.contains_key(&method_name) {
-                            return Err(Error::EvalError(format!(
+                        // Check if this method exists in the protocol and get its signature
+                        let method_sig = protocol.methods.get(&method_name).ok_or_else(|| {
+                            Error::EvalError(format!(
                                 "Method {} is not part of protocol {}",
                                 method_name, protocol_name
-                            )));
-                        }
+                            ))
+                        })?;
 
-                        // Build a function from (method-name [args] body)
-                        // Convert to (fn [args] body)
+                        // Validate arity: get the parameter count from the implementation
+                        // The implementation form is (method-name [params...] body...)
                         let fn_args: Vec<KlujurVal> = items.iter().skip(1).cloned().collect();
+                        if let Some(KlujurVal::Vector(impl_params, _)) = fn_args.first() {
+                            let impl_arity = impl_params.len();
+                            // Check if this arity matches any declared arity in the protocol
+                            let valid_arities: Vec<usize> =
+                                method_sig.arglists.iter().map(|a| a.len()).collect();
+                            if !valid_arities.contains(&impl_arity) {
+                                return Err(Error::EvalError(format!(
+                                    "Method {} implementation has arity {} but protocol {} declares arities {:?}",
+                                    method_name, impl_arity, protocol_name, valid_arities
+                                )));
+                            }
+                        }
                         let fn_form = KlujurVal::list(
                             std::iter::once(KlujurVal::Symbol(Symbol::new("fn"), None))
                                 .chain(fn_args)

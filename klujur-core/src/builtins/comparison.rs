@@ -26,8 +26,9 @@ pub(crate) fn builtin_eq(args: &[KlujurVal]) -> Result<KlujurVal> {
 }
 
 pub(crate) fn builtin_not_eq(args: &[KlujurVal]) -> Result<KlujurVal> {
+    // (not=) and (not= x) return true per Clojure semantics
     if args.len() < 2 {
-        return Ok(KlujurVal::bool(false));
+        return Ok(KlujurVal::bool(true));
     }
     for i in 1..args.len() {
         if args[i - 1] == args[i] {

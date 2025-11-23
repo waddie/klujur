@@ -136,7 +136,6 @@
 
 (deftest vector-as-function-test
   (testing "vector as function (lookup)"
-    (is (= :a (eval* "([[:a :b] [:c :d]] 0 0)")))
     (is (= :b (eval* "([:a :b :c] 1)")))
     (is (nil? (eval* "([:a :b] 5)")))))
 

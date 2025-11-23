@@ -1125,41 +1125,23 @@ impl KlujurFn {
     // Legacy accessors for backward compatibility with single-arity code
     /// Get parameters of the first (or only) arity.
     ///
-    /// # Panics (debug mode only)
-    ///
-    /// Debug assertion will panic if the function has no arities.
-    pub fn params(&self) -> &[Symbol] {
-        debug_assert!(
-            !self.arities.is_empty(),
-            "Cannot access params: function has no arities"
-        );
-        &self.arities[0].params
+    /// Returns `None` if the function has no arities.
+    pub fn params(&self) -> Option<&[Symbol]> {
+        self.arities.first().map(|a| a.params.as_slice())
     }
 
     /// Get rest parameter of the first (or only) arity.
     ///
-    /// # Panics (debug mode only)
-    ///
-    /// Debug assertion will panic if the function has no arities.
+    /// Returns `None` if the function has no arities.
     pub fn rest_param(&self) -> Option<&Symbol> {
-        debug_assert!(
-            !self.arities.is_empty(),
-            "Cannot access rest_param: function has no arities"
-        );
-        self.arities[0].rest_param.as_ref()
+        self.arities.first().and_then(|a| a.rest_param.as_ref())
     }
 
     /// Get body of the first (or only) arity.
     ///
-    /// # Panics (debug mode only)
-    ///
-    /// Debug assertion will panic if the function has no arities.
-    pub fn body(&self) -> &[KlujurVal] {
-        debug_assert!(
-            !self.arities.is_empty(),
-            "Cannot access body: function has no arities"
-        );
-        &self.arities[0].body
+    /// Returns `None` if the function has no arities.
+    pub fn body(&self) -> Option<&[KlujurVal]> {
+        self.arities.first().map(|a| a.body.as_slice())
     }
 }
 
@@ -1212,7 +1194,8 @@ impl fmt::Debug for KlujurNativeFn {
 
 impl PartialEq for KlujurNativeFn {
     fn eq(&self, other: &Self) -> bool {
-        self.name == other.name
+        // Use Rc pointer comparison for identity equality
+        Rc::ptr_eq(&self.func, &other.func)
     }
 }
 
@@ -2554,6 +2537,34 @@ fn normalize_float_bits(f: f64) -> u64 {
     }
 }
 
+/// Hash a numeric value consistently across Int, Float, and Ratio types.
+/// Equal values MUST hash identically to satisfy the Hash/Eq contract.
+///
+/// Strategy:
+/// - Convert to float representation when the value can be exactly represented
+/// - Use a "numeric" discriminant instead of per-type discriminants
+fn hash_numeric<H: Hasher>(state: &mut H, int_val: Option<i64>, float_val: f64) {
+    // Use a single discriminant for all numeric types
+    const NUMERIC_DISCRIMINANT: u8 = 0;
+    NUMERIC_DISCRIMINANT.hash(state);
+
+    // If the float value is an exact integer that round-trips, use that for hashing
+    // This ensures Int(n) and Float(n.0) hash the same when n.0 as i64 as f64 == n.0
+    if let Some(n) = int_val {
+        // Check if this int is exactly representable as f64
+        if n as f64 as i64 == n {
+            normalize_float_bits(n as f64).hash(state);
+        } else {
+            // Large integers that lose precision as f64 - hash as int
+            // These can never equal a Float anyway
+            n.hash(state);
+        }
+    } else {
+        // For floats and ratios-as-floats, use normalised float bits
+        normalize_float_bits(float_val).hash(state);
+    }
+}
+
 impl PartialEq for KlujurVal {
     fn eq(&self, other: &Self) -> bool {
         // Note: Metadata is intentionally ignored in equality comparisons.
@@ -2690,9 +2701,21 @@ impl Ord for KlujurVal {
                 a.iter().cmp(b.iter())
             }
             (KlujurVal::Set(a, _), KlujurVal::Set(b, _)) => a.iter().cmp(b.iter()), // ignore metadata
-            (KlujurVal::Fn(_), KlujurVal::Fn(_)) => Ordering::Equal,
+            (KlujurVal::Fn(a), KlujurVal::Fn(b)) => {
+                // Use pointer comparison on the captured environment for consistent ordering
+                // Cast fat pointer to thin pointer via *const () before converting to usize
+                let a_ptr = Rc::as_ptr(&a.env) as *const () as usize;
+                let b_ptr = Rc::as_ptr(&b.env) as *const () as usize;
+                a_ptr.cmp(&b_ptr)
+            }
             (KlujurVal::NativeFn(a), KlujurVal::NativeFn(b)) => a.name.cmp(&b.name),
-            (KlujurVal::Macro(_), KlujurVal::Macro(_)) => Ordering::Equal,
+            (KlujurVal::Macro(a), KlujurVal::Macro(b)) => {
+                // Use pointer comparison on the captured environment for consistent ordering
+                // Cast fat pointer to thin pointer via *const () before converting to usize
+                let a_ptr = Rc::as_ptr(&a.env) as *const () as usize;
+                let b_ptr = Rc::as_ptr(&b.env) as *const () as usize;
+                a_ptr.cmp(&b_ptr)
+            }
             (KlujurVal::Var(a), KlujurVal::Var(b)) => a.cmp(b),
             (KlujurVal::Atom(a), KlujurVal::Atom(b)) => a.cmp(b),
             (KlujurVal::Delay(a), KlujurVal::Delay(b)) => a.cmp(b),
@@ -2718,23 +2741,52 @@ impl Ord for KlujurVal {
 impl Hash for KlujurVal {
     fn hash<H: Hasher>(&self, state: &mut H) {
         // Note: Metadata is intentionally ignored in hashing (consistent with equality)
-        std::mem::discriminant(self).hash(state);
+        // Note: Numeric types (Int, Float, Ratio) use hash_numeric() instead of discriminant
+        // hashing to ensure equal values hash identically (e.g., 1 == 1.0 must hash same)
         match self {
-            KlujurVal::Nil => {}
-            KlujurVal::Bool(b) => b.hash(state),
-            KlujurVal::Int(n) => n.hash(state),
-            KlujurVal::Float(n) => normalize_float_bits(*n).hash(state),
-            KlujurVal::Ratio(num, den) => {
-                num.hash(state);
-                den.hash(state);
+            KlujurVal::Nil => std::mem::discriminant(self).hash(state),
+            KlujurVal::Bool(b) => {
+                std::mem::discriminant(self).hash(state);
+                b.hash(state);
             }
-            KlujurVal::Char(c) => c.hash(state),
-            KlujurVal::String(s) => s.hash(state),
-            KlujurVal::Symbol(sym, _) => sym.hash(state), // ignore metadata
-            KlujurVal::Keyword(kw) => kw.hash(state),
-            KlujurVal::List(items, _) => items.hash(state), // ignore metadata
-            KlujurVal::Vector(items, _) => items.hash(state), // ignore metadata
+            // Numeric types: use consistent hashing across Int/Float/Ratio
+            KlujurVal::Int(n) => hash_numeric(state, Some(*n), *n as f64),
+            KlujurVal::Float(f) => hash_numeric(state, None, *f),
+            KlujurVal::Ratio(num, den) => {
+                // If den == 1, this equals an Int, so hash like the Int
+                if *den == 1 {
+                    hash_numeric(state, Some(*num), *num as f64);
+                } else {
+                    // Hash as the float representation for potential Float equality
+                    hash_numeric(state, None, *num as f64 / *den as f64);
+                }
+            }
+            KlujurVal::Char(c) => {
+                std::mem::discriminant(self).hash(state);
+                c.hash(state);
+            }
+            KlujurVal::String(s) => {
+                std::mem::discriminant(self).hash(state);
+                s.hash(state);
+            }
+            KlujurVal::Symbol(sym, _) => {
+                std::mem::discriminant(self).hash(state);
+                sym.hash(state); // ignore metadata
+            }
+            KlujurVal::Keyword(kw) => {
+                std::mem::discriminant(self).hash(state);
+                kw.hash(state);
+            }
+            KlujurVal::List(items, _) => {
+                std::mem::discriminant(self).hash(state);
+                items.hash(state); // ignore metadata
+            }
+            KlujurVal::Vector(items, _) => {
+                std::mem::discriminant(self).hash(state);
+                items.hash(state); // ignore metadata
+            }
             KlujurVal::Map(map, _) => {
+                std::mem::discriminant(self).hash(state);
                 // ignore metadata
                 for (k, v) in map.iter() {
                     k.hash(state);
@@ -2742,68 +2794,85 @@ impl Hash for KlujurVal {
                 }
             }
             KlujurVal::Set(set, _) => {
+                std::mem::discriminant(self).hash(state);
                 // ignore metadata
                 for item in set.iter() {
                     item.hash(state);
                 }
             }
             KlujurVal::Fn(_) => {
+                std::mem::discriminant(self).hash(state);
                 // Functions don't have meaningful hash - use type discriminant only
             }
             KlujurVal::NativeFn(nf) => {
+                std::mem::discriminant(self).hash(state);
                 nf.name.hash(state);
             }
             KlujurVal::Macro(_) => {
+                std::mem::discriminant(self).hash(state);
                 // Macros don't have meaningful hash - use type discriminant only
             }
             KlujurVal::Var(v) => {
+                std::mem::discriminant(self).hash(state);
                 v.qualified_name().hash(state);
             }
             KlujurVal::Atom(a) => {
+                std::mem::discriminant(self).hash(state);
                 // Hash by pointer address (atoms are identity-compared)
                 (Rc::as_ptr(&a.value) as usize).hash(state);
             }
             KlujurVal::Delay(d) => {
+                std::mem::discriminant(self).hash(state);
                 // Hash by pointer address (delays are identity-compared)
                 (Rc::as_ptr(&d.state) as usize).hash(state);
             }
             KlujurVal::LazySeq(ls) => {
+                std::mem::discriminant(self).hash(state);
                 // Hash by pointer address (lazy seqs are identity-compared)
                 (Rc::as_ptr(ls.state()) as usize).hash(state);
             }
             KlujurVal::Multimethod(mm) => {
+                std::mem::discriminant(self).hash(state);
                 // Hash by pointer address (multimethods are identity-compared)
                 (Rc::as_ptr(&mm.methods) as usize).hash(state);
             }
             KlujurVal::Hierarchy(h) => {
+                std::mem::discriminant(self).hash(state);
                 // Hash by pointer address (hierarchies are identity-compared)
                 (Rc::as_ptr(h) as usize).hash(state);
             }
             KlujurVal::Reduced(v) => {
+                std::mem::discriminant(self).hash(state);
                 // Hash by inner value
                 v.hash(state);
             }
             KlujurVal::Volatile(v) => {
+                std::mem::discriminant(self).hash(state);
                 // Hash by pointer address (volatiles are identity-compared)
                 (Rc::as_ptr(v.value_cell()) as usize).hash(state);
             }
             KlujurVal::Protocol(p) => {
+                std::mem::discriminant(self).hash(state);
                 // Hash by protocol name and namespace
                 p.hash(state);
             }
             KlujurVal::Record(r) => {
+                std::mem::discriminant(self).hash(state);
                 // Hash by record type and values
                 r.hash(state);
             }
             KlujurVal::SortedMapBy(sm) => {
+                std::mem::discriminant(self).hash(state);
                 // Hash by pointer address (identity-based)
                 sm.hash(state);
             }
             KlujurVal::SortedSetBy(ss) => {
+                std::mem::discriminant(self).hash(state);
                 // Hash by pointer address (identity-based)
                 ss.hash(state);
             }
             KlujurVal::Custom(c) => {
+                std::mem::discriminant(self).hash(state);
                 c.hash(state);
             }
         }

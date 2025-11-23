@@ -48,9 +48,62 @@
   [name & decls]
   (list* 'defn (with-meta name (assoc (meta name) :private true)) decls))
 
+(defmacro defonce
+  "defs name to have the root value of the expr iff the named var has no root value,
+   else expr is unevaluated"
+  [name expr]
+  ;; Use try/catch since var throws if symbol is unresolved
+  `(try (when-not (bound? (var ~name)) (def ~name ~expr))
+        (catch :default _# (def ~name ~expr))))
+
+(defmacro declare
+  "defs the supplied var names with no bindings, useful for making forward declarations.
+   Note: In Klujur, vars are initialised to nil (Clojure uses unbound vars)."
+  [& names]
+  (cons 'do (map (fn [n] (list 'def n nil)) names)))
+
+(defmacro comment "Ignores body, yields nil" [& _body] nil)
+
+(defmacro doto
+  "Evaluates x then calls all of the methods and functions with the
+   value of x supplied at the front of the given arguments. The forms
+   are evaluated in order. Returns x."
+  [x & forms]
+  (let [gx    (gensym)
+        calls (map (fn [f]
+                     (if (seq? f) (list* (first f) gx (next f)) (list f gx)))
+                   forms)]
+    (list 'let [gx x] (apply list 'do (concat calls (list gx))))))
+
+(defmacro assert
+  "Evaluates expr and throws an exception if it does not evaluate to
+   logical true."
+  ([x]
+   `(when-not ~x
+      (throw (ex-info (str "Assert failed: " '~x) {:type :assertion-error}))))
+  ([x message]
+   `(when-not ~x
+      (throw (ex-info (str "Assert failed: " ~message)
+                      {:type :assertion-error})))))
+
 ;; ============================================================================
 ;; Conditional Binding Macros
 ;; ============================================================================
+
+(defn assert-binding-vec*
+  "Validates that bind-vec is a 2-element vector. Throws helpful error if not.
+   For internal use by binding macros."
+  [macro-name bind-vec]
+  (when-not (vector? bind-vec)
+    (throw (ex-info (str macro-name
+                         " requires a vector for its binding, got "
+                         (type bind-vec))
+                    {:type :syntax-error :macro macro-name})))
+  (when-not (= 2 (count bind-vec))
+    (throw (ex-info (str macro-name
+                         " requires exactly 2 forms in binding vector, got "
+                         (count bind-vec))
+                    {:type :syntax-error :macro macro-name}))))
 
 (defmacro if-let
   "Binds test to bind-vec, evaluates then if truthy, else otherwise."
@@ -59,6 +112,7 @@
             ~then
             nil))
   ([bind-vec then else]
+   (assert-binding-vec* "if-let" bind-vec)
    (let [form (bind-vec 0)
          tst  (bind-vec 1)]
      `(let [temp# ~tst]
@@ -70,6 +124,7 @@
 (defmacro when-let
   "Binds test to bind-vec, evaluates body if truthy."
   [bind-vec & body]
+  (assert-binding-vec* "when-let" bind-vec)
   (let [form (bind-vec 0)
         tst  (bind-vec 1)]
     `(let [temp# ~tst]
@@ -84,6 +139,7 @@
              ~then
              nil))
   ([bind-vec then else]
+   (assert-binding-vec* "if-some" bind-vec)
    (let [form (bind-vec 0)
          tst  (bind-vec 1)]
      `(let [temp# ~tst]
@@ -95,6 +151,7 @@
 (defmacro when-some
   "Binds test to bind-vec if non-nil, evaluates body."
   [bind-vec & body]
+  (assert-binding-vec* "when-some" bind-vec)
   (let [form (bind-vec 0)
         tst  (bind-vec 1)]
     `(let [temp# ~tst]
@@ -105,6 +162,7 @@
 (defmacro when-first
   "Binds first element of coll to bind-vec, evaluates body if coll non-empty."
   [bind-vec & body]
+  (assert-binding-vec* "when-first" bind-vec)
   (let [form (bind-vec 0)
         coll (bind-vec 1)]
     `(when-let [s# (seq ~coll)]
@@ -364,32 +422,38 @@
    Uses volatiles to enable mutual recursion - each function can call
    the others even though they're defined simultaneously."
   [fnspecs & body]
-  (let [names            (map first fnspecs)
+  (let [names            (vec (map first fnspecs))
         ;; Create gensyms for the volatile references
-        vol-syms         (map (fn [n] (gensym (str n "_vol_"))) names)
+        vol-syms         (vec (map (fn [n] (gensym (str n "_vol_"))) names))
         ;; Bindings that create volatiles initialized to nil
-        vol-bindings     (vec (mapcat (fn [v] [v `(volatile! nil)]) vol-syms))
+        vol-bindings     (vec (mapcat (fn [v] [v (list 'volatile! nil)])
+                               vol-syms))
         ;; Map from name to its volatile symbol
         name->vol        (zipmap names vol-syms)
         ;; Create wrapper functions that deref their volatiles
-        wrapper-bindings (vec (mapcat (fn [[name vol]] [name
-                                                        `(fn [& args#]
-                                                           (apply (deref ~vol)
-                                                                  args#))])
+        wrapper-bindings (vec (mapcat (fn [[name vol]]
+                                        (let [args-sym (gensym "args")]
+                                          [name
+                                           (list 'fn
+                                                 (vector '& args-sym)
+                                                 (list 'apply
+                                                       (list 'deref vol)
+                                                       args-sym))]))
                                name->vol))
         ;; Create the actual function implementations
-        impl-syms        (map (fn [n] (gensym (str n "_impl_"))) names)
+        impl-syms        (vec (map (fn [n] (gensym (str n "_impl_"))) names))
         impl-bindings    (vec (mapcat (fn [spec impl-sym] [impl-sym
-                                                           `(fn ~@(rest spec))])
+                                                           (list* 'fn
+                                                                  (rest spec))])
                                fnspecs
                                impl-syms))
         ;; Set the volatiles to the implementations
-        set-exprs        (vec (map (fn [vol impl] `(vreset! ~vol ~impl))
+        set-exprs        (vec (map (fn [vol impl] (list 'vreset! vol impl))
                                    vol-syms
-                                   impl-syms))]
-    `(let ~(vec (concat vol-bindings wrapper-bindings impl-bindings))
-          ~@set-exprs
-          ~@body)))
+                                   impl-syms))
+        all-bindings     (vec
+                          (concat vol-bindings wrapper-bindings impl-bindings))]
+    (list* 'let all-bindings (concat set-exprs body))))
 
 ;; ============================================================================
 ;; Lazy Sequence Macros
@@ -400,7 +464,7 @@
    of the supplied colls. Each coll expr is not evaluated until it is
    needed."
   [& colls]
-  `(lazy-seq (concat ~@colls)))
+  (apply list 'concat (map (fn [coll] (list 'lazy-seq coll)) colls)))
 
 ;; ============================================================================
 ;; Lazy Sequence Functions
@@ -953,12 +1017,13 @@
                                  (map (fn [spec] (list 'use (list 'quote spec)))
                                       specs)
                                  (= type :refer-klujur)
-                                 (list (concat (list 'refer
-                                                     (list 'quote 'klujur.core))
-                                               specs))
+                                 (list (apply list
+                                              'refer
+                                              (list 'quote 'klujur.core)
+                                              specs))
                                  :else nil)))
-        all-forms      (mapcat process-clause clauses)]
-    (concat (list 'do) (list (list 'in-ns (list 'quote name))) all-forms)))
+        all-forms      (vec (mapcat process-clause clauses))]
+    (apply list 'do (list 'in-ns (list 'quote name)) all-forms)))
 
 ;; ============================================================================
 ;; Transducers
@@ -1068,6 +1133,31 @@
   "Reduces an eduction with the given function and initial value."
   ([ed f] (transduce (:xform ed) f (:coll ed)))
   ([ed f init] (transduce (:xform ed) f init (:coll ed))))
+
+;; Shadow the builtin reduce to support eductions
+(def reduce-builtin reduce)
+
+(defn reduce
+  "Reduces coll with f. If coll is an eduction, uses transduce internally."
+  ([f coll]
+   (if (eduction? coll) (eduction-reduce coll f) (reduce-builtin f coll)))
+  ([f init coll]
+   (if (eduction? coll)
+     (eduction-reduce coll f init)
+     (reduce-builtin f init coll))))
+
+;; Shadow the builtin into to support eductions
+(def into-builtin into)
+
+(defn into
+  "Returns a new coll of to-coll with items from coll conj'd.
+   If coll is an eduction, uses transduce internally."
+  ([to] to)
+  ([to from]
+   (if (eduction? from)
+     (transduce (:xform from) conj to (:coll from))
+     (into-builtin to from)))
+  ([to xform from] (into-builtin to xform from)))
 
 ;; ============================================================================
 ;; Protocol Support
@@ -1183,6 +1273,20 @@
   "Protocol for types that can have metadata attached."
   (-with-meta [obj m]
    "Returns a copy of obj with metadata m attached."))
+
+(defn vary-meta
+  "Returns an object of the same type and value as obj, with
+   (apply f (meta obj) args) as its metadata."
+  [obj f & args]
+  (with-meta obj (apply f (meta obj) args)))
+
+(defmacro alter-meta!
+  "Atomically sets the metadata for a reference (atom, var) to be
+   (apply f (meta ref) args). Returns the new metadata."
+  [ref f & args]
+  ;; Note: We cannot use let to capture ref because let derefs vars.
+  ;; Instead, we emit code that uses ref directly in each position.
+  `(do (reset-meta! ~ref (apply ~f (meta ~ref) (list ~@args))) (meta ~ref)))
 
 (defprotocol ICounted
   "Protocol for types with O(1) count."
@@ -1464,6 +1568,16 @@
     (-counted? x)
     ;; Fallback for built-in types not explicitly extended
     (or (nil? x) (list? x) (vector? x) (map? x) (set? x) (string? x))))
+
+(defn bounded-count
+  "If coll is counted? returns its count, else will count at most the first n
+   elements of coll using its seq"
+  [n coll]
+  (if (counted? coll)
+    (count coll)
+    (loop [i 0
+           s (seq coll)]
+      (if (and s (< i n)) (recur (inc i) (next s)) i))))
 
 ;; ============================================================================
 ;; Eager Side-Effect Iteration

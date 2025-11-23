@@ -635,7 +635,15 @@ impl<'a> Lexer<'a> {
                 .map_err(|_| self.error(format!("Invalid integer: {}", s)))?
         };
 
-        Ok(if is_negative { -result } else { result })
+        if is_negative {
+            // Use checked negation to handle i64::MIN edge case
+            // (parsing "9223372036854775808" then negating would overflow)
+            result
+                .checked_neg()
+                .ok_or_else(|| self.error(format!("Integer overflow: -{}", result)))
+        } else {
+            Ok(result)
+        }
     }
 }
 

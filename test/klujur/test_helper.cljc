@@ -15,15 +15,12 @@
      (eval* '(+ 1 2))           ; Evaluate a form
      (eval* \"(+ 1 2)\")        ; Evaluate a string
      (eval* {:bindings {'x 10}} '(+ x 1))  ; With context"
-  ([form]
-   (if (string? form)
-     (eval (read-string form))
-     (eval form)))
+  ([form] (if (string? form) (eval (read-string form)) (eval form)))
   ([ctx form]
    ;; With bindings context - wrap in let* with the provided bindings
-   (let [bindings (:bindings ctx)
+   (let [bindings      (:bindings ctx)
          binding-pairs (mapcat (fn [[k v]] [k v]) bindings)
-         wrapped-form (list 'let* (vec binding-pairs) form)]
+         wrapped-form  (list 'let* (vec binding-pairs) form)]
      (eval* wrapped-form))))
 
 (defn eval*-string
@@ -53,10 +50,7 @@
    Usage:
      (is (throws? (eval* '(/ 1 0))))"
   [thunk]
-  (try (thunk)
-       false
-       (catch :default _
-         true)))
+  (try (thunk) false (catch :default _ true)))
 
 (defmacro thrown-with-msg?
   "Test that evaluating body throws an exception matching the pattern.
@@ -64,10 +58,7 @@
    Usage:
      (is (thrown-with-msg? #\"division by zero\" (eval* '(/ 1 0))))"
   [pattern & body]
-  `(try ~@body
-        false
-        (catch :default e#
-          (boolean (re-find ~pattern (str e#))))))
+  `(try ~@body false (catch :default e# (boolean (re-find ~pattern (str e#))))))
 
 ;; =============================================================================
 ;; Assertion Helpers
