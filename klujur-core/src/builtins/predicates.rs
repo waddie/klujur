@@ -81,31 +81,28 @@ pub(crate) fn builtin_list_p(args: &[KlujurVal]) -> Result<KlujurVal> {
     if args.len() != 1 {
         return Err(Error::arity_named("list?", 1, args.len()));
     }
-    Ok(KlujurVal::bool(matches!(args[0], KlujurVal::List(_, None))))
+    Ok(KlujurVal::bool(matches!(args[0], KlujurVal::List(_, _))))
 }
 
 pub(crate) fn builtin_vector_p(args: &[KlujurVal]) -> Result<KlujurVal> {
     if args.len() != 1 {
         return Err(Error::arity_named("vector?", 1, args.len()));
     }
-    Ok(KlujurVal::bool(matches!(
-        args[0],
-        KlujurVal::Vector(_, None)
-    )))
+    Ok(KlujurVal::bool(matches!(args[0], KlujurVal::Vector(_, _))))
 }
 
 pub(crate) fn builtin_map_p(args: &[KlujurVal]) -> Result<KlujurVal> {
     if args.len() != 1 {
         return Err(Error::arity_named("map?", 1, args.len()));
     }
-    Ok(KlujurVal::bool(matches!(args[0], KlujurVal::Map(_, None))))
+    Ok(KlujurVal::bool(matches!(args[0], KlujurVal::Map(_, _))))
 }
 
 pub(crate) fn builtin_set_p(args: &[KlujurVal]) -> Result<KlujurVal> {
     if args.len() != 1 {
         return Err(Error::arity_named("set?", 1, args.len()));
     }
-    Ok(KlujurVal::bool(matches!(args[0], KlujurVal::Set(_, None))))
+    Ok(KlujurVal::bool(matches!(args[0], KlujurVal::Set(_, _))))
 }
 
 pub(crate) fn builtin_fn_p(args: &[KlujurVal]) -> Result<KlujurVal> {
@@ -137,5 +134,5 @@ pub(crate) fn builtin_seq_p(args: &[KlujurVal]) -> Result<KlujurVal> {
     if args.len() != 1 {
         return Err(Error::arity_named("seq?", 1, args.len()));
     }
-    Ok(KlujurVal::bool(matches!(args[0], KlujurVal::List(_, None))))
+    Ok(KlujurVal::bool(matches!(args[0], KlujurVal::List(_, _))))
 }

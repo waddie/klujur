@@ -519,11 +519,18 @@ pub(crate) fn builtin_partition(args: &[KlujurVal]) -> Result<KlujurVal> {
     let (step, coll_idx, pad) = match args.len() {
         2 => (n, 1, None),
         3 => {
-            // Could be step or coll
-            match &args[1] {
-                KlujurVal::Int(s) => (*s as usize, 2, None),
-                _ => (n, 1, None), // Treat 3rd as pad
-            }
+            // 3-arity is always (partition n step coll)
+            let step = match &args[1] {
+                KlujurVal::Int(s) => *s as usize,
+                other => {
+                    return Err(Error::type_error_in(
+                        "partition",
+                        "integer",
+                        other.type_name(),
+                    ));
+                }
+            };
+            (step, 2, None)
         }
         4 => {
             let step = match &args[1] {

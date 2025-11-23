@@ -257,24 +257,37 @@
               (= b :let) `(let ~(first bs)
                                (doseq ~(rest bs)
                                       ~@body))
-              (= b :while) `(when ~(first bs)
+              ;; :while returns :doseq-stop sentinel to terminate outer
+              ;; loop
+              (= b :while) `(if ~(first bs)
                               (doseq ~(rest bs)
-                                     ~@body))
+                                     ~@body)
+                              :doseq-stop)
               :else `(doseq ~(rest bs)
                             ~@body))
-        ;; Sequence binding
+        ;; Sequence binding - check for :doseq-stop to terminate early
         (let [sym  (first bindings)
               expr (second bindings)
               more (drop 2 bindings)]
           `(loop [s# (seq ~expr)]
              (when s#
-               (let [~sym (first s#)]
-                 (doseq ~(vec more)
-                        ~@body))
-               (recur (next s#)))))))))
+               (let [result# (let [~sym (first s#)]
+                               (doseq ~(vec more)
+                                      ~@body))]
+                 (when-not (= result# :doseq-stop) (recur (next s#)))))))))))
 
-;; NOTE: This must be public because macros expand in the calling namespace,
+;; NOTE: These must be public because macros expand in the calling namespace,
 ;; and syntax-quote doesn't auto-qualify symbols yet.
+(defn for-step
+  "Helper for the for macro - iterates over seq, applying f to each element.
+   Stops early if f returns a result containing [:for-while-stop]."
+  [f s]
+  (lazy-seq (when s
+              (let [result (f (first s))]
+                (if (and (seq? result) (= (first result) :for-while-stop))
+                  nil ;; :while terminated - stop iteration
+                  (concat result (for-step f (next s))))))))
+
 (defn for-emit
   "Helper for the for macro - emits code for bindings."
   [bindings body-expr]
@@ -288,13 +301,18 @@
         (cond (= b :when) `(if ~(first bs) ~(for-emit (rest bs) body-expr) ())
               (= b :let) `(let ~(first bs)
                                ~(for-emit (rest bs) body-expr))
-              (= b :while) `(if ~(first bs) ~(for-emit (rest bs) body-expr) ())
+              ;; :while terminates iteration when false (uses
+              ;; :for-while-stop sentinel)
+              (= b :while) `(if ~(first bs)
+                              ~(for-emit (rest bs) body-expr)
+                              [:for-while-stop])
               :else (for-emit (rest bs) body-expr))
-        ;; Sequence binding
+        ;; Sequence binding - use for-step to handle :while termination
         (let [sym  (first bindings)
               expr (second bindings)
               more (drop 2 bindings)]
-          `(mapcat (fn [~sym] ~(for-emit (vec more) body-expr)) ~expr))))))
+          `(for-step (fn [~sym] ~(for-emit (vec more) body-expr))
+                     (seq ~expr)))))))
 
 (defmacro for
   "List comprehension. Takes a vector of one or more binding-form/collection-expr

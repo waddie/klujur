@@ -76,11 +76,25 @@ pub fn eval_try(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
     let result = eval_try_body(&body, &catch_clauses, env);
 
     // Always run finally, regardless of success or failure
+    // Clojure semantics: if body throws, return body error (finally error is suppressed)
+    // If body succeeds but finally throws, return finally error
     if let Some(finally_body) = &finally_clause {
+        let mut finally_error: Option<Error> = None;
         for expr in finally_body {
-            // Evaluate finally but ignore its result (and any errors from it)
-            let _ = eval(expr, env);
+            if let Err(e) = eval(expr, env) {
+                // Capture first error from finally, continue executing rest
+                if finally_error.is_none() {
+                    finally_error = Some(e);
+                }
+            }
         }
+        // If body succeeded and finally threw, return finally error
+        if result.is_ok()
+            && let Some(fe) = finally_error
+        {
+            return Err(fe);
+        }
+        // If body threw, return body error (finally error is suppressed)
     }
 
     result

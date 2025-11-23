@@ -44,6 +44,12 @@ pub enum Error {
     Thrown(KlujurVal),
     /// Internal error - invariant violation
     Internal(String),
+    /// I/O error (file operations, etc.)
+    IoError {
+        operation: &'static str,
+        path: Option<String>,
+        message: String,
+    },
 }
 
 /// Specification for expected arity.
@@ -131,6 +137,17 @@ impl fmt::Display for Error {
             Error::Internal(msg) => {
                 write!(f, "Internal error: {}", msg)
             }
+            Error::IoError {
+                operation,
+                path,
+                message,
+            } => {
+                if let Some(path) = path {
+                    write!(f, "{} '{}': {}", operation, path, message)
+                } else {
+                    write!(f, "{}: {}", operation, message)
+                }
+            }
         }
     }
 }
@@ -191,6 +208,28 @@ impl Error {
     pub fn syntax(form: &'static str, message: impl Into<String>) -> Self {
         Error::InvalidSyntax {
             form,
+            message: message.into(),
+        }
+    }
+
+    /// Create an I/O error from a std::io::Error.
+    pub fn io(operation: &'static str, path: Option<String>, error: std::io::Error) -> Self {
+        Error::IoError {
+            operation,
+            path,
+            message: error.to_string(),
+        }
+    }
+
+    /// Create an I/O error with a custom message.
+    pub fn io_msg(
+        operation: &'static str,
+        path: Option<String>,
+        message: impl Into<String>,
+    ) -> Self {
+        Error::IoError {
+            operation,
+            path,
             message: message.into(),
         }
     }

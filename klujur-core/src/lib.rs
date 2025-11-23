@@ -17,7 +17,9 @@ pub use bindings::{deref_var, get_thread_binding, has_thread_binding, push_bindi
 pub use builtins::register_builtins;
 pub use env::Env;
 pub use error::{Error, Result};
-pub use eval::{apply, eval, make_native_fn};
+pub use eval::{
+    apply, eval, get_eval_depth, get_max_eval_depth, make_native_fn, set_max_eval_depth,
+};
 pub use namespace::{Namespace, NamespaceRegistry};
 
 // Re-export parser types for convenience

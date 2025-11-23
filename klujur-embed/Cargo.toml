@@ -1,0 +1,10 @@
+[package]
+name = "klujur-embed"
+version.workspace = true
+edition.workspace = true
+description = "Embedding API for the Klujur programming language"
+license.workspace = true
+
+[dependencies]
+klujur-core = { path = "../klujur-core" }
+klujur-parser = { path = "../klujur-parser" }

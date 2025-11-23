@@ -22,9 +22,65 @@ pub use apply::{NativeFnImpl, apply, make_native_fn};
 pub use destructuring::destructure;
 
 use std::any::Any;
+use std::cell::Cell;
 use std::rc::Rc;
 
 use klujur_parser::{Keyword, KlujurFn, KlujurVal, Meta, Symbol};
+
+// ============================================================================
+// Stack Overflow Protection
+// ============================================================================
+
+/// Maximum recursion depth for eval. Can be configured via `set_max_eval_depth`.
+const DEFAULT_MAX_EVAL_DEPTH: usize = 10_000;
+
+thread_local! {
+    static EVAL_DEPTH: Cell<usize> = const { Cell::new(0) };
+    static MAX_EVAL_DEPTH: Cell<usize> = const { Cell::new(DEFAULT_MAX_EVAL_DEPTH) };
+}
+
+/// Set the maximum eval recursion depth. Returns the previous value.
+pub fn set_max_eval_depth(depth: usize) -> usize {
+    MAX_EVAL_DEPTH.with(|d| d.replace(depth))
+}
+
+/// Get the current maximum eval recursion depth.
+pub fn get_max_eval_depth() -> usize {
+    MAX_EVAL_DEPTH.with(|d| d.get())
+}
+
+/// Get the current eval recursion depth.
+pub fn get_eval_depth() -> usize {
+    EVAL_DEPTH.with(|d| d.get())
+}
+
+/// RAII guard to manage eval depth counter.
+struct EvalDepthGuard;
+
+impl EvalDepthGuard {
+    fn new() -> Result<Self> {
+        let (current, max) = EVAL_DEPTH.with(|d| {
+            let current = d.get();
+            d.set(current + 1);
+            (current + 1, MAX_EVAL_DEPTH.with(|m| m.get()))
+        });
+        if current > max {
+            EVAL_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
+            Err(Error::EvalError(format!(
+                "Stack overflow: maximum recursion depth ({}) exceeded",
+                max
+            )))
+        } else {
+            Ok(EvalDepthGuard)
+        }
+    }
+}
+
+impl Drop for EvalDepthGuard {
+    fn drop(&mut self) {
+        EVAL_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
+    }
+}
 
 use crate::bindings::deref_var;
 use crate::env::Env;
@@ -67,6 +123,9 @@ fn realize_for_eval(val: KlujurVal) -> Result<KlujurVal> {
 
 /// Evaluate a Klujur expression in the given environment.
 pub fn eval(expr: &KlujurVal, env: &Env) -> Result<KlujurVal> {
+    // Check recursion depth to prevent stack overflow
+    let _guard = EvalDepthGuard::new()?;
+
     match expr {
         // Self-evaluating forms
         KlujurVal::Nil
