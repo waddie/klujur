@@ -687,47 +687,75 @@ use klujur_parser::{KlujurLazySeq, SeqResult};
 /// Force a lazy sequence and return its SeqResult.
 /// If already realized, returns the cached result.
 pub(crate) fn force_lazy_seq(ls: &KlujurLazySeq) -> Result<SeqResult> {
-    // Check if already realized
-    if let Some(result) = ls.get_cached() {
-        return Ok(result);
-    }
+    // Use iterative approach to avoid stack overflow when lazy-seqs return lazy-seqs
+    let mut current_ls = ls.clone();
+    let original_ls = ls;
 
-    // Get the thunk and evaluate it
-    if let Some(thunk) = ls.get_thunk() {
-        let val = apply(&KlujurVal::Fn(thunk), &[])?;
+    loop {
+        // Check if already realized
+        if let Some(result) = current_ls.get_cached() {
+            return Ok(result);
+        }
 
-        // Convert the result to a SeqResult
-        let result = match val {
-            KlujurVal::Nil => SeqResult::Empty,
-            KlujurVal::List(items, _) if items.is_empty() => SeqResult::Empty,
-            KlujurVal::List(items, _) => {
-                let first = items.front().cloned().unwrap_or(KlujurVal::Nil);
-                let rest = KlujurVal::list(items.iter().skip(1).cloned().collect());
-                SeqResult::Cons(first, rest)
-            }
-            KlujurVal::Vector(items, _) if items.is_empty() => SeqResult::Empty,
-            KlujurVal::Vector(items, _) => {
-                let first = items.front().cloned().unwrap_or(KlujurVal::Nil);
-                let rest = KlujurVal::list(items.iter().skip(1).cloned().collect());
-                SeqResult::Cons(first, rest)
-            }
-            // If the body returns another lazy seq, we return its result
-            KlujurVal::LazySeq(inner_ls) => force_lazy_seq(&inner_ls)?,
-            other => {
-                // Check if it's a cons-like structure - just treat non-empty as first element
-                return Err(Error::type_error_in(
-                    "lazy-seq body",
-                    "nil or sequence",
-                    other.type_name(),
-                ));
-            }
-        };
+        // Get the thunk and evaluate it
+        if let Some(thunk) = current_ls.get_thunk() {
+            let val = apply(&KlujurVal::Fn(thunk), &[])?;
 
-        ls.set_realized(result.clone());
-        Ok(result)
-    } else {
-        // Should not happen - if not cached, must have thunk
-        Err(Error::syntax("force", "lazy-seq in invalid state"))
+            // Convert the result to a SeqResult
+            match val {
+                KlujurVal::Nil => {
+                    let result = SeqResult::Empty;
+                    current_ls.set_realized(result.clone());
+                    return Ok(result);
+                }
+                KlujurVal::List(items, _) if items.is_empty() => {
+                    let result = SeqResult::Empty;
+                    current_ls.set_realized(result.clone());
+                    return Ok(result);
+                }
+                KlujurVal::List(items, _) => {
+                    let first = items.front().cloned().unwrap_or(KlujurVal::Nil);
+                    let rest = KlujurVal::list(items.iter().skip(1).cloned().collect());
+                    let result = SeqResult::Cons(first, rest);
+                    current_ls.set_realized(result.clone());
+                    // Also cache in the original if we delegated
+                    if !std::ptr::eq(&current_ls as *const _, original_ls as *const _) {
+                        original_ls.set_realized(result.clone());
+                    }
+                    return Ok(result);
+                }
+                KlujurVal::Vector(items, _) if items.is_empty() => {
+                    let result = SeqResult::Empty;
+                    current_ls.set_realized(result.clone());
+                    return Ok(result);
+                }
+                KlujurVal::Vector(items, _) => {
+                    let first = items.front().cloned().unwrap_or(KlujurVal::Nil);
+                    let rest = KlujurVal::list(items.iter().skip(1).cloned().collect());
+                    let result = SeqResult::Cons(first, rest);
+                    current_ls.set_realized(result.clone());
+                    if !std::ptr::eq(&current_ls as *const _, original_ls as *const _) {
+                        original_ls.set_realized(result.clone());
+                    }
+                    return Ok(result);
+                }
+                // If the body returns another lazy seq, continue the loop (trampoline)
+                KlujurVal::LazySeq(inner_ls) => {
+                    current_ls = inner_ls;
+                    continue;
+                }
+                other => {
+                    return Err(Error::type_error_in(
+                        "lazy-seq body",
+                        "nil or sequence",
+                        other.type_name(),
+                    ));
+                }
+            }
+        } else {
+            // Should not happen - if not cached, must have thunk
+            return Err(Error::syntax("force", "lazy-seq in invalid state"));
+        }
     }
 }
 

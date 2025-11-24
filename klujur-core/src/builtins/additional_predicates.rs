@@ -60,59 +60,101 @@ pub(crate) fn builtin_compare(args: &[KlujurVal]) -> Result<KlujurVal> {
         return Err(Error::arity_named("compare", 2, args.len()));
     }
 
-    let ord = match (&args[0], &args[1]) {
-        // Numbers
-        (KlujurVal::Int(a), KlujurVal::Int(b)) => a.cmp(b),
-        (KlujurVal::Float(a), KlujurVal::Float(b)) => a
-            .partial_cmp(b)
-            .ok_or_else(|| Error::EvalError("Cannot compare NaN".into()))?,
-        (KlujurVal::Int(a), KlujurVal::Float(b)) => {
-            let fa = *a as f64;
-            fa.partial_cmp(b)
-                .ok_or_else(|| Error::EvalError("Cannot compare NaN".into()))?
-        }
-        (KlujurVal::Float(a), KlujurVal::Int(b)) => {
-            let fb = *b as f64;
-            a.partial_cmp(&fb)
-                .ok_or_else(|| Error::EvalError("Cannot compare NaN".into()))?
-        }
-        // Strings
-        (KlujurVal::String(a), KlujurVal::String(b)) => a.cmp(b),
-        // Keywords
-        (KlujurVal::Keyword(a), KlujurVal::Keyword(b)) => a.cmp(b),
-        // Symbols
-        (KlujurVal::Symbol(a, _), KlujurVal::Symbol(b, _)) => a.cmp(b),
-        // Vectors (lexicographic)
-        (KlujurVal::Vector(a, _), KlujurVal::Vector(b, None)) => {
-            for (x, y) in a.iter().zip(b.iter()) {
-                let cmp = builtin_compare(&[x.clone(), y.clone()])?;
-                if let KlujurVal::Int(n) = cmp
-                    && n != 0
-                {
-                    return Ok(cmp);
-                }
-            }
-            a.len().cmp(&b.len())
-        }
-        // Booleans (false < true)
-        (KlujurVal::Bool(a), KlujurVal::Bool(b)) => a.cmp(b),
-        // Nil
-        (KlujurVal::Nil, KlujurVal::Nil) => std::cmp::Ordering::Equal,
-        // Type mismatch
-        (a, b) => {
-            return Err(Error::EvalError(format!(
-                "compare: cannot compare {} and {}",
-                a.type_name(),
-                b.type_name()
-            )));
-        }
-    };
-
-    Ok(KlujurVal::int(match ord {
+    let result = compare_values(&args[0], &args[1])?;
+    Ok(KlujurVal::int(match result {
         std::cmp::Ordering::Less => -1,
         std::cmp::Ordering::Equal => 0,
         std::cmp::Ordering::Greater => 1,
     }))
+}
+
+/// Internal comparison function using iterative approach for vectors
+fn compare_values(a: &KlujurVal, b: &KlujurVal) -> Result<std::cmp::Ordering> {
+    use std::cmp::Ordering;
+
+    // Work item: (left_val, right_val, pending_length_cmp)
+    // pending_length_cmp is used when we finish comparing vector elements
+    // and need to fall back to length comparison
+    enum WorkItem {
+        Compare(KlujurVal, KlujurVal),
+        VectorLengthCheck(Ordering),
+    }
+
+    let mut work_stack: Vec<WorkItem> = vec![WorkItem::Compare(a.clone(), b.clone())];
+
+    while let Some(item) = work_stack.pop() {
+        match item {
+            WorkItem::VectorLengthCheck(len_ord) => {
+                // All elements were equal, so return the length comparison
+                if len_ord != Ordering::Equal {
+                    return Ok(len_ord);
+                }
+                // Otherwise continue checking remaining items
+            }
+            WorkItem::Compare(a, b) => {
+                let ord = match (&a, &b) {
+                    // Numbers
+                    (KlujurVal::Int(a), KlujurVal::Int(b)) => a.cmp(b),
+                    (KlujurVal::Float(a), KlujurVal::Float(b)) => a
+                        .partial_cmp(b)
+                        .ok_or_else(|| Error::EvalError("Cannot compare NaN".into()))?,
+                    (KlujurVal::Int(a), KlujurVal::Float(b)) => {
+                        let fa = *a as f64;
+                        fa.partial_cmp(b)
+                            .ok_or_else(|| Error::EvalError("Cannot compare NaN".into()))?
+                    }
+                    (KlujurVal::Float(a), KlujurVal::Int(b)) => {
+                        let fb = *b as f64;
+                        a.partial_cmp(&fb)
+                            .ok_or_else(|| Error::EvalError("Cannot compare NaN".into()))?
+                    }
+                    // Strings
+                    (KlujurVal::String(a), KlujurVal::String(b)) => a.cmp(b),
+                    // Keywords
+                    (KlujurVal::Keyword(a), KlujurVal::Keyword(b)) => a.cmp(b),
+                    // Symbols
+                    (KlujurVal::Symbol(a, _), KlujurVal::Symbol(b, _)) => a.cmp(b),
+                    // Vectors (lexicographic) - iterative approach
+                    (KlujurVal::Vector(a_vec, _), KlujurVal::Vector(b_vec, _)) => {
+                        let len_cmp = a_vec.len().cmp(&b_vec.len());
+                        let min_len = a_vec.len().min(b_vec.len());
+
+                        // Push length check first (will be processed last)
+                        work_stack.push(WorkItem::VectorLengthCheck(len_cmp));
+
+                        // Push element pairs in reverse order for left-to-right processing
+                        for i in (0..min_len).rev() {
+                            work_stack.push(WorkItem::Compare(a_vec[i].clone(), b_vec[i].clone()));
+                        }
+
+                        // Continue to process elements
+                        continue;
+                    }
+                    // Booleans (false < true)
+                    (KlujurVal::Bool(a), KlujurVal::Bool(b)) => a.cmp(b),
+                    // Nil
+                    (KlujurVal::Nil, KlujurVal::Nil) => Ordering::Equal,
+                    // Type mismatch
+                    (a, b) => {
+                        return Err(Error::EvalError(format!(
+                            "compare: cannot compare {} and {}",
+                            a.type_name(),
+                            b.type_name()
+                        )));
+                    }
+                };
+
+                // If we found a non-equal comparison, return immediately
+                if ord != Ordering::Equal {
+                    return Ok(ord);
+                }
+                // If equal, continue checking remaining items on stack
+            }
+        }
+    }
+
+    // Stack empty, everything was equal
+    Ok(std::cmp::Ordering::Equal)
 }
 
 /// (identical? x y) - reference equality

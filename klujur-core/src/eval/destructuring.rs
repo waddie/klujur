@@ -10,6 +10,9 @@ use crate::error::{Error, Result};
 /// Result of destructuring: a list of (symbol, value) bindings
 pub type Bindings = Vec<(Symbol, KlujurVal)>;
 
+/// Maximum nesting depth for destructuring patterns to prevent stack overflow
+const MAX_DESTRUCTURE_DEPTH: usize = 100;
+
 /// Destructure a binding pattern against a value, returning bindings.
 /// Supports:
 /// - Symbols: `x` binds directly
@@ -17,6 +20,22 @@ pub type Bindings = Vec<(Symbol, KlujurVal)>;
 /// - Maps: `{:keys [a b]}`, `{a :a}`, `{:or {a 1}}`, `{:as m}`
 #[must_use = "destructuring result should be used to create bindings"]
 pub fn destructure(pattern: &KlujurVal, value: &KlujurVal) -> Result<Bindings> {
+    destructure_with_depth(pattern, value, 0)
+}
+
+/// Internal destructuring with depth tracking to prevent stack overflow
+fn destructure_with_depth(
+    pattern: &KlujurVal,
+    value: &KlujurVal,
+    depth: usize,
+) -> Result<Bindings> {
+    if depth > MAX_DESTRUCTURE_DEPTH {
+        return Err(Error::EvalError(format!(
+            "destructuring pattern too deeply nested (max {} levels)",
+            MAX_DESTRUCTURE_DEPTH
+        )));
+    }
+
     match pattern {
         // Simple symbol binding
         KlujurVal::Symbol(sym, _) => Ok(vec![(sym.clone(), value.clone())]),
@@ -24,11 +43,11 @@ pub fn destructure(pattern: &KlujurVal, value: &KlujurVal) -> Result<Bindings> {
         // Sequential destructuring
         KlujurVal::Vector(patterns, _) => {
             let patterns_vec: Vec<KlujurVal> = patterns.iter().cloned().collect();
-            destructure_sequential(&patterns_vec, value)
+            destructure_sequential(&patterns_vec, value, depth)
         }
 
         // Associative destructuring
-        KlujurVal::Map(map, _) => destructure_associative(map, value),
+        KlujurVal::Map(map, _) => destructure_associative(map, value, depth),
 
         other => Err(Error::syntax(
             "destructure",
@@ -42,7 +61,11 @@ pub fn destructure(pattern: &KlujurVal, value: &KlujurVal) -> Result<Bindings> {
 
 /// Destructure a sequential pattern (vector) against a value.
 /// Supports: [a b c], [a & rest], [a :as all], [_ b c] (ignore with _)
-fn destructure_sequential(patterns: &[KlujurVal], value: &KlujurVal) -> Result<Bindings> {
+fn destructure_sequential(
+    patterns: &[KlujurVal],
+    value: &KlujurVal,
+    depth: usize,
+) -> Result<Bindings> {
     let mut bindings = Vec::new();
 
     // Convert value to a sequence
@@ -98,7 +121,8 @@ fn destructure_sequential(patterns: &[KlujurVal], value: &KlujurVal) -> Result<B
                     KlujurVal::Nil
                 };
                 // Recursively destructure the rest pattern
-                let rest_bindings = destructure(&patterns[pattern_idx + 1], &rest_value)?;
+                let rest_bindings =
+                    destructure_with_depth(&patterns[pattern_idx + 1], &rest_value, depth + 1)?;
                 bindings.extend(rest_bindings);
                 pattern_idx += 2;
                 // Skip to end - & consumes the rest
@@ -122,7 +146,7 @@ fn destructure_sequential(patterns: &[KlujurVal], value: &KlujurVal) -> Result<B
         };
 
         // Recursively destructure (handles nested patterns)
-        let item_bindings = destructure(pat, &item_value)?;
+        let item_bindings = destructure_with_depth(pat, &item_value, depth + 1)?;
         bindings.extend(item_bindings);
 
         pattern_idx += 1;
@@ -138,6 +162,7 @@ fn destructure_sequential(patterns: &[KlujurVal], value: &KlujurVal) -> Result<B
 fn destructure_associative(
     patterns: &OrdMap<KlujurVal, KlujurVal>,
     value: &KlujurVal,
+    depth: usize,
 ) -> Result<Bindings> {
     let mut bindings = Vec::new();
     let mut defaults: Option<&OrdMap<KlujurVal, KlujurVal>> = None;
@@ -282,7 +307,7 @@ fn destructure_associative(
                     .and_then(|m| m.get(pat_val).cloned())
                     .unwrap_or(KlujurVal::Nil);
                 // Recursively destructure the nested pattern
-                let nested_bindings = destructure(pat_key, &looked_up)?;
+                let nested_bindings = destructure_with_depth(pat_key, &looked_up, depth + 1)?;
                 bindings.extend(nested_bindings);
             }
             other => {
