@@ -1,0 +1,13 @@
+# klujur-vm - Bytecode compiler and virtual machine for the Klujur programming language
+# Copyright (c) 2025 Tom Waddington. MIT licensed.
+
+[package]
+name = "klujur-vm"
+version.workspace = true
+edition.workspace = true
+description = "Bytecode compiler and virtual machine for the Klujur programming language"
+license.workspace = true
+
+[dependencies]
+klujur-parser = { path = "../klujur-parser" }
+im = "15.1"

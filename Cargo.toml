@@ -6,7 +6,7 @@ license.workspace = true
 
 [workspace]
 resolver = "3"
-members = ["klujur-parser", "klujur-core", "klujur-embed", "xtask"]
+members = ["klujur-parser", "klujur-core", "klujur-vm", "klujur-embed", "xtask"]
 
 [workspace.package]
 version = "0.1.0"
