@@ -105,6 +105,7 @@ impl Drop for BindingGuard {
 
 /// Get the thread-local binding for a var, if any.
 /// Returns None if the var has no thread-local binding.
+#[must_use]
 pub fn get_thread_binding(var: &KlujurVar) -> Option<KlujurVal> {
     if !var.is_dynamic() {
         return None;

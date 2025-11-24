@@ -51,11 +51,13 @@ impl Namespace {
 
     /// Get the namespace name.
     /// Returns a clone of the Rc<str>, which is cheap (just increments refcount).
+    #[must_use]
     pub fn name(&self) -> String {
         self.inner.borrow().name.to_string()
     }
 
     /// Get the namespace name as an Rc<str> for cheap sharing.
+    #[must_use]
     pub fn name_rc(&self) -> Rc<str> {
         self.inner.borrow().name.clone()
     }
@@ -94,11 +96,13 @@ impl Namespace {
 
     /// Look up a Var by name in this namespace.
     /// Does not check refers or aliases.
+    #[must_use]
     pub fn find_var(&self, name: &str) -> Option<KlujurVar> {
         self.inner.borrow().vars.get(name).cloned()
     }
 
     /// Resolve a symbol to a Var, checking local vars, then refers.
+    #[must_use]
     pub fn resolve(&self, sym: &Symbol) -> Option<KlujurVar> {
         let inner = self.inner.borrow();
 
@@ -137,12 +141,14 @@ impl Namespace {
     }
 
     /// Get all Vars in this namespace (same as interns).
+    #[must_use]
     pub fn vars(&self) -> HashMap<String, KlujurVar> {
         self.inner.borrow().vars.clone()
     }
 
     /// Get all interned Vars in this namespace.
     /// This includes both public and private vars.
+    #[must_use]
     pub fn interns(&self) -> HashMap<String, KlujurVar> {
         self.inner.borrow().vars.clone()
     }
@@ -330,6 +336,7 @@ impl NamespaceRegistry {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// Check if a namespace has been loaded from a file.
+    #[must_use]
     pub fn is_loaded(&self, ns_name: &str) -> bool {
         self.inner.borrow().loaded.contains(ns_name)
     }

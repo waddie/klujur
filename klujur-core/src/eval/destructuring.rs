@@ -15,6 +15,7 @@ pub type Bindings = Vec<(Symbol, KlujurVal)>;
 /// - Symbols: `x` binds directly
 /// - Vectors: `[a b c]`, `[a & rest]`, `[a :as all]`
 /// - Maps: `{:keys [a b]}`, `{a :a}`, `{:or {a 1}}`, `{:as m}`
+#[must_use = "destructuring result should be used to create bindings"]
 pub fn destructure(pattern: &KlujurVal, value: &KlujurVal) -> Result<Bindings> {
     match pattern {
         // Simple symbol binding

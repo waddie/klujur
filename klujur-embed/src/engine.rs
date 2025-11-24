@@ -118,6 +118,7 @@ impl Engine {
     /// Get a value from the current namespace.
     ///
     /// Returns `None` if the symbol is not defined.
+    #[must_use]
     pub fn get(&self, name: &str) -> Option<KlujurVal> {
         let registry = self.env.registry();
         let current_ns = registry.current();
@@ -128,6 +129,7 @@ impl Engine {
     /// Get a typed value from the current namespace.
     ///
     /// Returns `None` if the symbol is not defined or cannot be converted.
+    #[must_use]
     pub fn get_as<T: FromKlujurVal>(&self, name: &str) -> Option<T> {
         self.get(name).and_then(|v| T::from_klujur_val(&v).ok())
     }
@@ -239,11 +241,13 @@ impl Engine {
     ///
     /// This is useful for advanced use cases where you need direct
     /// access to the Klujur runtime.
+    #[must_use]
     pub fn env(&self) -> &Env {
         &self.env
     }
 
     /// Get the current namespace.
+    #[must_use]
     pub fn current_namespace(&self) -> Namespace {
         self.env.registry().current()
     }

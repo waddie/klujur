@@ -351,6 +351,7 @@ impl<K: FromKlujurVal + Eq + Hash, V: FromKlujurVal> FromKlujurVal for HashMap<K
 /// Convert a Rust value into a KlujurVal.
 ///
 /// This is a convenience function that calls `IntoKlujurVal::into_klujur_val`.
+#[must_use]
 pub fn to_klujur<T: IntoKlujurVal>(value: T) -> KlujurVal {
     value.into_klujur_val()
 }

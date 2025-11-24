@@ -68,6 +68,7 @@ impl Env {
     }
 
     /// Create a child environment with this environment as parent.
+    #[must_use]
     pub fn child(&self) -> Self {
         Env {
             inner: Rc::new(RefCell::new(EnvInner {
@@ -165,6 +166,7 @@ impl Env {
 
     /// Check if a symbol is defined in this environment or parent chain.
     /// Uses iterative traversal to avoid stack overflow on deep environments.
+    #[must_use]
     pub fn is_defined(&self, sym: &Symbol) -> bool {
         let mut current = self.clone();
         loop {

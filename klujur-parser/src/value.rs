@@ -27,6 +27,7 @@ thread_local! {
 }
 
 /// Get the current print-length setting.
+#[must_use]
 pub fn get_print_length() -> Option<usize> {
     PRINT_LENGTH.with(|pl| pl.get())
 }
@@ -118,11 +119,13 @@ impl KlujurCustom {
     }
 
     /// Get the type name of the wrapped value.
+    #[must_use]
     pub fn type_name(&self) -> &'static str {
         self.inner.type_name()
     }
 
     /// Attempt to downcast to a specific type.
+    #[must_use]
     pub fn downcast_ref<T: 'static>(&self) -> Option<&T> {
         self.inner.as_any().downcast_ref::<T>()
     }
@@ -289,6 +292,7 @@ impl Protocol {
     }
 
     /// Get the implementation for a type
+    #[must_use]
     pub fn get_impl(&self, type_key: &TypeKey) -> Option<TypeImpl> {
         self.impls.borrow().get(type_key).cloned()
     }
@@ -433,6 +437,7 @@ impl RecordDef {
     }
 
     /// Get the fully qualified name of the record type.
+    #[must_use]
     pub fn qualified_name(&self) -> String {
         format!("{}/{}", self.ns, self.name)
     }
@@ -472,11 +477,13 @@ impl RecordInstance {
     }
 
     /// Get a field value by keyword.
+    #[must_use]
     pub fn get(&self, key: &Keyword) -> Option<&KlujurVal> {
         self.values.get(key)
     }
 
     /// Create a new record with an added/updated key-value pair.
+    #[must_use]
     pub fn assoc(&self, key: Keyword, value: KlujurVal) -> Self {
         let mut new_values = self.values.clone();
         new_values.insert(key, value);
@@ -492,6 +499,7 @@ impl RecordInstance {
     ///
     /// If the key is a base field, returns a Map (record loses its type).
     /// If the key is an extra field, returns a Record.
+    #[must_use]
     pub fn dissoc(&self, key: &Keyword) -> KlujurVal {
         // Check if this is a base field
         let is_base_field = self.fields.iter().any(|f| f.name() == key.name());
@@ -519,11 +527,13 @@ impl RecordInstance {
     }
 
     /// Check if this is a base field of the record.
+    #[must_use]
     pub fn is_base_field(&self, key: &Keyword) -> bool {
         self.fields.iter().any(|f| f.name() == key.name())
     }
 
     /// Get the fully qualified type name.
+    #[must_use]
     pub fn qualified_type_name(&self) -> String {
         format!("{}/{}", self.record_ns, self.record_type)
     }
@@ -662,26 +672,31 @@ impl KlujurSortedMapBy {
     }
 
     /// Get the comparator function.
+    #[must_use]
     pub fn comparator(&self) -> &KlujurVal {
         &self.comparator
     }
 
     /// Get a clone of the comparator Rc.
+    #[must_use]
     pub fn comparator_rc(&self) -> Rc<KlujurVal> {
         Rc::clone(&self.comparator)
     }
 
     /// Get the number of entries.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.entries.borrow().len()
     }
 
     /// Check if the map is empty.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.entries.borrow().is_empty()
     }
 
     /// Get a clone of all entries.
+    #[must_use]
     pub fn entries(&self) -> Vec<(KlujurVal, KlujurVal)> {
         self.entries.borrow().clone()
     }
@@ -693,11 +708,13 @@ impl KlujurSortedMapBy {
     }
 
     /// Get the metadata.
+    #[must_use]
     pub fn meta(&self) -> Option<&Rc<Meta>> {
         self.meta.as_ref()
     }
 
     /// Create a new SortedMapBy with different metadata.
+    #[must_use]
     pub fn with_meta(&self, meta: Option<Rc<Meta>>) -> Self {
         KlujurSortedMapBy {
             comparator: Rc::clone(&self.comparator),
@@ -707,6 +724,7 @@ impl KlujurSortedMapBy {
     }
 
     /// Create a new empty map with the same comparator.
+    #[must_use]
     pub fn empty(&self) -> Self {
         KlujurSortedMapBy {
             comparator: Rc::clone(&self.comparator),
@@ -803,26 +821,31 @@ impl KlujurSortedSetBy {
     }
 
     /// Get the comparator function.
+    #[must_use]
     pub fn comparator(&self) -> &KlujurVal {
         &self.comparator
     }
 
     /// Get a clone of the comparator Rc.
+    #[must_use]
     pub fn comparator_rc(&self) -> Rc<KlujurVal> {
         Rc::clone(&self.comparator)
     }
 
     /// Get the number of elements.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.elements.borrow().len()
     }
 
     /// Check if the set is empty.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.elements.borrow().is_empty()
     }
 
     /// Get a clone of all elements.
+    #[must_use]
     pub fn elements(&self) -> Vec<KlujurVal> {
         self.elements.borrow().clone()
     }
@@ -834,11 +857,13 @@ impl KlujurSortedSetBy {
     }
 
     /// Get the metadata.
+    #[must_use]
     pub fn meta(&self) -> Option<&Rc<Meta>> {
         self.meta.as_ref()
     }
 
     /// Create a new SortedSetBy with different metadata.
+    #[must_use]
     pub fn with_meta(&self, meta: Option<Rc<Meta>>) -> Self {
         KlujurSortedSetBy {
             comparator: Rc::clone(&self.comparator),
@@ -848,6 +873,7 @@ impl KlujurSortedSetBy {
     }
 
     /// Create a new empty set with the same comparator.
+    #[must_use]
     pub fn empty(&self) -> Self {
         KlujurSortedSetBy {
             comparator: Rc::clone(&self.comparator),
@@ -1032,11 +1058,13 @@ impl FnArity {
     }
 
     /// Get the minimum number of arguments this arity accepts.
+    #[must_use]
     pub fn min_arity(&self) -> usize {
         self.params.len()
     }
 
     /// Check if this arity can accept the given number of arguments.
+    #[must_use]
     pub fn matches(&self, arg_count: usize) -> bool {
         if self.rest_param.is_some() {
             arg_count >= self.params.len()
@@ -1111,6 +1139,7 @@ impl KlujurFn {
     }
 
     /// Find the arity that matches the given argument count.
+    #[must_use]
     pub fn find_arity(&self, arg_count: usize) -> Option<&FnArity> {
         // First try to find an exact match (non-variadic)
         self.arities
@@ -1128,6 +1157,7 @@ impl KlujurFn {
     /// Get parameters of the first (or only) arity.
     ///
     /// Returns `None` if the function has no arities.
+    #[must_use]
     pub fn params(&self) -> Option<&[Symbol]> {
         self.arities.first().map(|a| a.params.as_slice())
     }
@@ -1135,6 +1165,7 @@ impl KlujurFn {
     /// Get rest parameter of the first (or only) arity.
     ///
     /// Returns `None` if the function has no arities.
+    #[must_use]
     pub fn rest_param(&self) -> Option<&Symbol> {
         self.arities.first().and_then(|a| a.rest_param.as_ref())
     }
@@ -1142,6 +1173,7 @@ impl KlujurFn {
     /// Get body of the first (or only) arity.
     ///
     /// Returns `None` if the function has no arities.
+    #[must_use]
     pub fn body(&self) -> Option<&[KlujurVal]> {
         self.arities.first().map(|a| a.body.as_slice())
     }
@@ -1178,11 +1210,13 @@ impl KlujurNativeFn {
     }
 
     /// Get the function name.
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
     /// Get the inner function reference.
+    #[must_use]
     pub fn func(&self) -> &Rc<dyn Any> {
         &self.func
     }
@@ -1256,6 +1290,7 @@ impl KlujurVar {
     /// Get the current value (deref).
     /// Note: Thread-local bindings are checked in klujur-core, not here,
     /// to avoid circular dependency. This only returns the root value.
+    #[must_use]
     pub fn deref(&self) -> KlujurVal {
         self.root.borrow().clone()
     }
@@ -1266,6 +1301,7 @@ impl KlujurVar {
     }
 
     /// Check if this var is dynamic.
+    #[must_use]
     pub fn is_dynamic(&self) -> bool {
         *self.dynamic.borrow()
     }
@@ -1274,6 +1310,7 @@ impl KlujurVar {
     ///
     /// A var is public unless its metadata contains `:private true`.
     /// This mirrors Clojure's Var.isPublic() method.
+    #[must_use]
     pub fn is_public(&self) -> bool {
         let meta_ref = self.meta.borrow();
         if let Some(ref meta) = *meta_ref {
@@ -1292,6 +1329,7 @@ impl KlujurVar {
     }
 
     /// Get the fully qualified name.
+    #[must_use]
     pub fn qualified_name(&self) -> String {
         match &self.ns {
             Some(ns) => format!("{}/{}", ns, self.name),
@@ -1300,6 +1338,7 @@ impl KlujurVar {
     }
 
     /// Get the var's metadata.
+    #[must_use]
     pub fn meta(&self) -> Option<Meta> {
         self.meta.borrow().clone()
     }
@@ -1384,6 +1423,7 @@ impl KlujurAtom {
     }
 
     /// Get the current value (deref).
+    #[must_use]
     pub fn deref(&self) -> KlujurVal {
         self.value.borrow().clone()
     }
@@ -1423,6 +1463,7 @@ impl KlujurAtom {
     }
 
     /// Get the validator function.
+    #[must_use]
     pub fn get_validator(&self) -> Option<KlujurVal> {
         self.validator.borrow().clone()
     }
@@ -1443,6 +1484,7 @@ impl KlujurAtom {
     }
 
     /// Get all watches (for calling from klujur-core).
+    #[must_use]
     pub fn get_watches(&self) -> OrdMap<KlujurVal, KlujurVal> {
         self.watches.borrow().clone()
     }
@@ -1508,6 +1550,7 @@ impl KlujurVolatile {
     }
 
     /// Get the current value (deref).
+    #[must_use]
     pub fn deref(&self) -> KlujurVal {
         self.value.borrow().clone()
     }
@@ -1614,11 +1657,13 @@ impl KlujurDelay {
     }
 
     /// Check if the delay has been realized.
+    #[must_use]
     pub fn is_realized(&self) -> bool {
         matches!(*self.state.borrow(), DelayState::Realized(_))
     }
 
     /// Get the thunk if pending, or None if already realized.
+    #[must_use]
     pub fn get_thunk(&self) -> Option<KlujurVal> {
         match &*self.state.borrow() {
             DelayState::Pending(thunk) => Some(thunk.clone()),
@@ -1627,6 +1672,7 @@ impl KlujurDelay {
     }
 
     /// Get the cached value if realized, or None if pending.
+    #[must_use]
     pub fn get_cached(&self) -> Option<KlujurVal> {
         match &*self.state.borrow() {
             DelayState::Pending(_) => None,
@@ -1737,11 +1783,13 @@ impl KlujurLazySeq {
     }
 
     /// Check if the lazy sequence has been realized.
+    #[must_use]
     pub fn is_realized(&self) -> bool {
         matches!(*self.state.borrow(), LazySeqState::Realized(_))
     }
 
     /// Get the thunk if pending, or None if already realized.
+    #[must_use]
     pub fn get_thunk(&self) -> Option<KlujurFn> {
         match &*self.state.borrow() {
             LazySeqState::Pending(thunk) => Some(thunk.clone()),
@@ -1750,6 +1798,7 @@ impl KlujurLazySeq {
     }
 
     /// Get the cached result if realized, or None if pending.
+    #[must_use]
     pub fn get_cached(&self) -> Option<SeqResult> {
         match &*self.state.borrow() {
             LazySeqState::Pending(_) => None,
@@ -1763,6 +1812,7 @@ impl KlujurLazySeq {
     }
 
     /// Get a reference to the internal state for external forcing logic.
+    #[must_use]
     pub fn state(&self) -> &Rc<RefCell<LazySeqState>> {
         &self.state
     }
@@ -1949,6 +1999,7 @@ impl KlujurMultimethod {
 
     /// Get the method for a dispatch value.
     /// Uses hierarchy-based lookup if a hierarchy is set, then falls back to default.
+    #[must_use]
     pub fn get_method(&self, dispatch_val: &KlujurVal) -> Option<KlujurVal> {
         // First try exact match
         if let Some(method) = self.methods.borrow().get(dispatch_val).cloned() {
@@ -1971,6 +2022,7 @@ impl KlujurMultimethod {
     }
 
     /// Get all methods as a map.
+    #[must_use]
     pub fn get_methods(&self) -> HashMap<KlujurVal, KlujurVal> {
         self.methods.borrow().clone()
     }
@@ -1983,6 +2035,7 @@ impl KlujurMultimethod {
     }
 
     /// Get all preferences as a map: preferred -> #{other-vals...}
+    #[must_use]
     pub fn get_prefers(&self) -> HashMap<KlujurVal, OrdSet<KlujurVal>> {
         let prefs = self.preferences.borrow();
         let mut result: HashMap<KlujurVal, OrdSet<KlujurVal>> = HashMap::new();

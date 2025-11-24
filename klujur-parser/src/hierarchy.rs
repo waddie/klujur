@@ -105,6 +105,7 @@ impl KlujurHierarchy {
     /// - child == parent (reflexive)
     /// - child has parent as a direct parent
     /// - child has parent as an ancestor (transitively)
+    #[must_use]
     pub fn isa(&self, child: &KlujurVal, parent: &KlujurVal) -> bool {
         if child == parent {
             return true;
@@ -117,16 +118,19 @@ impl KlujurHierarchy {
     }
 
     /// Get direct parents of a value.
+    #[must_use]
     pub fn parents(&self, child: &KlujurVal) -> HashSet<KlujurVal> {
         self.parents.get(child).cloned().unwrap_or_default()
     }
 
     /// Get all ancestors of a value (transitive closure of parents).
+    #[must_use]
     pub fn ancestors(&self, child: &KlujurVal) -> HashSet<KlujurVal> {
         self.ancestors.get(child).cloned().unwrap_or_default()
     }
 
     /// Get all descendants of a value (transitive closure of children).
+    #[must_use]
     pub fn descendants(&self, parent: &KlujurVal) -> HashSet<KlujurVal> {
         self.descendants.get(parent).cloned().unwrap_or_default()
     }
@@ -261,6 +265,7 @@ impl KlujurHierarchy {
     /// considering hierarchy relationships and preferences.
     ///
     /// Returns the method and the dispatch value it matched on.
+    #[must_use]
     pub fn find_best_method(
         &self,
         dispatch_val: &KlujurVal,
