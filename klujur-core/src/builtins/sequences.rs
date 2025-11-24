@@ -69,6 +69,15 @@ pub(crate) fn builtin_rest(args: &[KlujurVal]) -> Result<KlujurVal> {
                 Ok(KlujurVal::list(items.iter().skip(1).cloned().collect()))
             }
         }
+        KlujurVal::String(s) => {
+            if s.is_empty() {
+                Ok(KlujurVal::empty_list())
+            } else {
+                Ok(KlujurVal::list(
+                    s.chars().skip(1).map(KlujurVal::char).collect(),
+                ))
+            }
+        }
         KlujurVal::LazySeq(ls) => match force_lazy_seq(ls)? {
             SeqResult::Empty => Ok(KlujurVal::empty_list()),
             SeqResult::Cons(_, rest) => Ok(rest),
@@ -115,6 +124,13 @@ pub(crate) fn builtin_cons(args: &[KlujurVal]) -> Result<KlujurVal> {
             let mut new_items = items.clone();
             new_items.push_front(head);
             Ok(KlujurVal::List(new_items, None))
+        }
+        KlujurVal::String(s) => {
+            let mut result = vec![head];
+            for c in s.chars() {
+                result.push(KlujurVal::char(c));
+            }
+            Ok(KlujurVal::list(result))
         }
         // For lazy seqs, return a Cons with the lazy seq as the rest
         // This preserves laziness - we don't force the lazy seq
@@ -293,6 +309,16 @@ pub(crate) fn builtin_next(args: &[KlujurVal]) -> Result<KlujurVal> {
         KlujurVal::List(items, _) => Ok(KlujurVal::list(items.iter().skip(1).cloned().collect())),
         KlujurVal::Vector(items, _) if items.len() <= 1 => Ok(KlujurVal::Nil),
         KlujurVal::Vector(items, _) => Ok(KlujurVal::list(items.iter().skip(1).cloned().collect())),
+        KlujurVal::String(s) => {
+            let char_count = s.chars().count();
+            if char_count <= 1 {
+                Ok(KlujurVal::Nil)
+            } else {
+                Ok(KlujurVal::list(
+                    s.chars().skip(1).map(KlujurVal::char).collect(),
+                ))
+            }
+        }
         KlujurVal::LazySeq(ls) => {
             match force_lazy_seq(ls)? {
                 SeqResult::Empty => Ok(KlujurVal::Nil),
@@ -411,6 +437,9 @@ pub(crate) fn builtin_take(args: &[KlujurVal]) -> Result<KlujurVal> {
         KlujurVal::Nil => Ok(KlujurVal::empty_list()),
         KlujurVal::List(items, _) => Ok(KlujurVal::list(items.iter().take(n).cloned().collect())),
         KlujurVal::Vector(items, _) => Ok(KlujurVal::list(items.iter().take(n).cloned().collect())),
+        KlujurVal::String(s) => Ok(KlujurVal::list(
+            s.chars().take(n).map(KlujurVal::char).collect(),
+        )),
         KlujurVal::LazySeq(ls) => {
             // Take n elements from the lazy seq
             let mut result = Vec::with_capacity(n);
@@ -453,6 +482,9 @@ pub(crate) fn builtin_drop(args: &[KlujurVal]) -> Result<KlujurVal> {
         KlujurVal::Nil => Ok(KlujurVal::empty_list()),
         KlujurVal::List(items, _) => Ok(KlujurVal::list(items.iter().skip(n).cloned().collect())),
         KlujurVal::Vector(items, _) => Ok(KlujurVal::list(items.iter().skip(n).cloned().collect())),
+        KlujurVal::String(s) => Ok(KlujurVal::list(
+            s.chars().skip(n).map(KlujurVal::char).collect(),
+        )),
         KlujurVal::LazySeq(ls) => {
             // Drop n elements from the lazy seq, return the rest
             let mut current = KlujurVal::LazySeq(ls.clone());
@@ -612,6 +644,12 @@ pub(crate) fn builtin_reverse(args: &[KlujurVal]) -> Result<KlujurVal> {
         KlujurVal::Nil => Ok(KlujurVal::empty_list()),
         KlujurVal::List(items, _) => Ok(KlujurVal::list(items.iter().rev().cloned().collect())),
         KlujurVal::Vector(items, _) => Ok(KlujurVal::vector(items.iter().rev().cloned().collect())),
+        KlujurVal::String(s) => {
+            // Reverse string into a list of characters (like Clojure)
+            Ok(KlujurVal::list(
+                s.chars().rev().map(KlujurVal::char).collect(),
+            ))
+        }
         other => Err(Error::type_error_in(
             "reverse",
             "seqable",
@@ -645,6 +683,7 @@ fn builtin_into_2(args: &[KlujurVal]) -> Result<KlujurVal> {
         KlujurVal::Nil => Vec::new(),
         KlujurVal::List(items, _) => items.iter().cloned().collect(),
         KlujurVal::Vector(items, _) => items.iter().cloned().collect(),
+        KlujurVal::String(s) => s.chars().map(KlujurVal::char).collect(),
         other => return Err(Error::type_error_in("into", "seqable", other.type_name())),
     };
 
