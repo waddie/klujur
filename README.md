@@ -48,7 +48,7 @@ fn main() -> Result<()> {
         Ok(KlujurVal::string(format!("hello, {}!", name)))
     });
 
-    engine.eval("(println (greet \"Klujur\"))")?;
+    engine.eval("(println (greet \"Klujur\"))")?; // hello, Klujur!
     Ok(())
 }
 ```
@@ -62,4 +62,4 @@ fn main() -> Result<()> {
 
 Copyright © 2025 Tom Waddington
 
-Distributed under the MIT License. See LICENSE file for details.
+Distributed under the MIT License. See [LICENSE file](./LICENSE) for details.
