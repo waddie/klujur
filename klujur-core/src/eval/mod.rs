@@ -106,7 +106,7 @@ use multimethods::{
 use namespaces::{
     eval_alias, eval_all_ns, eval_create_ns, eval_find_ns, eval_in_ns, eval_ns_interns,
     eval_ns_name, eval_ns_publics, eval_ns_resolve, eval_refer, eval_remove_ns, eval_require,
-    eval_the_ns, eval_use, eval_var,
+    eval_resolve, eval_the_ns, eval_use, eval_var,
 };
 use protocols::{eval_defprotocol, eval_extend, eval_extend_type};
 use records::eval_defrecord;
@@ -359,6 +359,7 @@ fn eval_list(items: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
             "the-ns" => return eval_the_ns(&items[1..], env),
             "ns-name" => return eval_ns_name(&items[1..], env),
             "ns-resolve" => return eval_ns_resolve(&items[1..], env),
+            "resolve" => return eval_resolve(&items[1..], env),
             "defmacro" => return eval_defmacro(&items[1..], env),
             "macroexpand-1" => return eval_macroexpand_1(&items[1..], env),
             "macroexpand" => return eval_macroexpand(&items[1..], env),
@@ -493,6 +494,11 @@ fn eval_syntax_quote(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
                             KlujurVal::List(l, _) => result.extend(l.iter().cloned()),
                             KlujurVal::Vector(v, _) => result.extend(v.iter().cloned()),
                             KlujurVal::Nil => {}
+                            KlujurVal::LazySeq(ls) => {
+                                // Force lazy sequence and splice elements
+                                let items = crate::builtins::to_seq(&KlujurVal::LazySeq(ls))?;
+                                result.extend(items);
+                            }
                             other => {
                                 return Err(Error::syntax(
                                     "unquote-splicing",
@@ -527,6 +533,11 @@ fn eval_syntax_quote(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
                             KlujurVal::List(l, _) => result.extend(l.iter().cloned()),
                             KlujurVal::Vector(v, _) => result.extend(v.iter().cloned()),
                             KlujurVal::Nil => {}
+                            KlujurVal::LazySeq(ls) => {
+                                // Force lazy sequence and splice elements
+                                let items = crate::builtins::to_seq(&KlujurVal::LazySeq(ls))?;
+                                result.extend(items);
+                            }
                             other => {
                                 return Err(Error::syntax(
                                     "unquote-splicing",
@@ -573,6 +584,109 @@ fn eval_syntax_quote(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
                     *counter += 1;
                     gensyms.insert(name.to_string(), gensym.clone());
                     Ok(KlujurVal::Symbol(gensym, None))
+                }
+            }
+
+            // Handle unqualified symbols - auto-qualify with the namespace where they resolve
+            // EXCEPT for special forms which should remain unqualified
+            KlujurVal::Symbol(sym, meta) if sym.namespace().is_none() => {
+                let name = sym.name();
+                // Special forms that should NOT be qualified
+                const SPECIAL_FORMS: &[&str] = &[
+                    "if",
+                    "do",
+                    "let*",
+                    "def",
+                    "fn*",
+                    "loop",
+                    "recur",
+                    "quote",
+                    "var",
+                    "try",
+                    "catch",
+                    "finally",
+                    "throw",
+                    "binding",
+                    "defmacro",
+                    "in-ns",
+                    "ns",
+                    "require",
+                    "use",
+                    "refer",
+                    "alias",
+                    "import",
+                    "defmulti",
+                    "defmethod",
+                    "defprotocol",
+                    "extend-type",
+                    "extend",
+                    "defrecord",
+                    "new",
+                    "set!",
+                    ".",
+                    "..",
+                    "->",
+                    "->>",
+                    "as->",
+                    "cond",
+                    "case",
+                    "when",
+                    "when-not",
+                    "when-let",
+                    "when-some",
+                    "if-let",
+                    "if-some",
+                    "if-not",
+                    "and",
+                    "or",
+                    "not",
+                    "for",
+                    "doseq",
+                    "dotimes",
+                    "while",
+                    "delay",
+                    "lazy-seq",
+                    "force",
+                    "derive",
+                    "underive",
+                    "isa?",
+                    "parents",
+                    "ancestors",
+                    "descendants",
+                    "swap!",
+                    "reset!",
+                    "swap-vals!",
+                    "compare-and-set!",
+                    "unquote",
+                    "unquote-splicing",
+                    "macroexpand",
+                    "macroexpand-1",
+                    "eval",
+                    "load-file",
+                    "load-string",
+                    "time",
+                    "assert",
+                    "comment",
+                    "declare",
+                ];
+                if SPECIAL_FORMS.contains(&name) {
+                    // Don't qualify special forms
+                    Ok(form.clone())
+                } else {
+                    // Try to resolve the symbol to find its home namespace
+                    let registry = env.registry();
+                    let current_ns = registry.current();
+                    let ns_name = if let Some(var) = current_ns.resolve(sym) {
+                        // Symbol resolves - use the var's namespace
+                        var.ns
+                            .clone()
+                            .unwrap_or_else(|| registry.current_name().to_string())
+                    } else {
+                        // Symbol doesn't resolve - qualify with current namespace
+                        registry.current_name().to_string()
+                    };
+                    let qualified = Symbol::with_namespace(&ns_name, name);
+                    Ok(KlujurVal::Symbol(qualified, meta.clone()))
                 }
             }
 
@@ -721,14 +835,19 @@ fn extract_symbol_and_meta(form: &KlujurVal, env: &Env) -> Result<(Symbol, Optio
 /// Supports metadata syntax: (def ^:private x 1)
 /// which parses as (def (with-meta x {:private true}) 1)
 fn eval_def(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
-    if args.len() != 2 {
-        return Err(Error::syntax("def", "requires exactly 2 arguments"));
+    if args.is_empty() || args.len() > 2 {
+        return Err(Error::syntax("def", "requires 1 or 2 arguments"));
     }
 
     // Extract symbol and metadata - handle both direct symbol and (with-meta sym meta)
     let (sym, sym_meta) = extract_symbol_and_meta(&args[0], env)?;
 
-    let val = eval(&args[1], env)?;
+    // If only 1 arg, value is nil (creates unbound var); otherwise evaluate the second arg
+    let val = if args.len() == 2 {
+        eval(&args[1], env)?
+    } else {
+        KlujurVal::Nil
+    };
 
     // Check for "earmuffs" convention: *name* indicates dynamic var
     // Also check for :dynamic metadata

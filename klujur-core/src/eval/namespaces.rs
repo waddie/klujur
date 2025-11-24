@@ -983,3 +983,40 @@ pub(crate) fn eval_ns_resolve(args: &[KlujurVal], env: &Env) -> Result<KlujurVal
         None => Ok(KlujurVal::Nil),
     }
 }
+
+/// (resolve sym) - resolve a symbol to a var in the current namespace
+/// Returns the var if found, nil otherwise.
+/// This is a simpler version of ns-resolve that uses the current namespace.
+pub(crate) fn eval_resolve(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
+    if args.len() != 1 {
+        return Err(Error::syntax("resolve", "requires exactly 1 argument"));
+    }
+
+    let sym_val = eval(&args[0], env)?;
+    let sym = match sym_val {
+        KlujurVal::Symbol(s, _) => s,
+        other => {
+            return Err(Error::type_error_in("resolve", "symbol", other.type_name()));
+        }
+    };
+
+    let registry = env.registry();
+
+    // If symbol is qualified, look up directly in its namespace
+    if let Some(ns_name) = sym.namespace() {
+        match registry.find(ns_name) {
+            Some(ns) => match ns.resolve(&sym) {
+                Some(var) => Ok(KlujurVal::Var(var)),
+                None => Ok(KlujurVal::Nil),
+            },
+            None => Ok(KlujurVal::Nil),
+        }
+    } else {
+        // Unqualified symbol - resolve in current namespace
+        let current_ns = registry.current();
+        match current_ns.resolve(&sym) {
+            Some(var) => Ok(KlujurVal::Var(var)),
+            None => Ok(KlujurVal::Nil),
+        }
+    }
+}

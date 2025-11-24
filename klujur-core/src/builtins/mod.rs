@@ -95,8 +95,9 @@ use higher_order::{
 };
 use io::{
     builtin_exit, builtin_flush, builtin_format, builtin_get_print_length, builtin_getenv,
-    builtin_pr_str, builtin_print, builtin_println, builtin_read_line, builtin_read_string,
-    builtin_set_print_length, builtin_setenv, builtin_slurp, builtin_spit, builtin_str,
+    builtin_pr, builtin_pr_str, builtin_print, builtin_println, builtin_prn, builtin_read_line,
+    builtin_read_string, builtin_set_print_length, builtin_setenv, builtin_slurp, builtin_spit,
+    builtin_str,
 };
 use laziness::{
     builtin_delay_p, builtin_doall, builtin_dorun, builtin_lazy_seq_p, builtin_memoize,
@@ -330,6 +331,8 @@ pub fn register_builtins(env: &Env) {
     core_ns.define_native("pr-str", builtin_pr_str);
     core_ns.define_native("print", builtin_print);
     core_ns.define_native("println", builtin_println);
+    core_ns.define_native("pr", builtin_pr);
+    core_ns.define_native("prn", builtin_prn);
     core_ns.define_native("type", builtin_type);
     core_ns.define_native("satisfies?", builtin_satisfies_p);
     core_ns.define_native("extends?", builtin_extends_p);

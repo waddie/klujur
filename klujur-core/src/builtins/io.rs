@@ -52,6 +52,27 @@ pub(crate) fn builtin_println(args: &[KlujurVal]) -> Result<KlujurVal> {
     Ok(KlujurVal::Nil)
 }
 
+/// (pr & args) - print args in print representation without newline
+/// Unlike print, strings are printed with quotes (for debugging/REPL output)
+pub(crate) fn builtin_pr(args: &[KlujurVal]) -> Result<KlujurVal> {
+    for (i, arg) in args.iter().enumerate() {
+        if i > 0 {
+            print!(" ");
+        }
+        // Use Display which shows print representation (strings quoted)
+        print!("{}", arg);
+    }
+    Ok(KlujurVal::Nil)
+}
+
+/// (prn & args) - print args in print representation with newline
+/// Unlike println, strings are printed with quotes (for debugging/REPL output)
+pub(crate) fn builtin_prn(args: &[KlujurVal]) -> Result<KlujurVal> {
+    builtin_pr(args)?;
+    println!();
+    Ok(KlujurVal::Nil)
+}
+
 // ============================================================================
 // Print Length Control
 // ============================================================================

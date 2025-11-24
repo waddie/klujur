@@ -189,7 +189,7 @@
                                ~g))
                           (partition 2 clauses)))]
       `(let [~g ~expr
-             ~@(vec (mapcat (fn [step] [g step]) (butlast steps)))]
+             ~@(mapcat (fn [step] [g step]) (butlast steps))]
          ~(last steps)))))
 
 (defmacro cond->>
@@ -206,7 +206,7 @@
                                ~g))
                           (partition 2 clauses)))]
       `(let [~g ~expr
-             ~@(vec (mapcat (fn [step] [g step]) (butlast steps)))]
+             ~@(mapcat (fn [step] [g step]) (butlast steps))]
          ~(last steps)))))
 
 (defmacro some->
@@ -363,8 +363,8 @@
                                       ~@body))]
                  (when-not (= result# ::doseq-stop) (recur (next s#)))))))))))
 
-;; NOTE: These must be public because macros expand in the calling namespace,
-;; and syntax-quote doesn't auto-qualify symbols yet.
+;; NOTE: These are public helper functions for the `for` macro.
+;; They are qualified to klujur.core by syntax-quote when the macro expands.
 (defn for-step
   "Helper for the for macro - iterates over seq, applying f to each element.
    Stops early if f returns a result containing [:for-while-stop]."
@@ -1178,23 +1178,22 @@
 
    Expands to multiple extend-type forms."
   [protocol & specs]
-  (let [parse-specs
-        (fn parse-specs [specs]
-          (loop [remaining specs
-                 result    []]
-            (if (empty? remaining)
-              result
-              (let [type-sym   (first remaining)
-                    ;; Collect method impls until next symbol
-                    ;; (type) or end
-                    ;; Use doall to force lazy seqs into lists for ~@
-                    methods    (doall (take-while list? (rest remaining)))
-                    rest-specs (drop (inc (count methods)) remaining)]
-                (recur rest-specs
-                       (conj result
-                             `(extend-type ~type-sym
-                               ~protocol
-                               ~@methods)))))))]
+  (let [parse-specs (fn parse-specs [specs]
+                      (loop [remaining specs
+                             result    []]
+                        (if (empty? remaining)
+                          result
+                          (let [type-sym   (first remaining)
+                                ;; Collect method impls until next symbol
+                                ;; (type) or end
+                                methods    (take-while list? (rest remaining))
+                                rest-specs (drop (inc (count methods))
+                                                 remaining)]
+                            (recur rest-specs
+                                   (conj result
+                                         `(extend-type ~type-sym
+                                           ~protocol
+                                           ~@methods)))))))]
     `(do ~@(parse-specs specs))))
 
 ;; ============================================================================
