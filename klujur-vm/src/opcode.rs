@@ -150,6 +150,42 @@ pub enum OpCode {
 
     /// Negate: push (not pop()).
     Not,
+
+    // =========================================================================
+    // Additional Built-in Operations
+    // =========================================================================
+    /// Get: push (get coll key) where key = pop(), coll = pop().
+    Get,
+
+    /// Get with default: push (get coll key default) where default = pop(), key = pop(), coll = pop().
+    GetDefault,
+
+    /// Assoc: push (assoc coll k v) where v = pop(), k = pop(), coll = pop().
+    Assoc,
+
+    /// Conj: push (conj coll val) where val = pop(), coll = pop().
+    Conj,
+
+    /// Count: push (count pop()).
+    Count,
+
+    /// Next: push (next pop()) - like rest but returns nil for empty.
+    Next,
+
+    /// Nth: push (nth coll idx) where idx = pop(), coll = pop().
+    Nth,
+
+    /// Nil predicate: push (nil? pop()).
+    NilP,
+
+    /// Empty predicate: push (empty? pop()).
+    EmptyP,
+
+    /// Increment: push (inc pop()).
+    Inc,
+
+    /// Decrement: push (dec pop()).
+    Dec,
 }
 
 impl OpCode {
@@ -189,7 +225,16 @@ impl OpCode {
             OpCode::Pop | OpCode::DefGlobal(_) | OpCode::StoreLocal(_) | OpCode::StoreHeap(_) => -1,
 
             // Neutral (pop 1, push 1)
-            OpCode::Alloc | OpCode::First | OpCode::Rest | OpCode::Not => 0,
+            OpCode::Alloc
+            | OpCode::First
+            | OpCode::Rest
+            | OpCode::Not
+            | OpCode::Count
+            | OpCode::Next
+            | OpCode::NilP
+            | OpCode::EmptyP
+            | OpCode::Inc
+            | OpCode::Dec => 0,
 
             // Pop 2, push 1
             OpCode::Add
@@ -201,7 +246,12 @@ impl OpCode {
             | OpCode::Gt
             | OpCode::Le
             | OpCode::Ge
-            | OpCode::Cons => -1,
+            | OpCode::Cons
+            | OpCode::Get
+            | OpCode::Nth => -1,
+
+            // Pop 3, push 1
+            OpCode::GetDefault | OpCode::Assoc | OpCode::Conj => -2,
 
             // Control flow (no stack effect on their own)
             OpCode::Jump(_) | OpCode::JumpIfFalse(_) | OpCode::JumpIfTrue(_) => 0,

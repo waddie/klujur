@@ -105,6 +105,7 @@ name = "klujur-core"
 version = "0.1.0"
 dependencies = [
  "klujur-parser",
+ "klujur-vm",
  "num-bigint",
  "num-traits",
  "proptest",

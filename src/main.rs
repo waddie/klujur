@@ -7,17 +7,34 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::process;
 
-use klujur_core::{Env, eval, init_stdlib, register_builtins};
+use klujur_core::{
+    Env, eval, init_stdlib, register_builtins, set_bytecode_mode, set_bytecode_registry,
+};
 use klujur_parser::Parser;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
 
+    // Handle --help flag
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        print_help();
+        return;
+    }
+
     // Handle --version flag
-    if args.len() == 2 && (args[1] == "--version" || args[1] == "-v") {
+    if args.iter().any(|a| a == "--version" || a == "-v") {
         println!("Klujur v0.1.0");
         return;
     }
+
+    // Check for --bytecode flag
+    let bytecode_mode = args.iter().any(|a| a == "--bytecode" || a == "-b");
+    if bytecode_mode {
+        let _ = set_bytecode_mode(true);
+    }
+
+    // Filter out flags to get file arguments
+    let files: Vec<&String> = args[1..].iter().filter(|a| !a.starts_with('-')).collect();
 
     // Create environment with builtins
     let env = Env::new();
@@ -29,16 +46,34 @@ fn main() {
         process::exit(1);
     }
 
+    // Set up bytecode registry for global resolution if bytecode mode is enabled
+    if bytecode_mode {
+        set_bytecode_registry(env.registry());
+    }
+
     // If files provided, evaluate them; otherwise start REPL
-    if args.len() > 1 {
-        run_files(&args[1..], &env);
+    if !files.is_empty() {
+        run_files(&files, &env);
     } else {
-        run_repl(&env);
+        run_repl(&env, bytecode_mode);
     }
 }
 
+fn print_help() {
+    println!("Klujur v0.1.0 - A Clojure-ish interpreter");
+    println!();
+    println!("Usage: klujur [OPTIONS] [FILES...]");
+    println!();
+    println!("Options:");
+    println!("  -b, --bytecode  Enable bytecode compilation mode");
+    println!("  -v, --version   Print version information");
+    println!("  -h, --help      Print this help message");
+    println!();
+    println!("If no files are provided, starts an interactive REPL.");
+}
+
 /// Evaluate a sequence of source files
-fn run_files(files: &[String], env: &Env) {
+fn run_files(files: &[&String], env: &Env) {
     for file_path in files {
         if let Err(e) = eval_file(file_path, env) {
             eprintln!("{}", e);
@@ -90,8 +125,12 @@ fn eval_file(file_path: &str, env: &Env) -> Result<(), String> {
 }
 
 /// Run the interactive REPL
-fn run_repl(env: &Env) {
-    println!("Klujur v0.1.0");
+fn run_repl(env: &Env, bytecode_mode: bool) {
+    if bytecode_mode {
+        println!("Klujur v0.1.0 (bytecode mode)");
+    } else {
+        println!("Klujur v0.1.0");
+    }
 
     loop {
         // Display current namespace in prompt

@@ -44,7 +44,8 @@ pub use builtins::register_builtins;
 pub use env::Env;
 pub use error::{Error, Result};
 pub use eval::{
-    apply, eval, get_eval_depth, get_max_eval_depth, make_native_fn, set_max_eval_depth,
+    apply, eval, get_eval_depth, get_max_eval_depth, is_bytecode_mode, make_native_fn,
+    set_bytecode_mode, set_bytecode_registry, set_max_eval_depth,
 };
 pub use namespace::{Namespace, NamespaceRegistry};
 

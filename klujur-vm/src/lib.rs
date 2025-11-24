@@ -13,4 +13,4 @@ pub mod vm;
 
 pub use chunk::{BytecodeFn, BytecodeFnWrapper, Chunk, FunctionPrototype, LineInfo};
 pub use opcode::OpCode;
-pub use vm::VM;
+pub use vm::{FnCaller, GlobalResolver, VM, set_fn_caller, set_global_resolver};

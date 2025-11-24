@@ -6,6 +6,7 @@
 pub mod frame;
 pub mod stack;
 
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use klujur_parser::value::KlujurVal;
@@ -16,6 +17,57 @@ use crate::opcode::OpCode;
 
 pub use frame::CallFrame;
 pub use stack::ValueStack;
+
+/// Type for resolving global variables from an external source (e.g., the interpreter).
+pub type GlobalResolver = dyn Fn(&str) -> Option<KlujurVal>;
+
+/// Type for calling functions that the VM can't handle (e.g., native functions, interpreted fns).
+/// Takes the function value and arguments, returns Ok(result) or Err(error message).
+pub type FnCaller = dyn Fn(&KlujurVal, &[KlujurVal]) -> std::result::Result<KlujurVal, String>;
+
+thread_local! {
+    /// Thread-local global resolver for hybrid mode.
+    /// When set, the VM will use this to resolve globals not found in its own map.
+    static GLOBAL_RESOLVER: RefCell<Option<Rc<GlobalResolver>>> = const { RefCell::new(None) };
+    /// Thread-local function caller for hybrid mode.
+    /// When set, the VM will use this to call non-bytecode functions.
+    static FN_CALLER: RefCell<Option<Rc<FnCaller>>> = const { RefCell::new(None) };
+}
+
+/// Set the global resolver for the current thread. Returns the previous resolver.
+pub fn set_global_resolver(resolver: Option<Rc<GlobalResolver>>) -> Option<Rc<GlobalResolver>> {
+    GLOBAL_RESOLVER.with(|r| r.replace(resolver))
+}
+
+/// Resolve a global variable using the thread-local resolver.
+fn resolve_global(name: &str) -> Option<KlujurVal> {
+    GLOBAL_RESOLVER.with(|r| {
+        if let Some(resolver) = r.borrow().as_ref() {
+            resolver(name)
+        } else {
+            None
+        }
+    })
+}
+
+/// Set the function caller for the current thread. Returns the previous caller.
+pub fn set_fn_caller(caller: Option<Rc<FnCaller>>) -> Option<Rc<FnCaller>> {
+    FN_CALLER.with(|c| c.replace(caller))
+}
+
+/// Call a non-bytecode function using the thread-local function caller.
+fn call_external_fn(
+    func: &KlujurVal,
+    args: &[KlujurVal],
+) -> std::result::Result<KlujurVal, String> {
+    FN_CALLER.with(|c| {
+        if let Some(caller) = c.borrow().as_ref() {
+            caller(func, args)
+        } else {
+            Err("No function caller set for hybrid mode".into())
+        }
+    })
+}
 
 /// Runtime error during VM execution.
 #[derive(Debug, Clone)]
@@ -102,6 +154,74 @@ impl VM {
         self.run_loop()
     }
 
+    /// Call a bytecode function with arguments.
+    ///
+    /// This is the main entry point for calling bytecode functions from the interpreter.
+    pub fn call_fn(&mut self, bytecode_fn: &BytecodeFn, args: &[KlujurVal]) -> Result<KlujurVal> {
+        // Check arity
+        let arity = bytecode_fn.arity() as usize;
+        let has_rest = bytecode_fn.has_rest();
+        if has_rest {
+            if args.len() < arity {
+                return Err(RuntimeError::ArityError {
+                    expected: arity,
+                    got: args.len(),
+                });
+            }
+        } else if args.len() != arity {
+            return Err(RuntimeError::ArityError {
+                expected: arity,
+                got: args.len(),
+            });
+        }
+
+        // Push the function onto the stack (for cleanup purposes)
+        let fn_val = KlujurVal::custom(BytecodeFnWrapper(Rc::new(bytecode_fn.clone())));
+        let fn_index = self.stack.len();
+        self.stack.push(fn_val);
+
+        // Push the arguments
+        for arg in args {
+            self.stack.push(arg.clone());
+        }
+
+        // Handle rest parameter if present
+        if has_rest && args.len() > arity {
+            let extra_start = fn_index + 1 + arity;
+            let extra_count = args.len() - arity;
+            let mut rest_items = Vec::new();
+            for i in 0..extra_count {
+                rest_items.push(self.stack.get(extra_start + i)?);
+            }
+            let rest_list = KlujurVal::list(rest_items);
+            self.stack.truncate(extra_start);
+            self.stack.push(rest_list);
+        } else if has_rest {
+            self.stack.push(KlujurVal::list(vec![]));
+        }
+
+        // Add the function's chunk to our chunks list
+        let chunk = bytecode_fn.chunk().clone();
+        self.chunks.push(chunk);
+        let chunk_index = self.chunks.len() - 1;
+
+        // Calculate frame base
+        let has_name = bytecode_fn.name().is_some();
+        let frame_base = if has_name { fn_index } else { fn_index + 1 };
+
+        // Push the frame directly (no dummy frame needed)
+        let captures = bytecode_fn.captures.clone();
+        self.frames.push(CallFrame::new_with_cleanup(
+            frame_base,
+            fn_index,
+            chunk_index,
+            captures,
+        ));
+
+        // Run the function
+        self.run_loop()
+    }
+
     fn run_loop(&mut self) -> Result<KlujurVal> {
         loop {
             let op = self.read_op()?;
@@ -134,17 +254,20 @@ impl VM {
                 OpCode::LoadGlobal(idx) => {
                     let name = self.get_constant(idx)?;
                     let name_str = match &name {
-                        KlujurVal::Symbol(s, _) => s.name().to_string(),
+                        // Use Display to get full qualified name (ns/name or name)
+                        KlujurVal::Symbol(s, _) => s.to_string(),
                         _ => {
                             return Err(RuntimeError::Internal(
                                 "Global name must be symbol".into(),
                             ));
                         }
                     };
+                    // First check VM's own globals, then fall back to thread-local resolver
                     let val = self
                         .globals
                         .get(&name_str)
                         .cloned()
+                        .or_else(|| resolve_global(&name_str))
                         .ok_or(RuntimeError::UndefinedVariable(name_str))?;
                     self.stack.push(val);
                 }
@@ -417,6 +540,302 @@ impl VM {
                     let val = self.stack.pop()?;
                     self.stack.push(KlujurVal::Bool(is_falsy(&val)));
                 }
+
+                // Additional built-in operations
+                OpCode::Get => {
+                    let key = self.stack.pop()?;
+                    let coll = self.stack.pop()?;
+                    let result = match &coll {
+                        KlujurVal::Map(map, _) => map.get(&key).cloned().unwrap_or(KlujurVal::Nil),
+                        KlujurVal::Vector(items, _) => {
+                            if let KlujurVal::Int(idx) = key {
+                                if idx >= 0 && (idx as usize) < items.len() {
+                                    items[idx as usize].clone()
+                                } else {
+                                    KlujurVal::Nil
+                                }
+                            } else {
+                                KlujurVal::Nil
+                            }
+                        }
+                        KlujurVal::Set(set, _) => {
+                            if set.contains(&key) {
+                                key
+                            } else {
+                                KlujurVal::Nil
+                            }
+                        }
+                        KlujurVal::Nil => KlujurVal::Nil,
+                        _ => KlujurVal::Nil,
+                    };
+                    self.stack.push(result);
+                }
+                OpCode::GetDefault => {
+                    let default = self.stack.pop()?;
+                    let key = self.stack.pop()?;
+                    let coll = self.stack.pop()?;
+                    let result = match &coll {
+                        KlujurVal::Map(map, _) => map.get(&key).cloned().unwrap_or(default),
+                        KlujurVal::Vector(items, _) => {
+                            if let KlujurVal::Int(idx) = key {
+                                if idx >= 0 && (idx as usize) < items.len() {
+                                    items[idx as usize].clone()
+                                } else {
+                                    default
+                                }
+                            } else {
+                                default
+                            }
+                        }
+                        KlujurVal::Set(set, _) => {
+                            if set.contains(&key) {
+                                key
+                            } else {
+                                default
+                            }
+                        }
+                        KlujurVal::Nil => default,
+                        _ => default,
+                    };
+                    self.stack.push(result);
+                }
+                OpCode::Assoc => {
+                    let val = self.stack.pop()?;
+                    let key = self.stack.pop()?;
+                    let coll = self.stack.pop()?;
+                    let result = match coll {
+                        KlujurVal::Map(mut map, meta) => {
+                            map.insert(key, val);
+                            KlujurVal::Map(map, meta)
+                        }
+                        KlujurVal::Vector(mut items, meta) => {
+                            if let KlujurVal::Int(idx) = key {
+                                if idx >= 0 && (idx as usize) <= items.len() {
+                                    if (idx as usize) == items.len() {
+                                        // Append at end
+                                        items.push_back(val);
+                                    } else {
+                                        // Replace at index
+                                        items.set(idx as usize, val);
+                                    }
+                                    KlujurVal::Vector(items, meta)
+                                } else {
+                                    return Err(RuntimeError::Internal(format!(
+                                        "Index {} out of bounds for vector of length {}",
+                                        idx,
+                                        items.len()
+                                    )));
+                                }
+                            } else {
+                                return Err(RuntimeError::TypeError {
+                                    expected: "integer".into(),
+                                    got: type_name(&key).into(),
+                                });
+                            }
+                        }
+                        KlujurVal::Nil => {
+                            // assoc on nil creates a map
+                            let mut map = im::OrdMap::new();
+                            map.insert(key, val);
+                            KlujurVal::Map(map, None)
+                        }
+                        _ => {
+                            return Err(RuntimeError::TypeError {
+                                expected: "map or vector".into(),
+                                got: type_name(&coll).into(),
+                            });
+                        }
+                    };
+                    self.stack.push(result);
+                }
+                OpCode::Conj => {
+                    let val = self.stack.pop()?;
+                    let coll = self.stack.pop()?;
+                    let result = match coll {
+                        KlujurVal::List(mut items, meta) => {
+                            items.push_front(val);
+                            KlujurVal::List(items, meta)
+                        }
+                        KlujurVal::Vector(mut items, meta) => {
+                            items.push_back(val);
+                            KlujurVal::Vector(items, meta)
+                        }
+                        KlujurVal::Set(mut set, meta) => {
+                            set.insert(val);
+                            KlujurVal::Set(set, meta)
+                        }
+                        KlujurVal::Nil => KlujurVal::list(vec![val]),
+                        _ => {
+                            return Err(RuntimeError::TypeError {
+                                expected: "collection".into(),
+                                got: type_name(&coll).into(),
+                            });
+                        }
+                    };
+                    self.stack.push(result);
+                }
+                OpCode::Count => {
+                    let coll = self.stack.pop()?;
+                    let count = match &coll {
+                        KlujurVal::Nil => 0,
+                        KlujurVal::List(items, _) | KlujurVal::Vector(items, _) => {
+                            items.len() as i64
+                        }
+                        KlujurVal::Map(map, _) => map.len() as i64,
+                        KlujurVal::Set(set, _) => set.len() as i64,
+                        KlujurVal::String(s) => s.chars().count() as i64,
+                        _ => {
+                            return Err(RuntimeError::TypeError {
+                                expected: "collection".into(),
+                                got: type_name(&coll).into(),
+                            });
+                        }
+                    };
+                    self.stack.push(KlujurVal::Int(count));
+                }
+                OpCode::Next => {
+                    let coll = self.stack.pop()?;
+                    let next = match &coll {
+                        KlujurVal::List(items, _) => {
+                            if items.len() <= 1 {
+                                KlujurVal::Nil
+                            } else {
+                                KlujurVal::list(items.iter().skip(1).cloned().collect())
+                            }
+                        }
+                        KlujurVal::Vector(items, _) => {
+                            if items.len() <= 1 {
+                                KlujurVal::Nil
+                            } else {
+                                KlujurVal::list(items.iter().skip(1).cloned().collect())
+                            }
+                        }
+                        KlujurVal::Nil => KlujurVal::Nil,
+                        _ => {
+                            return Err(RuntimeError::TypeError {
+                                expected: "sequence".into(),
+                                got: type_name(&coll).into(),
+                            });
+                        }
+                    };
+                    self.stack.push(next);
+                }
+                OpCode::Nth => {
+                    let idx = self.stack.pop()?;
+                    let coll = self.stack.pop()?;
+                    let result = match (&coll, &idx) {
+                        (KlujurVal::Vector(items, _), KlujurVal::Int(i)) => {
+                            if *i >= 0 && (*i as usize) < items.len() {
+                                items[*i as usize].clone()
+                            } else {
+                                return Err(RuntimeError::Internal(format!(
+                                    "Index {} out of bounds for vector of length {}",
+                                    i,
+                                    items.len()
+                                )));
+                            }
+                        }
+                        (KlujurVal::List(items, _), KlujurVal::Int(i)) => {
+                            if *i >= 0 && (*i as usize) < items.len() {
+                                items[*i as usize].clone()
+                            } else {
+                                return Err(RuntimeError::Internal(format!(
+                                    "Index {} out of bounds for list of length {}",
+                                    i,
+                                    items.len()
+                                )));
+                            }
+                        }
+                        (KlujurVal::String(s), KlujurVal::Int(i)) => {
+                            if *i >= 0 {
+                                s.chars().nth(*i as usize).map(KlujurVal::Char).ok_or_else(
+                                    || {
+                                        RuntimeError::Internal(format!(
+                                            "Index {} out of bounds for string of length {}",
+                                            i,
+                                            s.chars().count()
+                                        ))
+                                    },
+                                )?
+                            } else {
+                                return Err(RuntimeError::Internal(format!(
+                                    "Index {} out of bounds",
+                                    i
+                                )));
+                            }
+                        }
+                        (_, KlujurVal::Int(_)) => {
+                            return Err(RuntimeError::TypeError {
+                                expected: "indexed collection".into(),
+                                got: type_name(&coll).into(),
+                            });
+                        }
+                        _ => {
+                            return Err(RuntimeError::TypeError {
+                                expected: "integer".into(),
+                                got: type_name(&idx).into(),
+                            });
+                        }
+                    };
+                    self.stack.push(result);
+                }
+                OpCode::NilP => {
+                    let val = self.stack.pop()?;
+                    self.stack
+                        .push(KlujurVal::Bool(matches!(val, KlujurVal::Nil)));
+                }
+                OpCode::EmptyP => {
+                    let val = self.stack.pop()?;
+                    let is_empty = match &val {
+                        KlujurVal::Nil => true,
+                        KlujurVal::List(items, _) | KlujurVal::Vector(items, _) => items.is_empty(),
+                        KlujurVal::Map(map, _) => map.is_empty(),
+                        KlujurVal::Set(set, _) => set.is_empty(),
+                        KlujurVal::String(s) => s.is_empty(),
+                        _ => false,
+                    };
+                    self.stack.push(KlujurVal::Bool(is_empty));
+                }
+                OpCode::Inc => {
+                    let val = self.stack.pop()?;
+                    match val {
+                        KlujurVal::Int(n) => {
+                            self.stack
+                                .push(KlujurVal::Int(n.checked_add(1).ok_or_else(|| {
+                                    RuntimeError::Internal("Integer overflow in inc".into())
+                                })?));
+                        }
+                        KlujurVal::Float(n) => {
+                            self.stack.push(KlujurVal::Float(n + 1.0));
+                        }
+                        _ => {
+                            return Err(RuntimeError::TypeError {
+                                expected: "number".into(),
+                                got: type_name(&val).into(),
+                            });
+                        }
+                    }
+                }
+                OpCode::Dec => {
+                    let val = self.stack.pop()?;
+                    match val {
+                        KlujurVal::Int(n) => {
+                            self.stack
+                                .push(KlujurVal::Int(n.checked_sub(1).ok_or_else(|| {
+                                    RuntimeError::Internal("Integer overflow in dec".into())
+                                })?));
+                        }
+                        KlujurVal::Float(n) => {
+                            self.stack.push(KlujurVal::Float(n - 1.0));
+                        }
+                        _ => {
+                            return Err(RuntimeError::TypeError {
+                                expected: "number".into(),
+                                got: type_name(&val).into(),
+                            });
+                        }
+                    }
+                }
             }
         }
     }
@@ -544,8 +963,19 @@ impl VM {
             return Ok(());
         }
 
-        // Not a bytecode function - could be a native function in the future
-        Err(RuntimeError::NotCallable(type_name(&callee).into()))
+        // Not a bytecode function - try external function caller (for native functions, etc.)
+        // Collect arguments from the stack
+        let args: Vec<KlujurVal> = (0..argc)
+            .map(|i| self.stack.get(fn_index + 1 + i))
+            .collect::<Result<Vec<_>>>()?;
+
+        // Call the external function
+        let result = call_external_fn(&callee, &args).map_err(RuntimeError::Internal)?;
+
+        // Pop the function and arguments, then push the result
+        self.stack.truncate(fn_index);
+        self.stack.push(result);
+        Ok(())
     }
 
     fn tail_call(&mut self, argc: usize) -> Result<()> {
@@ -639,7 +1069,19 @@ impl VM {
             return Ok(());
         }
 
-        Err(RuntimeError::NotCallable(type_name(&callee).into()))
+        // Not a bytecode function - handle as external call (no TCO benefit for external)
+        // Collect arguments from the stack
+        let args: Vec<KlujurVal> = (0..argc)
+            .map(|i| self.stack.get(fn_index + 1 + i))
+            .collect::<Result<Vec<_>>>()?;
+
+        // Call the external function
+        let result = call_external_fn(&callee, &args).map_err(RuntimeError::Internal)?;
+
+        // Pop the function and arguments, then push the result
+        self.stack.truncate(fn_index);
+        self.stack.push(result);
+        Ok(())
     }
 
     fn binary_num_op<FI, FF>(&mut self, int_op: FI, float_op: FF, name: &str) -> Result<()>

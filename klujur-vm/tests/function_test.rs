@@ -149,13 +149,11 @@ fn test_adder_closure() {
 
 #[test]
 fn test_loop_recur_countdown() {
-    // Countdown loop using recur - requires builtins not yet available
-    // For now, just verify the error message
+    // Countdown loop using recur - now works with specialized opcodes for = and -
     assert_eq!(
         compile_and_run("(loop [n 5] (if (= n 0) n (recur (- n 1))))"),
-        "Error: Undefined variable: ="
+        "0"
     );
-    // TODO: Need = and - builtins for this test to work properly
 }
 
 #[test]

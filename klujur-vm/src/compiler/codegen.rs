@@ -336,6 +336,11 @@ impl<'a> FunctionCompiler<'a> {
                 "set!" => return self.compile_set_bang(&items[1..]),
                 "loop" => return self.compile_loop(&items[1..]),
                 "recur" => return self.compile_recur(&items[1..]),
+                "when" => return self.compile_when(&items[1..]),
+                "when-not" => return self.compile_when_not(&items[1..]),
+                "and" => return self.compile_and(&items[1..]),
+                "or" => return self.compile_or(&items[1..]),
+                "if-not" => return self.compile_if_not(&items[1..]),
                 _ => {}
             }
         }
@@ -391,6 +396,166 @@ impl<'a> FunctionCompiler<'a> {
         }
 
         self.compile_expr(&body[body.len() - 1])
+    }
+
+    /// (when test body...) - if test is truthy, evaluate body, else nil
+    fn compile_when(&mut self, args: &[KlujurVal]) -> Result<()> {
+        if args.is_empty() {
+            self.emit(OpCode::Nil);
+            return Ok(());
+        }
+
+        // Compile test
+        self.compile_expr(&args[0])?;
+        let else_jump = self.emit_jump(OpCode::PopJumpIfFalse(0));
+
+        // Compile body (as do block)
+        if args.len() > 1 {
+            self.compile_do(&args[1..])?;
+        } else {
+            self.emit(OpCode::Nil);
+        }
+
+        let end_jump = self.emit_jump(OpCode::Jump(0));
+        self.patch_jump(else_jump);
+
+        // Else branch is nil
+        self.emit(OpCode::Nil);
+        self.patch_jump(end_jump);
+        Ok(())
+    }
+
+    /// (when-not test body...) - if test is falsy, evaluate body, else nil
+    fn compile_when_not(&mut self, args: &[KlujurVal]) -> Result<()> {
+        if args.is_empty() {
+            self.emit(OpCode::Nil);
+            return Ok(());
+        }
+
+        // Compile test
+        self.compile_expr(&args[0])?;
+        // Jump to body if falsy (opposite of when)
+        let then_jump = self.emit_jump(OpCode::PopJumpIfFalse(0));
+
+        // Test was truthy, so result is nil
+        self.emit(OpCode::Nil);
+        let end_jump = self.emit_jump(OpCode::Jump(0));
+
+        // Test was falsy, compile body
+        self.patch_jump(then_jump);
+        if args.len() > 1 {
+            self.compile_do(&args[1..])?;
+        } else {
+            self.emit(OpCode::Nil);
+        }
+
+        self.patch_jump(end_jump);
+        Ok(())
+    }
+
+    /// (if-not test then else) - if test is falsy, then-branch, else else-branch
+    fn compile_if_not(&mut self, args: &[KlujurVal]) -> Result<()> {
+        if args.is_empty() {
+            self.emit(OpCode::Nil);
+            return Ok(());
+        }
+
+        // Compile test
+        self.compile_expr(&args[0])?;
+        // Jump to "then" branch if falsy (opposite of if)
+        let then_jump = self.emit_jump(OpCode::PopJumpIfFalse(0));
+
+        // Test was truthy - compile else branch (third arg or nil)
+        if args.len() > 2 {
+            self.compile_expr(&args[2])?;
+        } else {
+            self.emit(OpCode::Nil);
+        }
+
+        let end_jump = self.emit_jump(OpCode::Jump(0));
+        self.patch_jump(then_jump);
+
+        // Test was falsy - compile then branch (second arg or nil)
+        if args.len() > 1 {
+            self.compile_expr(&args[1])?;
+        } else {
+            self.emit(OpCode::Nil);
+        }
+
+        self.patch_jump(end_jump);
+        Ok(())
+    }
+
+    /// (and ...) - short-circuit evaluation, returns last truthy or first falsy
+    fn compile_and(&mut self, args: &[KlujurVal]) -> Result<()> {
+        if args.is_empty() {
+            self.emit(OpCode::True);
+            return Ok(());
+        }
+
+        let mut end_jumps = Vec::new();
+
+        for (i, arg) in args.iter().enumerate() {
+            self.compile_expr(arg)?;
+
+            if i < args.len() - 1 {
+                // If falsy, jump to end with this value
+                self.emit(OpCode::Dup);
+                let jump = self.emit_jump(OpCode::PopJumpIfFalse(0));
+                // If truthy, pop and continue to next
+                self.emit(OpCode::Pop);
+                end_jumps.push(jump);
+            }
+        }
+
+        let after_all = self.chunk.code.len();
+        for jump in end_jumps {
+            self.patch_jump_to(jump, after_all);
+        }
+
+        Ok(())
+    }
+
+    /// (or ...) - short-circuit evaluation, returns first truthy or last falsy
+    fn compile_or(&mut self, args: &[KlujurVal]) -> Result<()> {
+        if args.is_empty() {
+            self.emit(OpCode::Nil);
+            return Ok(());
+        }
+
+        let mut end_jumps = Vec::new();
+
+        for (i, arg) in args.iter().enumerate() {
+            self.compile_expr(arg)?;
+
+            if i < args.len() - 1 {
+                // If truthy, jump to end with this value
+                self.emit(OpCode::Dup);
+                // Use JumpIfTrue to keep the value and jump if truthy
+                let jump = self.emit_jump(OpCode::JumpIfTrue(0));
+                // If falsy, pop and continue to next
+                self.emit(OpCode::Pop);
+                end_jumps.push(jump);
+            }
+        }
+
+        let after_all = self.chunk.code.len();
+        for jump in end_jumps {
+            self.patch_jump_to(jump, after_all);
+        }
+
+        Ok(())
+    }
+
+    /// Patch a jump to a specific target address
+    fn patch_jump_to(&mut self, jump_index: usize, target: usize) {
+        let op = &mut self.chunk.code[jump_index];
+        match op {
+            OpCode::Jump(offset) => *offset = target as i16,
+            OpCode::PopJumpIfFalse(offset) => *offset = target as i16,
+            OpCode::JumpIfTrue(offset) => *offset = target as i16,
+            _ => panic!("Not a jump instruction"),
+        }
     }
 
     fn compile_let(&mut self, args: &[KlujurVal]) -> Result<()> {
@@ -658,6 +823,15 @@ impl<'a> FunctionCompiler<'a> {
     }
 
     fn compile_call(&mut self, items: &[KlujurVal]) -> Result<()> {
+        // Check for specialized opcodes for known builtins
+        if let KlujurVal::Symbol(sym, _) = &items[0]
+            && (sym.namespace().is_none() || sym.namespace() == Some("klujur.core"))
+            && let Some(()) = self.try_emit_builtin_opcode(sym.name(), &items[1..])?
+        {
+            return Ok(());
+        }
+
+        // Generic function call
         self.compile_expr(&items[0])?;
 
         let argc = items.len() - 1;
@@ -671,6 +845,164 @@ impl<'a> FunctionCompiler<'a> {
 
         self.emit(OpCode::Call(argc as u8));
         Ok(())
+    }
+
+    /// Try to emit a specialized opcode for a known builtin.
+    /// Returns Ok(Some(())) if a specialized opcode was emitted, Ok(None) if not.
+    fn try_emit_builtin_opcode(&mut self, name: &str, args: &[KlujurVal]) -> Result<Option<()>> {
+        match (name, args.len()) {
+            // Existing opcodes - sequence operations
+            ("first", 1) => {
+                self.compile_expr(&args[0])?;
+                self.emit(OpCode::First);
+                Ok(Some(()))
+            }
+            ("rest", 1) => {
+                self.compile_expr(&args[0])?;
+                self.emit(OpCode::Rest);
+                Ok(Some(()))
+            }
+            ("cons", 2) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.emit(OpCode::Cons);
+                Ok(Some(()))
+            }
+            ("not", 1) => {
+                self.compile_expr(&args[0])?;
+                self.emit(OpCode::Not);
+                Ok(Some(()))
+            }
+
+            // New opcodes - collection operations
+            ("get", 2) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.emit(OpCode::Get);
+                Ok(Some(()))
+            }
+            ("get", 3) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.compile_expr(&args[2])?;
+                self.emit(OpCode::GetDefault);
+                Ok(Some(()))
+            }
+            ("assoc", 3) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.compile_expr(&args[2])?;
+                self.emit(OpCode::Assoc);
+                Ok(Some(()))
+            }
+            ("conj", 2) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.emit(OpCode::Conj);
+                Ok(Some(()))
+            }
+            ("count", 1) => {
+                self.compile_expr(&args[0])?;
+                self.emit(OpCode::Count);
+                Ok(Some(()))
+            }
+            ("next", 1) => {
+                self.compile_expr(&args[0])?;
+                self.emit(OpCode::Next);
+                Ok(Some(()))
+            }
+            ("nth", 2) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.emit(OpCode::Nth);
+                Ok(Some(()))
+            }
+
+            // Predicates
+            ("nil?", 1) => {
+                self.compile_expr(&args[0])?;
+                self.emit(OpCode::NilP);
+                Ok(Some(()))
+            }
+            ("empty?", 1) => {
+                self.compile_expr(&args[0])?;
+                self.emit(OpCode::EmptyP);
+                Ok(Some(()))
+            }
+
+            // Arithmetic
+            ("inc", 1) => {
+                self.compile_expr(&args[0])?;
+                self.emit(OpCode::Inc);
+                Ok(Some(()))
+            }
+            ("dec", 1) => {
+                self.compile_expr(&args[0])?;
+                self.emit(OpCode::Dec);
+                Ok(Some(()))
+            }
+
+            // Binary arithmetic (2-arity only)
+            ("+", 2) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.emit(OpCode::Add);
+                Ok(Some(()))
+            }
+            ("-", 2) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.emit(OpCode::Sub);
+                Ok(Some(()))
+            }
+            ("*", 2) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.emit(OpCode::Mul);
+                Ok(Some(()))
+            }
+            ("/", 2) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.emit(OpCode::Div);
+                Ok(Some(()))
+            }
+
+            // Comparison (2-arity only)
+            ("=", 2) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.emit(OpCode::Eq);
+                Ok(Some(()))
+            }
+            ("<", 2) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.emit(OpCode::Lt);
+                Ok(Some(()))
+            }
+            (">", 2) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.emit(OpCode::Gt);
+                Ok(Some(()))
+            }
+            ("<=", 2) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.emit(OpCode::Le);
+                Ok(Some(()))
+            }
+            (">=", 2) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.emit(OpCode::Ge);
+                Ok(Some(()))
+            }
+
+            // Not a specialized opcode
+            _ => Ok(None),
+        }
     }
 
     fn compile_vector(&mut self, items: &[KlujurVal]) -> Result<()> {
@@ -810,6 +1142,11 @@ impl Compiler {
                 "set!" => return self.compile_set_bang(&items[1..]),
                 "loop" => return self.compile_loop(&items[1..]),
                 "recur" => return self.compile_recur(&items[1..]),
+                "when" => return self.compile_when(&items[1..]),
+                "when-not" => return self.compile_when_not(&items[1..]),
+                "and" => return self.compile_and(&items[1..]),
+                "or" => return self.compile_or(&items[1..]),
+                "if-not" => return self.compile_if_not(&items[1..]),
                 _ => {}
             }
         }
@@ -878,6 +1215,166 @@ impl Compiler {
 
         // Last expression is the result
         self.compile_expr(&body[body.len() - 1])
+    }
+
+    /// (when test body...) - if test is truthy, evaluate body, else nil
+    fn compile_when(&mut self, args: &[KlujurVal]) -> Result<()> {
+        if args.is_empty() {
+            self.emit(OpCode::Nil);
+            return Ok(());
+        }
+
+        // Compile test
+        self.compile_expr(&args[0])?;
+        let else_jump = self.emit_jump(OpCode::PopJumpIfFalse(0));
+
+        // Compile body (as do block)
+        if args.len() > 1 {
+            self.compile_do(&args[1..])?;
+        } else {
+            self.emit(OpCode::Nil);
+        }
+
+        let end_jump = self.emit_jump(OpCode::Jump(0));
+        self.patch_jump(else_jump);
+
+        // Else branch is nil
+        self.emit(OpCode::Nil);
+        self.patch_jump(end_jump);
+        Ok(())
+    }
+
+    /// (when-not test body...) - if test is falsy, evaluate body, else nil
+    fn compile_when_not(&mut self, args: &[KlujurVal]) -> Result<()> {
+        if args.is_empty() {
+            self.emit(OpCode::Nil);
+            return Ok(());
+        }
+
+        // Compile test
+        self.compile_expr(&args[0])?;
+        // Jump to body if falsy (opposite of when)
+        let then_jump = self.emit_jump(OpCode::PopJumpIfFalse(0));
+
+        // Test was truthy, so result is nil
+        self.emit(OpCode::Nil);
+        let end_jump = self.emit_jump(OpCode::Jump(0));
+
+        // Test was falsy, compile body
+        self.patch_jump(then_jump);
+        if args.len() > 1 {
+            self.compile_do(&args[1..])?;
+        } else {
+            self.emit(OpCode::Nil);
+        }
+
+        self.patch_jump(end_jump);
+        Ok(())
+    }
+
+    /// (if-not test then else) - if test is falsy, then-branch, else else-branch
+    fn compile_if_not(&mut self, args: &[KlujurVal]) -> Result<()> {
+        if args.is_empty() {
+            self.emit(OpCode::Nil);
+            return Ok(());
+        }
+
+        // Compile test
+        self.compile_expr(&args[0])?;
+        // Jump to "then" branch if falsy (opposite of if)
+        let then_jump = self.emit_jump(OpCode::PopJumpIfFalse(0));
+
+        // Test was truthy - compile else branch (third arg or nil)
+        if args.len() > 2 {
+            self.compile_expr(&args[2])?;
+        } else {
+            self.emit(OpCode::Nil);
+        }
+
+        let end_jump = self.emit_jump(OpCode::Jump(0));
+        self.patch_jump(then_jump);
+
+        // Test was falsy - compile then branch (second arg or nil)
+        if args.len() > 1 {
+            self.compile_expr(&args[1])?;
+        } else {
+            self.emit(OpCode::Nil);
+        }
+
+        self.patch_jump(end_jump);
+        Ok(())
+    }
+
+    /// (and ...) - short-circuit evaluation, returns last truthy or first falsy
+    fn compile_and(&mut self, args: &[KlujurVal]) -> Result<()> {
+        if args.is_empty() {
+            self.emit(OpCode::True);
+            return Ok(());
+        }
+
+        let mut end_jumps = Vec::new();
+
+        for (i, arg) in args.iter().enumerate() {
+            self.compile_expr(arg)?;
+
+            if i < args.len() - 1 {
+                // If falsy, jump to end with this value
+                self.emit(OpCode::Dup);
+                let jump = self.emit_jump(OpCode::PopJumpIfFalse(0));
+                // If truthy, pop and continue to next
+                self.emit(OpCode::Pop);
+                end_jumps.push(jump);
+            }
+        }
+
+        let after_all = self.chunk.code.len();
+        for jump in end_jumps {
+            self.patch_jump_to(jump, after_all);
+        }
+
+        Ok(())
+    }
+
+    /// (or ...) - short-circuit evaluation, returns first truthy or last falsy
+    fn compile_or(&mut self, args: &[KlujurVal]) -> Result<()> {
+        if args.is_empty() {
+            self.emit(OpCode::Nil);
+            return Ok(());
+        }
+
+        let mut end_jumps = Vec::new();
+
+        for (i, arg) in args.iter().enumerate() {
+            self.compile_expr(arg)?;
+
+            if i < args.len() - 1 {
+                // If truthy, jump to end with this value
+                self.emit(OpCode::Dup);
+                // Use JumpIfTrue to keep the value and jump if truthy
+                let jump = self.emit_jump(OpCode::JumpIfTrue(0));
+                // If falsy, pop and continue to next
+                self.emit(OpCode::Pop);
+                end_jumps.push(jump);
+            }
+        }
+
+        let after_all = self.chunk.code.len();
+        for jump in end_jumps {
+            self.patch_jump_to(jump, after_all);
+        }
+
+        Ok(())
+    }
+
+    /// Patch a jump to a specific target address
+    fn patch_jump_to(&mut self, jump_index: usize, target: usize) {
+        let op = &mut self.chunk.code[jump_index];
+        match op {
+            OpCode::Jump(offset) => *offset = target as i16,
+            OpCode::PopJumpIfFalse(offset) => *offset = target as i16,
+            OpCode::JumpIfTrue(offset) => *offset = target as i16,
+            _ => panic!("Not a jump instruction"),
+        }
     }
 
     fn compile_let(&mut self, args: &[KlujurVal]) -> Result<()> {
@@ -1192,10 +1689,17 @@ impl Compiler {
     }
 
     fn compile_call(&mut self, items: &[KlujurVal]) -> Result<()> {
-        // Compile function
+        // Check for specialized opcodes for known builtins
+        if let KlujurVal::Symbol(sym, _) = &items[0]
+            && (sym.namespace().is_none() || sym.namespace() == Some("klujur.core"))
+            && let Some(()) = self.try_emit_builtin_opcode(sym.name(), &items[1..])?
+        {
+            return Ok(());
+        }
+
+        // Generic function call
         self.compile_expr(&items[0])?;
 
-        // Compile arguments
         let argc = items.len() - 1;
         if argc > 255 {
             return Err(CompileError::Syntax("Too many arguments".into()));
@@ -1207,6 +1711,164 @@ impl Compiler {
 
         self.emit(OpCode::Call(argc as u8));
         Ok(())
+    }
+
+    /// Try to emit a specialized opcode for a known builtin.
+    /// Returns Ok(Some(())) if a specialized opcode was emitted, Ok(None) if not.
+    fn try_emit_builtin_opcode(&mut self, name: &str, args: &[KlujurVal]) -> Result<Option<()>> {
+        match (name, args.len()) {
+            // Existing opcodes - sequence operations
+            ("first", 1) => {
+                self.compile_expr(&args[0])?;
+                self.emit(OpCode::First);
+                Ok(Some(()))
+            }
+            ("rest", 1) => {
+                self.compile_expr(&args[0])?;
+                self.emit(OpCode::Rest);
+                Ok(Some(()))
+            }
+            ("cons", 2) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.emit(OpCode::Cons);
+                Ok(Some(()))
+            }
+            ("not", 1) => {
+                self.compile_expr(&args[0])?;
+                self.emit(OpCode::Not);
+                Ok(Some(()))
+            }
+
+            // New opcodes - collection operations
+            ("get", 2) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.emit(OpCode::Get);
+                Ok(Some(()))
+            }
+            ("get", 3) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.compile_expr(&args[2])?;
+                self.emit(OpCode::GetDefault);
+                Ok(Some(()))
+            }
+            ("assoc", 3) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.compile_expr(&args[2])?;
+                self.emit(OpCode::Assoc);
+                Ok(Some(()))
+            }
+            ("conj", 2) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.emit(OpCode::Conj);
+                Ok(Some(()))
+            }
+            ("count", 1) => {
+                self.compile_expr(&args[0])?;
+                self.emit(OpCode::Count);
+                Ok(Some(()))
+            }
+            ("next", 1) => {
+                self.compile_expr(&args[0])?;
+                self.emit(OpCode::Next);
+                Ok(Some(()))
+            }
+            ("nth", 2) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.emit(OpCode::Nth);
+                Ok(Some(()))
+            }
+
+            // Predicates
+            ("nil?", 1) => {
+                self.compile_expr(&args[0])?;
+                self.emit(OpCode::NilP);
+                Ok(Some(()))
+            }
+            ("empty?", 1) => {
+                self.compile_expr(&args[0])?;
+                self.emit(OpCode::EmptyP);
+                Ok(Some(()))
+            }
+
+            // Arithmetic
+            ("inc", 1) => {
+                self.compile_expr(&args[0])?;
+                self.emit(OpCode::Inc);
+                Ok(Some(()))
+            }
+            ("dec", 1) => {
+                self.compile_expr(&args[0])?;
+                self.emit(OpCode::Dec);
+                Ok(Some(()))
+            }
+
+            // Binary arithmetic (2-arity only)
+            ("+", 2) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.emit(OpCode::Add);
+                Ok(Some(()))
+            }
+            ("-", 2) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.emit(OpCode::Sub);
+                Ok(Some(()))
+            }
+            ("*", 2) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.emit(OpCode::Mul);
+                Ok(Some(()))
+            }
+            ("/", 2) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.emit(OpCode::Div);
+                Ok(Some(()))
+            }
+
+            // Comparison (2-arity only)
+            ("=", 2) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.emit(OpCode::Eq);
+                Ok(Some(()))
+            }
+            ("<", 2) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.emit(OpCode::Lt);
+                Ok(Some(()))
+            }
+            (">", 2) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.emit(OpCode::Gt);
+                Ok(Some(()))
+            }
+            ("<=", 2) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.emit(OpCode::Le);
+                Ok(Some(()))
+            }
+            (">=", 2) => {
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.emit(OpCode::Ge);
+                Ok(Some(()))
+            }
+
+            // Not a specialized opcode
+            _ => Ok(None),
+        }
     }
 
     fn compile_vector(&mut self, items: &[KlujurVal]) -> Result<()> {

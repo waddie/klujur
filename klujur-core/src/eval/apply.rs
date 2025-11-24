@@ -8,6 +8,8 @@ use std::borrow::Cow;
 use std::rc::Rc;
 
 use klujur_parser::{KlujurFn, KlujurNativeFn, KlujurVal};
+use klujur_vm::VM;
+use klujur_vm::chunk::BytecodeFnWrapper;
 
 use crate::builtins::collection_constructors::{sorted_map_by_get, sorted_set_by_contains};
 
@@ -160,6 +162,14 @@ pub fn apply(func: &KlujurVal, args: &[KlujurVal]) -> Result<KlujurVal> {
 
             // 3. Call method with original args
             apply(&method, args)
+        }
+        KlujurVal::Custom(custom) => {
+            // Check if it's a bytecode function
+            if let Some(wrapper) = custom.downcast_ref::<BytecodeFnWrapper>() {
+                apply_bytecode_fn(wrapper, args)
+            } else {
+                Err(Error::NotCallable(format!("{}", custom)))
+            }
         }
         other => Err(Error::NotCallable(format!("{}", other))),
     }
@@ -315,4 +325,13 @@ pub fn make_native_fn(
     let func_rc: Rc<NativeFnImpl> = Rc::new(func);
     let func_any: Rc<dyn Any> = Rc::new(func_rc);
     KlujurNativeFn::new(name, func_any)
+}
+
+/// Apply a bytecode function using the VM.
+fn apply_bytecode_fn(wrapper: &BytecodeFnWrapper, args: &[KlujurVal]) -> Result<KlujurVal> {
+    let mut vm = VM::new();
+    vm.call_fn(&wrapper.0, args).map_err(|e| {
+        // Convert VM runtime errors to our error type
+        Error::EvalError(format!("{}", e))
+    })
 }

@@ -23,10 +23,15 @@ pub use apply::{NativeFnImpl, apply, make_native_fn};
 pub use destructuring::destructure;
 
 use std::any::Any;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use klujur_parser::{Keyword, KlujurFn, KlujurVal, Meta, Symbol};
+use klujur_vm::chunk::{BytecodeFn, BytecodeFnWrapper};
+use klujur_vm::compiler::analysis::Analyser;
+use klujur_vm::compiler::codegen::Compiler as BytecodeCompiler;
+
+use crate::namespace::NamespaceRegistry;
 
 // ============================================================================
 // Stack Overflow Protection
@@ -38,6 +43,10 @@ const DEFAULT_MAX_EVAL_DEPTH: usize = 10_000;
 thread_local! {
     static EVAL_DEPTH: Cell<usize> = const { Cell::new(0) };
     static MAX_EVAL_DEPTH: Cell<usize> = const { Cell::new(DEFAULT_MAX_EVAL_DEPTH) };
+    /// When true, functions are compiled to bytecode instead of being interpreted.
+    static USE_BYTECODE: Cell<bool> = const { Cell::new(false) };
+    /// Reference to the current namespace registry for bytecode global resolution.
+    static CURRENT_REGISTRY: RefCell<Option<NamespaceRegistry>> = const { RefCell::new(None) };
 }
 
 /// Set the maximum eval recursion depth. Returns the previous value.
@@ -59,6 +68,97 @@ pub fn get_max_eval_depth() -> usize {
 #[must_use]
 pub fn get_eval_depth() -> usize {
     EVAL_DEPTH.with(|d| d.get())
+}
+
+// ============================================================================
+// Bytecode Compilation Mode
+// ============================================================================
+
+/// Enable or disable bytecode compilation mode. Returns the previous value.
+///
+/// When bytecode mode is enabled, simple functions (single-arity, no destructuring)
+/// are compiled to bytecode and executed by the VM. More complex functions
+/// continue to use the AST-walking interpreter.
+#[inline]
+#[must_use]
+pub fn set_bytecode_mode(enabled: bool) -> bool {
+    USE_BYTECODE.with(|b| b.replace(enabled))
+}
+
+/// Check if bytecode compilation mode is enabled.
+#[inline]
+#[must_use]
+pub fn is_bytecode_mode() -> bool {
+    USE_BYTECODE.with(|b| b.get())
+}
+
+/// Set the namespace registry for bytecode global resolution.
+/// This should be called before evaluating any code in bytecode mode.
+pub fn set_bytecode_registry(registry: NamespaceRegistry) {
+    CURRENT_REGISTRY.with(|r| {
+        *r.borrow_mut() = Some(registry);
+    });
+
+    // Set up the global resolver for the VM
+    let resolver: Rc<klujur_vm::GlobalResolver> = Rc::new(resolve_bytecode_global);
+    klujur_vm::set_global_resolver(Some(resolver));
+
+    // Set up the function caller for native/interpreted functions
+    let caller: Rc<klujur_vm::FnCaller> = Rc::new(call_bytecode_fn);
+    klujur_vm::set_fn_caller(Some(caller));
+}
+
+/// Clear the bytecode registry.
+pub fn clear_bytecode_registry() {
+    CURRENT_REGISTRY.with(|r| {
+        *r.borrow_mut() = None;
+    });
+    klujur_vm::set_global_resolver(None);
+    klujur_vm::set_fn_caller(None);
+}
+
+/// Call a function from bytecode execution.
+/// This handles native functions, interpreted functions, and other callable types.
+fn call_bytecode_fn(
+    func: &KlujurVal,
+    args: &[KlujurVal],
+) -> std::result::Result<KlujurVal, String> {
+    apply::apply(func, args).map_err(|e| e.to_string())
+}
+
+/// Resolve a global variable for bytecode execution.
+/// Handles both unqualified names ("foo") and qualified names ("ns/foo").
+fn resolve_bytecode_global(name: &str) -> Option<KlujurVal> {
+    CURRENT_REGISTRY.with(|r| {
+        let registry_opt = r.borrow();
+        let registry = registry_opt.as_ref()?;
+
+        // Parse the symbol (handles both qualified and unqualified)
+        let sym = Symbol::parse(name);
+        let current_ns = registry.current();
+
+        // Use resolve to handle aliases and refers
+        if let Some(var) = current_ns.resolve(&sym) {
+            return Some(crate::bindings::deref_var(&var));
+        }
+
+        // For qualified symbols, also try looking up the namespace directly
+        if let Some(ns_name) = sym.namespace()
+            && let Some(ns) = registry.find(ns_name)
+            && let Some(var) = ns.find_var(sym.name())
+        {
+            return Some(crate::bindings::deref_var(&var));
+        }
+
+        // Fall back to klujur.core for builtins
+        if let Some(core_ns) = registry.find(NamespaceRegistry::CORE_NS)
+            && let Some(var) = core_ns.find_var(sym.name())
+        {
+            return Some(crate::bindings::deref_var(&var));
+        }
+
+        None
+    })
 }
 
 /// RAII guard to manage eval depth counter.
@@ -946,10 +1046,113 @@ fn eval_fn(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
         )]
     };
 
+    // Try bytecode compilation for simple functions
+    if is_bytecode_mode()
+        && can_compile_to_bytecode(&arities, &fn_name, args)
+        && let Some(bytecode_fn) = try_compile_to_bytecode(&arities, &fn_name, args)
+    {
+        return Ok(KlujurVal::custom(BytecodeFnWrapper(Rc::new(bytecode_fn))));
+    }
+
     // Create function value with type-erased environment
     let env_any: Rc<dyn Any> = Rc::new(env.clone());
     let func = KlujurFn::new_multi(fn_name, arities, env_any);
     Ok(KlujurVal::Fn(func))
+}
+
+/// Check if a function can be compiled to bytecode.
+/// Requirements:
+/// - Single arity
+/// - No destructuring patterns
+fn can_compile_to_bytecode(
+    arities: &[klujur_parser::FnArity],
+    _fn_name: &Option<Symbol>,
+    _args: &[KlujurVal],
+) -> bool {
+    // Only single-arity functions for now
+    if arities.len() != 1 {
+        return false;
+    }
+
+    let arity = &arities[0];
+
+    // Rest parameters are now supported
+    // if arity.rest_param.is_some() {
+    //     return false;
+    // }
+
+    // No destructuring patterns
+    if !arity.param_patterns.is_empty() || arity.rest_pattern.is_some() {
+        return false;
+    }
+
+    true
+}
+
+/// Try to compile a function to bytecode.
+/// Returns None if compilation fails (falls back to interpreter).
+fn try_compile_to_bytecode(
+    arities: &[klujur_parser::FnArity],
+    fn_name: &Option<Symbol>,
+    args: &[KlujurVal],
+) -> Option<BytecodeFn> {
+    use klujur_vm::VM;
+
+    let arity = &arities[0];
+
+    // Build the parameter vector from the parsed arity
+    let mut params_vec: Vec<KlujurVal> = arity
+        .params
+        .iter()
+        .map(|s| KlujurVal::Symbol(s.clone(), None))
+        .collect();
+
+    // Add rest parameter if present: [params... & rest]
+    if let Some(rest_sym) = &arity.rest_param {
+        params_vec.push(KlujurVal::Symbol(Symbol::new("&"), None));
+        params_vec.push(KlujurVal::Symbol(rest_sym.clone(), None));
+    }
+
+    let params_val = KlujurVal::vector(params_vec);
+
+    // Build the complete fn expression
+    let mut fn_items = vec![KlujurVal::Symbol(Symbol::new("fn"), None)];
+    if let Some(name) = fn_name {
+        fn_items.push(KlujurVal::Symbol(name.clone(), None));
+    }
+    fn_items.push(params_val);
+
+    // Add body - for single arity, body is after the params vector in args
+    if matches!(&args[0], KlujurVal::Vector(_, _)) {
+        fn_items.extend_from_slice(&args[1..]);
+    }
+
+    let fn_expr = KlujurVal::list(fn_items);
+
+    // Compile the fn expression
+    let mut analyser = Analyser::new();
+    let analysis = analyser.analyse(&fn_expr);
+    let compiler = BytecodeCompiler::new(analysis);
+
+    match compiler.compile(&fn_expr) {
+        Ok(chunk) => {
+            // Run the chunk to get the BytecodeFn value
+            let mut vm = VM::new();
+            match vm.run(chunk) {
+                Ok(val) => {
+                    // Extract the BytecodeFn from the Custom value
+                    if let KlujurVal::Custom(custom) = val
+                        && let Some(wrapper) = custom.downcast_ref::<BytecodeFnWrapper>()
+                    {
+                        return Some((*wrapper.0).clone());
+                    }
+                    None
+                }
+                Err(_) => None,
+            }
+        }
+        Err(_) => None,
+    }
 }
 
 /// Result of parsing fn* parameters: (params, rest_param, param_patterns, rest_pattern, body)
@@ -2477,5 +2680,83 @@ mod tests {
 
         let result = eval_str_with_env("(:private (meta #'documented))", &env).unwrap();
         assert_eq!(result, KlujurVal::bool(true));
+    }
+
+    // =========================================================================
+    // Bytecode mode tests
+    // =========================================================================
+
+    #[test]
+    fn test_bytecode_mode_simple_function() {
+        let env = Env::new();
+        crate::builtins::register_builtins(&env);
+
+        // Enable bytecode mode
+        let prev = set_bytecode_mode(true);
+
+        // Create a simple function
+        let result = eval_str_with_env("((fn [x] x) 42)", &env).unwrap();
+        assert_eq!(result, KlujurVal::int(42));
+
+        // Restore previous mode
+        let _ = set_bytecode_mode(prev);
+    }
+
+    #[test]
+    fn test_bytecode_mode_literal_return() {
+        let env = Env::new();
+        crate::builtins::register_builtins(&env);
+
+        let prev = set_bytecode_mode(true);
+
+        // Function returning a literal
+        let result = eval_str_with_env("((fn [] 123))", &env).unwrap();
+        assert_eq!(result, KlujurVal::int(123));
+
+        let _ = set_bytecode_mode(prev);
+    }
+
+    #[test]
+    fn test_bytecode_mode_if_expr() {
+        let env = Env::new();
+        crate::builtins::register_builtins(&env);
+
+        let prev = set_bytecode_mode(true);
+
+        // Function with if expression
+        let result = eval_str_with_env("((fn [x] (if x 1 0)) true)", &env).unwrap();
+        assert_eq!(result, KlujurVal::int(1));
+
+        let result = eval_str_with_env("((fn [x] (if x 1 0)) false)", &env).unwrap();
+        assert_eq!(result, KlujurVal::int(0));
+
+        let _ = set_bytecode_mode(prev);
+    }
+
+    #[test]
+    fn test_bytecode_mode_named_function() {
+        let env = Env::new();
+        crate::builtins::register_builtins(&env);
+
+        let prev = set_bytecode_mode(true);
+
+        // Named function
+        let result = eval_str_with_env("((fn my-fn [x] x) 99)", &env).unwrap();
+        assert_eq!(result, KlujurVal::int(99));
+
+        let _ = set_bytecode_mode(prev);
+    }
+
+    #[test]
+    fn test_bytecode_mode_disabled_uses_interpreter() {
+        let env = Env::new();
+        crate::builtins::register_builtins(&env);
+
+        // Make sure bytecode mode is disabled
+        let _ = set_bytecode_mode(false);
+
+        // Should use interpreter
+        let result = eval_str_with_env("((fn [x] x) 42)", &env).unwrap();
+        assert_eq!(result, KlujurVal::int(42));
     }
 }
