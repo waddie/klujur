@@ -24,16 +24,6 @@ Klujur lists are backed by `im::Vector`, not linked lists as in Clojure.
 - Random access via `nth` is faster
 - Memory layout is more cache-friendly
 
-```clojure
-;; This is faster in Klujur than Clojure:
-(nth my-list 1000)
-
-;; This may be slower in Klujur:
-(loop [coll my-list]
-  (when (seq coll)
-    (recur (rest coll))))
-```
-
 ### Maps and Sets Are Ordered
 
 Klujur maps use `im::OrdMap` and sets use `im::OrdSet`, providing iteration in **key order** (sorted), not insertion order.
@@ -43,14 +33,6 @@ Klujur maps use `im::OrdMap` and sets use `im::OrdSet`, providing iteration in *
 - `keys`, `vals`, and `seq` return elements in sorted key order
 - Iteration order is deterministic based on key comparison
 - No equivalent to Clojure’s `array-map` (insertion-ordered small maps)
-
-```clojure
-;; Clojure: iteration in insertion order
-(keys {:b 2 :a 1 :c 3})  ; => (:b :a :c)
-
-;; Klujur: iteration in key order
-(keys {:b 2 :a 1 :c 3})  ; => (:a :b :c)
-```
 
 **When this matters:**
 
@@ -72,13 +54,6 @@ Klujur lazy sequences realise one element at a time. Clojure uses 32-element chu
 | Performance  | Better for bulk operations  | More overhead per element |
 | Memory       | 32 elements at once         | One element at a time     |
 
-```clojure
-;; In Clojure, this may print more than 5 items due to chunking:
-(take 5 (map #(do (println %) %) (range 100)))
-
-;; In Klujur, exactly 5 items are printed
-```
-
 **When this matters:**
 
 - Side-effecting lazy sequences behave more predictably
@@ -91,20 +66,6 @@ Klujur lazy sequences realise one element at a time. Clojure uses 32-element chu
 
 Klujur’s `try`/`catch` uses `:default` to catch all exceptions, not Java class names.
 
-```clojure
-;; Clojure (JVM):
-(try
-  (throw (ex-info "error" {:type :my-error}))
-  (catch clojure.lang.ExceptionInfo e
-    (ex-data e)))
-
-;; Klujur:
-(try
-  (throw (ex-info "error" {:type :my-error}))
-  (catch :default e
-    (ex-data e)))
-```
-
 **Catch syntax:**
 
 - `(catch :default e body)` - catches any exception
@@ -115,27 +76,11 @@ Klujur’s `try`/`catch` uses `:default` to catch all exceptions, not Java class
 - Port Clojure code that catches specific exception types
 - Use `ex-data` to distinguish error types:
 
-```clojure
-(try
-  (do-something)
-  (catch :default e
-    (case (:type (ex-data e))
-      :validation (handle-validation e)
-      :io (handle-io e)
-      (throw e))))  ; re-throw if unhandled
-```
-
 ## `letfn` Performance Characteristics
 
 ### Implementation Uses Volatiles
 
 Klujur’s `letfn` uses volatiles to enable forward references between functions.
-
-```clojure
-(letfn [(f [x] (g x))   ; f can reference g
-        (g [x] (* x 2))]
-  (f 5))
-```
 
 **How it works internally:**
 
@@ -149,26 +94,11 @@ Klujur’s `letfn` uses volatiles to enable forward references between functions
 - Suitable for occasional use, not tight loops
 - Consider `let` with explicit ordering for performance-critical code:
 
-```clojure
-;; Performance-sensitive alternative:
-(let [g (fn [x] (* x 2))
-      f (fn [x] (g x))]
-  (f 5))
-```
-
 **Note:** Klujur’s `letfn` does not support mutual recursion (functions calling each other). This is a known limitation.
 
 ## Integer Overflow
 
 Unlike Clojure which auto-promotes to `BigInteger`, Klujur uses checked arithmetic and returns an error on overflow.
-
-```clojure
-;; Clojure: auto-promotes to BigInt
-(+ 9223372036854775807 1)  ; => 9223372036854775808N
-
-;; Klujur: returns error
-(+ 9223372036854775807 1)  ; => Error: integer overflow
-```
 
 **Affected operations:** `+`, `-`, `*`, `inc`, `dec`, `abs` (for `i64::MIN`), unary negation (for `i64::MIN`).
 
