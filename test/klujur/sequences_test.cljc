@@ -188,6 +188,24 @@
     (is (= '(1 2 3) (eval* "(drop 0 [1 2 3])")))
     (is (= '() (eval* "(drop 10 [1 2 3])")))))
 
+;; =============================================================================
+;; Negative Argument Edge Cases (take/drop)
+;; =============================================================================
+
+(deftest take-negative-args-test
+  (testing "take with negative n"
+    ;; In Clojure, (take -1 coll) returns empty seq, not an error
+    (is (= '() (eval* "(take -1 [1 2 3])")))
+    (is (= '() (eval* "(take -5 [1 2 3])")))
+    (is (= '() (eval* "(take -1 [])")))))
+
+(deftest drop-negative-args-test
+  (testing "drop with negative n"
+    ;; In Clojure, (drop -1 coll) returns the entire collection
+    (is (= '(1 2 3) (eval* "(drop -1 [1 2 3])")))
+    (is (= '(1 2 3) (eval* "(drop -5 [1 2 3])")))
+    (is (= '() (eval* "(drop -1 [])")))))
+
 (deftest take-while-test
   (testing "take-while"
     (is (= '(1 2 3) (eval* "(take-while #(< % 4) [1 2 3 4 5])")))

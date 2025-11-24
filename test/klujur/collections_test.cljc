@@ -398,3 +398,33 @@
     (is (true? (eval* "(counted? #{})")))
     ;; Lazy seqs may not be counted
     (is (false? (eval* "(counted? (map inc [1 2 3]))")))))
+
+;; =============================================================================
+;; Negative Index Edge Cases (nth/assoc)
+;; =============================================================================
+
+(deftest nth-negative-index-test
+  (testing "nth with negative index"
+    ;; In Clojure, negative indexes throw IndexOutOfBoundsException
+    (is (thrown? Exception (eval* "(nth [1 2 3] -1)")))
+    (is (thrown? Exception (eval* "(nth [1 2 3] -5)")))
+    (is (thrown? Exception (eval* "(nth '(1 2 3) -1)"))))
+  (testing "nth with negative index and default"
+    ;; With default value, should still throw (doesn't use default)
+    (is (thrown? Exception (eval* "(nth [1 2 3] -1 :default)")))))
+
+(deftest assoc-negative-index-test
+  (testing "assoc on vector with negative index"
+    ;; In Clojure, negative indexes throw IndexOutOfBoundsException
+    (is (thrown? Exception (eval* "(assoc [1 2 3] -1 :x)")))
+    (is (thrown? Exception (eval* "(assoc [1 2 3] -5 :x)")))
+    (is (thrown? Exception (eval* "(assoc [] -1 :x)")))))
+
+(deftest get-negative-index-test
+  (testing "get on vector with negative index"
+    ;; get returns nil for negative indexes (doesn't throw)
+    (is (nil? (eval* "(get [1 2 3] -1)")))
+    (is (nil? (eval* "(get [1 2 3] -5)"))))
+  (testing "get with negative index and default"
+    ;; Returns default for negative indexes
+    (is (= :default (eval* "(get [1 2 3] -1 :default)")))))

@@ -383,3 +383,65 @@
     (let [coll (eval* "(shuffle [1 2 3 4 5])")]
       (is (= (set coll) #{1 2 3 4 5}))
       (is (= (count coll) 5)))))
+
+;; =============================================================================
+;; Integer Overflow Edge Cases
+;; =============================================================================
+
+(deftest overflow-boundaries-test
+  (testing "operations at i64::MAX boundary"
+    ;; i64::MAX = 9223372036854775807
+    (is (= 9223372036854775807 (eval* "9223372036854775807")))
+    (is (= 9223372036854775807 (eval* "(+ 9223372036854775807 0)")))
+    (is (= 9223372036854775806 (eval* "(- 9223372036854775807 1)"))))
+  (testing "operations at i64::MIN boundary"
+    ;; i64::MIN = -9223372036854775808
+    (is (= -9223372036854775808 (eval* "-9223372036854775808")))
+    (is (= -9223372036854775807 (eval* "(+ -9223372036854775808 1)")))
+    (is (= -9223372036854775808 (eval* "(- -9223372036854775807 1)")))))
+
+(deftest overflow-errors-test
+  (testing "addition overflow"
+    (is (thrown? Exception (eval* "(+ 9223372036854775807 1)")))
+    (is (thrown? Exception (eval* "(+ -9223372036854775808 -1)"))))
+  (testing "subtraction overflow"
+    (is (thrown? Exception (eval* "(- 9223372036854775807 -1)")))
+    (is (thrown? Exception (eval* "(- -9223372036854775808 1)"))))
+  (testing "multiplication overflow"
+    (is (thrown? Exception (eval* "(* 9223372036854775807 2)")))
+    (is (thrown? Exception (eval* "(* 3037000500 3037000500)"))))
+  (testing "inc/dec overflow"
+    (is (thrown? Exception (eval* "(inc 9223372036854775807)")))
+    (is (thrown? Exception (eval* "(dec -9223372036854775808)"))))
+  (testing "abs overflow"
+    ;; abs(MIN) overflows because |MIN| > MAX
+    (is (thrown? Exception (eval* "(abs -9223372036854775808)")))
+    ;; abs(MAX) is fine
+    (is (= 9223372036854775807 (eval* "(abs 9223372036854775807)")))
+    ;; abs(MIN + 1) = MAX
+    (is (= 9223372036854775807 (eval* "(abs -9223372036854775807)")))))
+
+(deftest overflow-negation-test
+  (testing "unary negation at boundaries"
+    ;; -MAX is valid
+    (is (= -9223372036854775807 (eval* "(- 9223372036854775807)")))
+    ;; -MIN overflows
+    (is (thrown? Exception (eval* "(- -9223372036854775808)")))))
+
+(deftest overflow-multi-arg-test
+  (testing "multi-argument overflow"
+    ;; Multiple large additions that overflow
+    (is (thrown?
+         Exception
+         (eval*
+          "(+ 4000000000000000000 4000000000000000000 4000000000000000000)")))
+    ;; Chained multiplication that overflows
+    (is (thrown? Exception (eval* "(* 10000000000 10000000000 10000000000)")))))
+
+(deftest overflow-no-error-with-floats-test
+  (testing "floats go to infinity, no overflow error"
+    ;; Float arithmetic doesn't throw overflow errors
+    (let [result (eval* "(+ 1.0e308 1.0e308)")]
+      (is (infinite? result)))
+    ;; Mixed int/float uses float arithmetic
+    (is (number? (eval* "(+ 9223372036854775807 1.0)")))))
