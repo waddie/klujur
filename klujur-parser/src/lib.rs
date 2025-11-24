@@ -17,6 +17,8 @@ pub use hierarchy::KlujurHierarchy;
 pub use im::{OrdMap, OrdSet, Vector};
 pub use keyword::Keyword;
 pub use lexer::Lexer;
+pub use num_bigint::BigInt;
+pub use num_traits::ToPrimitive;
 pub use parser::Parser;
 pub use symbol::Symbol;
 pub use value::{

@@ -15,6 +15,8 @@ use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 use im::{OrdMap, OrdSet, Vector};
+use num_bigint::BigInt;
+use num_traits::{Signed, ToPrimitive};
 
 use crate::hierarchy::KlujurHierarchy;
 
@@ -195,8 +197,10 @@ pub enum TypeKey {
     Nil,
     Bool,
     Int,
+    BigInt,
     Float,
     Ratio,
+    BigRatio,
     Char,
     String,
     Symbol,
@@ -970,10 +974,14 @@ pub enum KlujurVal {
     Bool(bool),
     /// 64-bit signed integer
     Int(i64),
+    /// Arbitrary precision integer
+    BigInt(BigInt),
     /// 64-bit floating point number
     Float(f64),
     /// Rational number (numerator/denominator)
     Ratio(i64, i64),
+    /// Arbitrary precision rational number (numerator/denominator)
+    BigRatio(BigInt, BigInt),
     /// Unicode character
     Char(char),
     /// Immutable string
@@ -2150,6 +2158,18 @@ impl KlujurVal {
         KlujurVal::Int(n)
     }
 
+    /// Create an arbitrary precision integer value
+    #[inline]
+    #[must_use]
+    pub fn bigint(n: BigInt) -> Self {
+        // If it fits in i64, use Int for efficiency
+        if let Some(i) = n.to_i64() {
+            KlujurVal::Int(i)
+        } else {
+            KlujurVal::BigInt(n)
+        }
+    }
+
     /// Create a float value
     #[inline]
     #[must_use]
@@ -2182,6 +2202,52 @@ impl KlujurVal {
     #[must_use]
     pub fn ratio(num: i64, den: i64) -> Self {
         Self::try_ratio(num, den).expect("Division by zero in ratio")
+    }
+
+    /// Create an arbitrary precision ratio value, reducing to lowest terms.
+    /// Returns `None` if denominator is zero.
+    #[must_use]
+    pub fn try_bigratio(num: BigInt, den: BigInt) -> Option<Self> {
+        use num_bigint::Sign;
+        use num_traits::{One, Zero};
+
+        if den.is_zero() {
+            return None;
+        }
+
+        // Calculate GCD for reduction
+        fn bigint_gcd(mut a: BigInt, mut b: BigInt) -> BigInt {
+            while !b.is_zero() {
+                let t = b.clone();
+                b = &a % &b;
+                a = t;
+            }
+            a
+        }
+
+        let g = bigint_gcd(num.clone().abs(), den.clone().abs());
+        let (num, den) = if den.sign() == Sign::Minus {
+            (-&num / &g, -&den / &g)
+        } else {
+            (&num / &g, &den / &g)
+        };
+
+        if den.is_one() {
+            // Just an integer
+            Some(Self::bigint(num))
+        } else if let (Some(n), Some(d)) = (num.to_i64(), den.to_i64()) {
+            // Fits in regular ratio
+            Some(KlujurVal::Ratio(n, d))
+        } else {
+            Some(KlujurVal::BigRatio(num, den))
+        }
+    }
+
+    /// Create an arbitrary precision ratio value, reducing to lowest terms.
+    /// Panics if denominator is zero.
+    #[must_use]
+    pub fn bigratio(num: BigInt, den: BigInt) -> Self {
+        Self::try_bigratio(num, den).expect("Division by zero in bigratio")
     }
 
     /// Create a character value
@@ -2313,8 +2379,10 @@ impl KlujurVal {
             KlujurVal::Nil => "nil",
             KlujurVal::Bool(_) => "bool",
             KlujurVal::Int(_) => "int",
+            KlujurVal::BigInt(_) => "bigint",
             KlujurVal::Float(_) => "float",
             KlujurVal::Ratio(_, _) => "ratio",
+            KlujurVal::BigRatio(_, _) => "ratio",
             KlujurVal::Char(_) => "char",
             KlujurVal::String(_) => "string",
             KlujurVal::Symbol(_, _) => "symbol",
@@ -2353,8 +2421,10 @@ impl KlujurVal {
             KlujurVal::Nil => TypeKey::Nil,
             KlujurVal::Bool(_) => TypeKey::Bool,
             KlujurVal::Int(_) => TypeKey::Int,
+            KlujurVal::BigInt(_) => TypeKey::BigInt,
             KlujurVal::Float(_) => TypeKey::Float,
             KlujurVal::Ratio(_, _) => TypeKey::Ratio,
+            KlujurVal::BigRatio(_, _) => TypeKey::BigRatio,
             KlujurVal::Char(_) => TypeKey::Char,
             KlujurVal::String(_) => TypeKey::String,
             KlujurVal::Symbol(_, _) => TypeKey::Symbol,
@@ -2552,6 +2622,7 @@ impl fmt::Display for KlujurVal {
             KlujurVal::Nil => write!(f, "nil"),
             KlujurVal::Bool(b) => write!(f, "{}", b),
             KlujurVal::Int(n) => write!(f, "{}", n),
+            KlujurVal::BigInt(n) => write!(f, "{}N", n),
             KlujurVal::Float(n) => {
                 if n.is_nan() {
                     write!(f, "##NaN")
@@ -2568,6 +2639,7 @@ impl fmt::Display for KlujurVal {
                 }
             }
             KlujurVal::Ratio(num, den) => write!(f, "{}/{}", num, den),
+            KlujurVal::BigRatio(num, den) => write!(f, "{}/{}N", num, den),
             KlujurVal::Char(c) => write!(f, "\\{}", format_char(*c)),
             KlujurVal::String(s) => write!(f, "\"{}\"", escape_string(s)),
             KlujurVal::Symbol(sym, _) => write!(f, "{}", sym),
@@ -2720,6 +2792,10 @@ impl PartialEq for KlujurVal {
             (KlujurVal::Nil, KlujurVal::Nil) => true,
             (KlujurVal::Bool(a), KlujurVal::Bool(b)) => a == b,
             (KlujurVal::Int(a), KlujurVal::Int(b)) => a == b,
+            (KlujurVal::BigInt(a), KlujurVal::BigInt(b)) => a == b,
+            // BigInt-Int equality: compare by converting Int to BigInt
+            (KlujurVal::BigInt(a), KlujurVal::Int(b)) => *a == BigInt::from(*b),
+            (KlujurVal::Int(a), KlujurVal::BigInt(b)) => BigInt::from(*a) == *b,
             (KlujurVal::Float(a), KlujurVal::Float(b)) => {
                 normalize_float_bits(*a) == normalize_float_bits(*b)
             }
@@ -2729,10 +2805,46 @@ impl PartialEq for KlujurVal {
             (KlujurVal::Float(a), KlujurVal::Int(b)) => {
                 normalize_float_bits(*a) == normalize_float_bits(*b as f64)
             }
+            // BigInt-Float equality: convert BigInt to f64 and compare
+            (KlujurVal::BigInt(a), KlujurVal::Float(b)) => a
+                .to_f64()
+                .is_some_and(|af| normalize_float_bits(af) == normalize_float_bits(*b)),
+            (KlujurVal::Float(a), KlujurVal::BigInt(b)) => b
+                .to_f64()
+                .is_some_and(|bf| normalize_float_bits(*a) == normalize_float_bits(bf)),
             (KlujurVal::Ratio(an, ad), KlujurVal::Ratio(bn, bd)) => an == bn && ad == bd,
+            (KlujurVal::BigRatio(an, ad), KlujurVal::BigRatio(bn, bd)) => an == bn && ad == bd,
             // Ratio-Int equality: a/b == c iff a == b*c (after normalisation, so gcd(a,b)=1)
             (KlujurVal::Ratio(num, den), KlujurVal::Int(n)) => *den == 1 && *num == *n,
             (KlujurVal::Int(n), KlujurVal::Ratio(num, den)) => *den == 1 && *num == *n,
+            // BigRatio-BigInt equality
+            (KlujurVal::BigRatio(num, den), KlujurVal::BigInt(n)) => {
+                den == &BigInt::from(1) && num == n
+            }
+            (KlujurVal::BigInt(n), KlujurVal::BigRatio(num, den)) => {
+                den == &BigInt::from(1) && num == n
+            }
+            // Cross-precision ratio equality
+            (KlujurVal::BigRatio(an, ad), KlujurVal::Ratio(bn, bd)) => {
+                *an == BigInt::from(*bn) && *ad == BigInt::from(*bd)
+            }
+            (KlujurVal::Ratio(an, ad), KlujurVal::BigRatio(bn, bd)) => {
+                BigInt::from(*an) == *bn && BigInt::from(*ad) == *bd
+            }
+            // BigRatio-Int equality
+            (KlujurVal::BigRatio(num, den), KlujurVal::Int(n)) => {
+                den == &BigInt::from(1) && num == &BigInt::from(*n)
+            }
+            (KlujurVal::Int(n), KlujurVal::BigRatio(num, den)) => {
+                den == &BigInt::from(1) && num == &BigInt::from(*n)
+            }
+            // Ratio-BigInt equality
+            (KlujurVal::Ratio(num, den), KlujurVal::BigInt(n)) => {
+                *den == 1 && BigInt::from(*num) == *n
+            }
+            (KlujurVal::BigInt(n), KlujurVal::Ratio(num, den)) => {
+                *den == 1 && *n == BigInt::from(*num)
+            }
             // Ratio-Float equality: convert ratio to float and compare
             (KlujurVal::Ratio(num, den), KlujurVal::Float(f)) => {
                 normalize_float_bits(*num as f64 / *den as f64) == normalize_float_bits(*f)
@@ -2740,6 +2852,15 @@ impl PartialEq for KlujurVal {
             (KlujurVal::Float(f), KlujurVal::Ratio(num, den)) => {
                 normalize_float_bits(*f) == normalize_float_bits(*num as f64 / *den as f64)
             }
+            // BigRatio-Float equality
+            (KlujurVal::BigRatio(num, den), KlujurVal::Float(f)) => num
+                .to_f64()
+                .zip(den.to_f64())
+                .is_some_and(|(nf, df)| normalize_float_bits(nf / df) == normalize_float_bits(*f)),
+            (KlujurVal::Float(f), KlujurVal::BigRatio(num, den)) => num
+                .to_f64()
+                .zip(den.to_f64())
+                .is_some_and(|(nf, df)| normalize_float_bits(*f) == normalize_float_bits(nf / df)),
             (KlujurVal::Char(a), KlujurVal::Char(b)) => a == b,
             (KlujurVal::String(a), KlujurVal::String(b)) => a == b,
             (KlujurVal::Symbol(a, _), KlujurVal::Symbol(b, _)) => a == b, // ignore metadata
@@ -2788,8 +2909,10 @@ impl Ord for KlujurVal {
                 KlujurVal::Nil => 0,
                 KlujurVal::Bool(_) => 1,
                 KlujurVal::Int(_) => 2,
-                KlujurVal::Float(_) => 2, // Same as Int for numeric comparison
+                KlujurVal::BigInt(_) => 2, // Same as Int for numeric comparison
+                KlujurVal::Float(_) => 2,  // Same as Int for numeric comparison
                 KlujurVal::Ratio(_, _) => 2,
+                KlujurVal::BigRatio(_, _) => 2,
                 KlujurVal::Char(_) => 3,
                 KlujurVal::String(_) => 4,
                 KlujurVal::Symbol(_, _) => 5,
@@ -2827,15 +2950,92 @@ impl Ord for KlujurVal {
         match (self, other) {
             (KlujurVal::Nil, KlujurVal::Nil) => Ordering::Equal,
             (KlujurVal::Bool(a), KlujurVal::Bool(b)) => a.cmp(b),
+            // Numeric comparisons - all numeric types compare to each other
             (KlujurVal::Int(a), KlujurVal::Int(b)) => a.cmp(b),
+            (KlujurVal::BigInt(a), KlujurVal::BigInt(b)) => a.cmp(b),
+            (KlujurVal::Int(a), KlujurVal::BigInt(b)) => BigInt::from(*a).cmp(b),
+            (KlujurVal::BigInt(a), KlujurVal::Int(b)) => a.cmp(&BigInt::from(*b)),
             (KlujurVal::Float(a), KlujurVal::Float(b)) => {
                 // Use normalized bits for total ordering (NaN sorts equal to itself)
                 normalize_float_bits(*a).cmp(&normalize_float_bits(*b))
+            }
+            (KlujurVal::Int(a), KlujurVal::Float(b)) => {
+                normalize_float_bits(*a as f64).cmp(&normalize_float_bits(*b))
+            }
+            (KlujurVal::Float(a), KlujurVal::Int(b)) => {
+                normalize_float_bits(*a).cmp(&normalize_float_bits(*b as f64))
+            }
+            (KlujurVal::BigInt(a), KlujurVal::Float(b)) => {
+                let af = a.to_f64().unwrap_or(f64::INFINITY);
+                normalize_float_bits(af).cmp(&normalize_float_bits(*b))
+            }
+            (KlujurVal::Float(a), KlujurVal::BigInt(b)) => {
+                let bf = b.to_f64().unwrap_or(f64::INFINITY);
+                normalize_float_bits(*a).cmp(&normalize_float_bits(bf))
             }
             (KlujurVal::Ratio(an, ad), KlujurVal::Ratio(bn, bd)) => {
                 // Cross multiply to compare: an/ad vs bn/bd => an*bd vs bn*ad
                 // Use i128 to avoid overflow
                 ((*an as i128) * (*bd as i128)).cmp(&((*bn as i128) * (*ad as i128)))
+            }
+            (KlujurVal::BigRatio(an, ad), KlujurVal::BigRatio(bn, bd)) => {
+                // Cross multiply to compare: an/ad vs bn/bd => an*bd vs bn*ad
+                (an * bd).cmp(&(bn * ad))
+            }
+            // Cross-precision ratio comparisons
+            (KlujurVal::Ratio(an, ad), KlujurVal::BigRatio(bn, bd)) => {
+                let an_big = BigInt::from(*an);
+                let ad_big = BigInt::from(*ad);
+                (&an_big * bd).cmp(&(bn * &ad_big))
+            }
+            (KlujurVal::BigRatio(an, ad), KlujurVal::Ratio(bn, bd)) => {
+                let bn_big = BigInt::from(*bn);
+                let bd_big = BigInt::from(*bd);
+                (an * &bd_big).cmp(&(&bn_big * ad))
+            }
+            // Int-Ratio comparisons
+            (KlujurVal::Int(a), KlujurVal::Ratio(bn, bd)) => {
+                ((*a as i128) * (*bd as i128)).cmp(&(*bn as i128))
+            }
+            (KlujurVal::Ratio(an, ad), KlujurVal::Int(b)) => {
+                (*an as i128).cmp(&((*b as i128) * (*ad as i128)))
+            }
+            // BigInt-Ratio comparisons
+            (KlujurVal::BigInt(a), KlujurVal::Ratio(bn, bd)) => {
+                (a * BigInt::from(*bd)).cmp(&BigInt::from(*bn))
+            }
+            (KlujurVal::Ratio(an, ad), KlujurVal::BigInt(b)) => {
+                BigInt::from(*an).cmp(&(b * BigInt::from(*ad)))
+            }
+            // Int-BigRatio comparisons
+            (KlujurVal::Int(a), KlujurVal::BigRatio(bn, bd)) => (BigInt::from(*a) * bd).cmp(bn),
+            (KlujurVal::BigRatio(an, ad), KlujurVal::Int(b)) => an.cmp(&(BigInt::from(*b) * ad)),
+            // BigInt-BigRatio comparisons
+            (KlujurVal::BigInt(a), KlujurVal::BigRatio(bn, bd)) => (a * bd).cmp(bn),
+            (KlujurVal::BigRatio(an, ad), KlujurVal::BigInt(b)) => an.cmp(&(b * ad)),
+            // Float-Ratio comparisons
+            (KlujurVal::Float(a), KlujurVal::Ratio(bn, bd)) => {
+                normalize_float_bits(*a).cmp(&normalize_float_bits(*bn as f64 / *bd as f64))
+            }
+            (KlujurVal::Ratio(an, ad), KlujurVal::Float(b)) => {
+                normalize_float_bits(*an as f64 / *ad as f64).cmp(&normalize_float_bits(*b))
+            }
+            // Float-BigRatio comparisons
+            (KlujurVal::Float(a), KlujurVal::BigRatio(bn, bd)) => {
+                let bf = bn
+                    .to_f64()
+                    .zip(bd.to_f64())
+                    .map(|(n, d)| n / d)
+                    .unwrap_or(f64::INFINITY);
+                normalize_float_bits(*a).cmp(&normalize_float_bits(bf))
+            }
+            (KlujurVal::BigRatio(an, ad), KlujurVal::Float(b)) => {
+                let af = an
+                    .to_f64()
+                    .zip(ad.to_f64())
+                    .map(|(n, d)| n / d)
+                    .unwrap_or(f64::INFINITY);
+                normalize_float_bits(af).cmp(&normalize_float_bits(*b))
             }
             (KlujurVal::Char(a), KlujurVal::Char(b)) => a.cmp(b),
             (KlujurVal::String(a), KlujurVal::String(b)) => a.cmp(b),
@@ -2898,6 +3098,17 @@ impl Hash for KlujurVal {
             }
             // Numeric types: use consistent hashing across Int/Float/Ratio
             KlujurVal::Int(n) => hash_numeric(state, Some(*n), *n as f64),
+            KlujurVal::BigInt(n) => {
+                // If BigInt fits in i64, hash identically to Int for consistency
+                if let Some(i) = n.to_i64() {
+                    hash_numeric(state, Some(i), i as f64);
+                } else {
+                    // Large BigInt - can never equal Int/Float, use BigInt's hash
+                    const BIGINT_DISCRIMINANT: u8 = 1;
+                    BIGINT_DISCRIMINANT.hash(state);
+                    n.hash(state);
+                }
+            }
             KlujurVal::Float(f) => hash_numeric(state, None, *f),
             KlujurVal::Ratio(num, den) => {
                 // If den == 1, this equals an Int, so hash like the Int
@@ -2906,6 +3117,31 @@ impl Hash for KlujurVal {
                 } else {
                     // Hash as the float representation for potential Float equality
                     hash_numeric(state, None, *num as f64 / *den as f64);
+                }
+            }
+            KlujurVal::BigRatio(num, den) => {
+                // Check if this equals a simpler numeric type
+                if den == &BigInt::from(1) {
+                    if let Some(i) = num.to_i64() {
+                        // Equals an Int
+                        hash_numeric(state, Some(i), i as f64);
+                    } else {
+                        // Large BigInt numerator
+                        const BIGINT_DISCRIMINANT: u8 = 1;
+                        BIGINT_DISCRIMINANT.hash(state);
+                        num.hash(state);
+                    }
+                } else {
+                    // True ratio - hash as float if possible
+                    if let (Some(nf), Some(df)) = (num.to_f64(), den.to_f64()) {
+                        hash_numeric(state, None, nf / df);
+                    } else {
+                        // Large BigRatio - use its own hash
+                        const BIGRATIO_DISCRIMINANT: u8 = 2;
+                        BIGRATIO_DISCRIMINANT.hash(state);
+                        num.hash(state);
+                        den.hash(state);
+                    }
                 }
             }
             KlujurVal::Char(c) => {
@@ -3039,6 +3275,12 @@ impl From<bool> for KlujurVal {
 impl From<i64> for KlujurVal {
     fn from(n: i64) -> Self {
         KlujurVal::int(n)
+    }
+}
+
+impl From<BigInt> for KlujurVal {
+    fn from(n: BigInt) -> Self {
+        KlujurVal::bigint(n)
     }
 }
 

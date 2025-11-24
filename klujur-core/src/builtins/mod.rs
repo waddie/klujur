@@ -51,9 +51,10 @@ use additional_predicates::{
     builtin_true_p,
 };
 use arithmetic::{
-    builtin_abs, builtin_add, builtin_dec, builtin_div, builtin_double, builtin_even_p,
-    builtin_inc, builtin_int, builtin_max, builtin_min, builtin_mod, builtin_mul, builtin_neg_p,
-    builtin_odd_p, builtin_pos_p, builtin_quot, builtin_rem, builtin_sub, builtin_zero_p,
+    builtin_abs, builtin_add, builtin_add_prime, builtin_dec, builtin_dec_prime, builtin_div,
+    builtin_double, builtin_even_p, builtin_inc, builtin_inc_prime, builtin_int, builtin_max,
+    builtin_min, builtin_mod, builtin_mul, builtin_mul_prime, builtin_neg_p, builtin_odd_p,
+    builtin_pos_p, builtin_quot, builtin_rem, builtin_sub, builtin_sub_prime, builtin_zero_p,
 };
 use atoms::{
     builtin_add_watch, builtin_atom, builtin_atom_p, builtin_compare_and_set,
@@ -123,10 +124,10 @@ use multimethods::{
     builtin_prefers, builtin_remove_all_methods, builtin_remove_method,
 };
 use predicates::{
-    builtin_boolean_p, builtin_coll_p, builtin_denominator, builtin_float_p, builtin_fn_p,
-    builtin_integer_p, builtin_keyword_p, builtin_list_p, builtin_map_p, builtin_nil_p,
-    builtin_number_p, builtin_numerator, builtin_ratio_p, builtin_seq_p, builtin_set_p,
-    builtin_some_p, builtin_string_p, builtin_symbol_p, builtin_vector_p,
+    builtin_bigint_p, builtin_boolean_p, builtin_coll_p, builtin_denominator, builtin_float_p,
+    builtin_fn_p, builtin_integer_p, builtin_keyword_p, builtin_list_p, builtin_map_p,
+    builtin_nil_p, builtin_number_p, builtin_numerator, builtin_ratio_p, builtin_seq_p,
+    builtin_set_p, builtin_some_p, builtin_string_p, builtin_symbol_p, builtin_vector_p,
 };
 use random::{
     builtin_gensym, builtin_hash, builtin_rand, builtin_rand_int, builtin_rand_nth, builtin_shuffle,
@@ -168,6 +169,13 @@ pub fn register_builtins(env: &Env) {
     core_ns.define_native("abs", builtin_abs);
     core_ns.define_native("double", builtin_double);
     core_ns.define_native("int", builtin_int);
+
+    // Auto-promoting arithmetic (for BigInt)
+    core_ns.define_native("+'", builtin_add_prime);
+    core_ns.define_native("-'", builtin_sub_prime);
+    core_ns.define_native("*'", builtin_mul_prime);
+    core_ns.define_native("inc'", builtin_inc_prime);
+    core_ns.define_native("dec'", builtin_dec_prime);
 
     // Numeric predicates
     core_ns.define_native("even?", builtin_even_p);
@@ -230,6 +238,7 @@ pub fn register_builtins(env: &Env) {
     core_ns.define_native("boolean?", builtin_boolean_p);
     core_ns.define_native("number?", builtin_number_p);
     core_ns.define_native("integer?", builtin_integer_p);
+    core_ns.define_native("bigint?", builtin_bigint_p);
     core_ns.define_native("float?", builtin_float_p);
     core_ns.define_native("ratio?", builtin_ratio_p);
     core_ns.define_native("numerator", builtin_numerator);
@@ -526,8 +535,13 @@ impl NsExt for Namespace {
 // ============================================================================
 
 pub(crate) fn compare_numbers(a: &KlujurVal, b: &KlujurVal) -> Result<std::cmp::Ordering> {
+    use klujur_parser::{BigInt, ToPrimitive};
+
     match (a, b) {
+        // Int comparisons
         (KlujurVal::Int(x), KlujurVal::Int(y)) => Ok(x.cmp(y)),
+
+        // Float comparisons
         (KlujurVal::Float(x), KlujurVal::Float(y)) => x
             .partial_cmp(y)
             .ok_or_else(|| Error::EvalError("Cannot compare NaN".into())),
@@ -541,6 +555,22 @@ pub(crate) fn compare_numbers(a: &KlujurVal, b: &KlujurVal) -> Result<std::cmp::
             x.partial_cmp(&fy)
                 .ok_or_else(|| Error::EvalError("Cannot compare NaN".into()))
         }
+
+        // BigInt comparisons
+        (KlujurVal::BigInt(x), KlujurVal::BigInt(y)) => Ok(x.cmp(y)),
+        (KlujurVal::BigInt(x), KlujurVal::Int(y)) => Ok(x.cmp(&BigInt::from(*y))),
+        (KlujurVal::Int(x), KlujurVal::BigInt(y)) => Ok(BigInt::from(*x).cmp(y)),
+        (KlujurVal::BigInt(x), KlujurVal::Float(y)) => {
+            let fx = x.to_f64().unwrap_or(f64::INFINITY);
+            fx.partial_cmp(y)
+                .ok_or_else(|| Error::EvalError("Cannot compare NaN".into()))
+        }
+        (KlujurVal::Float(x), KlujurVal::BigInt(y)) => {
+            let fy = y.to_f64().unwrap_or(f64::INFINITY);
+            x.partial_cmp(&fy)
+                .ok_or_else(|| Error::EvalError("Cannot compare NaN".into()))
+        }
+
         // Ratio comparisons: compare a/b with c/d by comparing a*d with b*c
         (KlujurVal::Ratio(an, ad), KlujurVal::Ratio(bn, bd)) => {
             // a/b < c/d  iff  a*d < b*c (when b,d > 0, which they are after normalisation)
@@ -570,12 +600,75 @@ pub(crate) fn compare_numbers(a: &KlujurVal, b: &KlujurVal) -> Result<std::cmp::
             x.partial_cmp(&fy)
                 .ok_or_else(|| Error::EvalError("Cannot compare NaN".into()))
         }
+
+        // BigRatio comparisons
+        (KlujurVal::BigRatio(an, ad), KlujurVal::BigRatio(bn, bd)) => {
+            // a/b < c/d  iff  a*d < b*c
+            let lhs = an * bd;
+            let rhs = ad * bn;
+            Ok(lhs.cmp(&rhs))
+        }
+        (KlujurVal::BigRatio(num, den), KlujurVal::Int(y)) => {
+            let rhs = den * BigInt::from(*y);
+            Ok(num.cmp(&rhs))
+        }
+        (KlujurVal::Int(x), KlujurVal::BigRatio(num, den)) => {
+            let lhs = BigInt::from(*x) * den;
+            Ok(lhs.cmp(num))
+        }
+        (KlujurVal::BigRatio(num, den), KlujurVal::BigInt(y)) => {
+            let rhs = den * y;
+            Ok(num.cmp(&rhs))
+        }
+        (KlujurVal::BigInt(x), KlujurVal::BigRatio(num, den)) => {
+            let lhs = x * den;
+            Ok(lhs.cmp(num))
+        }
+        (KlujurVal::BigRatio(num, den), KlujurVal::Float(y)) => {
+            let fx = num.to_f64().unwrap_or(f64::INFINITY) / den.to_f64().unwrap_or(f64::INFINITY);
+            fx.partial_cmp(y)
+                .ok_or_else(|| Error::EvalError("Cannot compare NaN".into()))
+        }
+        (KlujurVal::Float(x), KlujurVal::BigRatio(num, den)) => {
+            let fy = num.to_f64().unwrap_or(f64::INFINITY) / den.to_f64().unwrap_or(f64::INFINITY);
+            x.partial_cmp(&fy)
+                .ok_or_else(|| Error::EvalError("Cannot compare NaN".into()))
+        }
+
+        // Cross-type Ratio/BigRatio comparisons
+        (KlujurVal::Ratio(an, ad), KlujurVal::BigRatio(bn, bd)) => {
+            let lhs = BigInt::from(*an) * bd;
+            let rhs = BigInt::from(*ad) * bn;
+            Ok(lhs.cmp(&rhs))
+        }
+        (KlujurVal::BigRatio(an, ad), KlujurVal::Ratio(bn, bd)) => {
+            let lhs = an * BigInt::from(*bd);
+            let rhs = ad * BigInt::from(*bn);
+            Ok(lhs.cmp(&rhs))
+        }
+
+        // Cross-type BigInt/Ratio comparisons
+        (KlujurVal::BigInt(x), KlujurVal::Ratio(num, den)) => {
+            let lhs = x * BigInt::from(*den);
+            let rhs = BigInt::from(*num);
+            Ok(lhs.cmp(&rhs))
+        }
+        (KlujurVal::Ratio(num, den), KlujurVal::BigInt(y)) => {
+            let lhs = BigInt::from(*num);
+            let rhs = BigInt::from(*den) * y;
+            Ok(lhs.cmp(&rhs))
+        }
+
         (a, b) => Err(Error::type_error_in(
             "comparison",
             "number",
             if !matches!(
                 a,
-                KlujurVal::Int(_) | KlujurVal::Float(_) | KlujurVal::Ratio(_, _)
+                KlujurVal::Int(_)
+                    | KlujurVal::BigInt(_)
+                    | KlujurVal::Float(_)
+                    | KlujurVal::Ratio(_, _)
+                    | KlujurVal::BigRatio(_, _)
             ) {
                 a.type_name()
             } else {

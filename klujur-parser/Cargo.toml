@@ -10,3 +10,5 @@ license.workspace = true
 
 [dependencies]
 im = "15.1"
+num-bigint = "0.4"
+num-traits = "0.2"

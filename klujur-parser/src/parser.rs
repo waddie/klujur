@@ -153,6 +153,11 @@ impl<'a> Parser<'a> {
                 self.advance()?;
                 Ok(KlujurVal::int(n))
             }
+            Token::BigInt(n) => {
+                let n = n.clone();
+                self.advance()?;
+                Ok(KlujurVal::bigint(n))
+            }
             Token::Float(n) => {
                 let n = *n;
                 self.advance()?;
@@ -163,6 +168,12 @@ impl<'a> Parser<'a> {
                 let den = *den;
                 self.advance()?;
                 Ok(KlujurVal::ratio(num, den))
+            }
+            Token::BigRatio(num, den) => {
+                let num = num.clone();
+                let den = den.clone();
+                self.advance()?;
+                Ok(KlujurVal::bigratio(num, den))
             }
             Token::Char(c) => {
                 let c = *c;

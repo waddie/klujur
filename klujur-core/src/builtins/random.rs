@@ -181,6 +181,11 @@ fn hash_val<H: std::hash::Hasher>(val: &KlujurVal, hasher: &mut H) {
             n.hash(hasher);
             d.hash(hasher);
         }
+        KlujurVal::BigInt(n) => n.hash(hasher),
+        KlujurVal::BigRatio(n, d) => {
+            n.hash(hasher);
+            d.hash(hasher);
+        }
         KlujurVal::Char(c) => c.hash(hasher),
         KlujurVal::String(s) => s.hash(hasher),
         KlujurVal::Symbol(sym, _) => sym.hash(hasher),

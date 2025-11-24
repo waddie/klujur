@@ -202,8 +202,13 @@ impl FromKlujurVal for bool {
 
 impl FromKlujurVal for i64 {
     fn from_klujur_val(val: &KlujurVal) -> Result<Self> {
+        use klujur_parser::ToPrimitive;
+
         match val {
             KlujurVal::Int(n) => Ok(*n),
+            KlujurVal::BigInt(n) => n
+                .to_i64()
+                .ok_or_else(|| Error::EvalError("BigInt too large for i64".into())),
             other => Err(Error::type_error("integer", other.type_name())),
         }
     }
@@ -255,10 +260,18 @@ impl FromKlujurVal for usize {
 
 impl FromKlujurVal for f64 {
     fn from_klujur_val(val: &KlujurVal) -> Result<Self> {
+        use klujur_parser::ToPrimitive;
+
         match val {
             KlujurVal::Float(n) => Ok(*n),
             KlujurVal::Int(n) => Ok(*n as f64),
+            KlujurVal::BigInt(n) => Ok(n.to_f64().unwrap_or(f64::INFINITY)),
             KlujurVal::Ratio(num, den) => Ok(*num as f64 / *den as f64),
+            KlujurVal::BigRatio(num, den) => {
+                let nf = num.to_f64().unwrap_or(f64::INFINITY);
+                let df = den.to_f64().unwrap_or(f64::INFINITY);
+                Ok(nf / df)
+            }
             other => Err(Error::type_error("number", other.type_name())),
         }
     }

@@ -173,8 +173,10 @@ pub fn eval(expr: &KlujurVal, env: &Env) -> Result<KlujurVal> {
         KlujurVal::Nil
         | KlujurVal::Bool(_)
         | KlujurVal::Int(_)
+        | KlujurVal::BigInt(_)
         | KlujurVal::Float(_)
         | KlujurVal::Ratio(_, _)
+        | KlujurVal::BigRatio(_, _)
         | KlujurVal::Char(_)
         | KlujurVal::String(_)
         | KlujurVal::Keyword(_)

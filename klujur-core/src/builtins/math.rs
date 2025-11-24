@@ -4,7 +4,7 @@
 //! Mathematical functions: sqrt, pow, sin, cos, tan, asin, acos, atan, atan2,
 //! log, log10, log2, exp, floor, ceil, round, signum
 
-use klujur_parser::KlujurVal;
+use klujur_parser::{KlujurVal, ToPrimitive};
 
 use crate::error::{Error, Result};
 
@@ -15,8 +15,14 @@ use crate::error::{Error, Result};
 fn to_f64(val: &KlujurVal, fn_name: &str) -> Result<f64> {
     match val {
         KlujurVal::Int(n) => Ok(*n as f64),
+        KlujurVal::BigInt(n) => Ok(n.to_f64().unwrap_or(f64::INFINITY)),
         KlujurVal::Float(n) => Ok(*n),
         KlujurVal::Ratio(num, den) => Ok(*num as f64 / *den as f64),
+        KlujurVal::BigRatio(num, den) => {
+            let nf = num.to_f64().unwrap_or(f64::INFINITY);
+            let df = den.to_f64().unwrap_or(f64::INFINITY);
+            Ok(nf / df)
+        }
         other => Err(Error::type_error_in(fn_name, "number", other.type_name())),
     }
 }

@@ -3,7 +3,7 @@
 
 //! Bitwise operations: bit-and, bit-or, bit-xor, bit-not, bit-shift-left, etc.
 
-use klujur_parser::KlujurVal;
+use klujur_parser::{KlujurVal, ToPrimitive};
 
 use crate::error::{Error, Result};
 
@@ -11,10 +11,14 @@ use crate::error::{Error, Result};
 // Helper
 // ============================================================================
 
-/// Helper to get integer for bitwise ops
+/// Helper to get integer for bitwise ops.
+/// BigInt is converted to i64 (truncated if necessary), matching Clojure's behaviour.
 pub(crate) fn require_int(name: &str, val: &KlujurVal) -> Result<i64> {
     match val {
         KlujurVal::Int(n) => Ok(*n),
+        KlujurVal::BigInt(n) => n.to_i64().ok_or_else(|| {
+            Error::EvalError(format!("{}: BigInt too large for bitwise operation", name))
+        }),
         other => Err(Error::type_error_in(name, "integer", other.type_name())),
     }
 }

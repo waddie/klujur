@@ -38,7 +38,11 @@ pub(crate) fn builtin_number_p(args: &[KlujurVal]) -> Result<KlujurVal> {
     }
     Ok(KlujurVal::bool(matches!(
         args[0],
-        KlujurVal::Int(_) | KlujurVal::Float(_) | KlujurVal::Ratio(_, _)
+        KlujurVal::Int(_)
+            | KlujurVal::BigInt(_)
+            | KlujurVal::Float(_)
+            | KlujurVal::Ratio(_, _)
+            | KlujurVal::BigRatio(_, _)
     )))
 }
 
@@ -46,7 +50,17 @@ pub(crate) fn builtin_integer_p(args: &[KlujurVal]) -> Result<KlujurVal> {
     if args.len() != 1 {
         return Err(Error::arity_named("integer?", 1, args.len()));
     }
-    Ok(KlujurVal::bool(matches!(args[0], KlujurVal::Int(_))))
+    Ok(KlujurVal::bool(matches!(
+        args[0],
+        KlujurVal::Int(_) | KlujurVal::BigInt(_)
+    )))
+}
+
+pub(crate) fn builtin_bigint_p(args: &[KlujurVal]) -> Result<KlujurVal> {
+    if args.len() != 1 {
+        return Err(Error::arity_named("bigint?", 1, args.len()));
+    }
+    Ok(KlujurVal::bool(matches!(args[0], KlujurVal::BigInt(_))))
 }
 
 pub(crate) fn builtin_float_p(args: &[KlujurVal]) -> Result<KlujurVal> {
@@ -141,7 +155,10 @@ pub(crate) fn builtin_ratio_p(args: &[KlujurVal]) -> Result<KlujurVal> {
     if args.len() != 1 {
         return Err(Error::arity_named("ratio?", 1, args.len()));
     }
-    Ok(KlujurVal::bool(matches!(args[0], KlujurVal::Ratio(_, _))))
+    Ok(KlujurVal::bool(matches!(
+        args[0],
+        KlujurVal::Ratio(_, _) | KlujurVal::BigRatio(_, _)
+    )))
 }
 
 pub(crate) fn builtin_numerator(args: &[KlujurVal]) -> Result<KlujurVal> {
@@ -150,7 +167,9 @@ pub(crate) fn builtin_numerator(args: &[KlujurVal]) -> Result<KlujurVal> {
     }
     match &args[0] {
         KlujurVal::Ratio(num, _) => Ok(KlujurVal::int(*num)),
+        KlujurVal::BigRatio(num, _) => Ok(KlujurVal::bigint(num.clone())),
         KlujurVal::Int(n) => Ok(KlujurVal::int(*n)), // int has numerator of itself
+        KlujurVal::BigInt(n) => Ok(KlujurVal::bigint(n.clone())), // bigint has numerator of itself
         other => Err(Error::type_error_in(
             "numerator",
             "ratio",
@@ -160,12 +179,16 @@ pub(crate) fn builtin_numerator(args: &[KlujurVal]) -> Result<KlujurVal> {
 }
 
 pub(crate) fn builtin_denominator(args: &[KlujurVal]) -> Result<KlujurVal> {
+    use klujur_parser::BigInt;
+
     if args.len() != 1 {
         return Err(Error::arity_named("denominator", 1, args.len()));
     }
     match &args[0] {
         KlujurVal::Ratio(_, den) => Ok(KlujurVal::int(*den)),
+        KlujurVal::BigRatio(_, den) => Ok(KlujurVal::bigint(den.clone())),
         KlujurVal::Int(_) => Ok(KlujurVal::int(1)), // int has denominator of 1
+        KlujurVal::BigInt(_) => Ok(KlujurVal::bigint(BigInt::from(1))), // bigint has denominator of 1
         other => Err(Error::type_error_in(
             "denominator",
             "ratio",

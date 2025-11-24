@@ -9,6 +9,8 @@ use std::fmt;
 use std::iter::Peekable;
 use std::str::Chars;
 
+use num_bigint::BigInt;
+
 /// A token produced by the lexer.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
@@ -38,8 +40,10 @@ pub enum Token {
     True,
     False,
     Int(i64),
+    BigInt(BigInt),
     Float(f64),
     Ratio(i64, i64),
+    BigRatio(BigInt, BigInt),
     Char(char),
     String(String),
     Symbol(String),
@@ -73,8 +77,10 @@ impl fmt::Display for Token {
             Token::True => write!(f, "true"),
             Token::False => write!(f, "false"),
             Token::Int(n) => write!(f, "{}", n),
+            Token::BigInt(n) => write!(f, "{}N", n),
             Token::Float(n) => write!(f, "{}", n),
             Token::Ratio(num, den) => write!(f, "{}/{}", num, den),
+            Token::BigRatio(num, den) => write!(f, "{}/{}N", num, den),
             Token::Char(c) => write!(f, "\\{}", c),
             Token::String(s) => write!(f, "\"{}\"", s),
             Token::Symbol(s) => write!(f, "{}", s),
@@ -568,16 +574,29 @@ impl<'a> Lexer<'a> {
         {
             let num_str = &s[..slash_pos];
             let den_str = &s[slash_pos + 1..];
-            let num: i64 = num_str
-                .parse()
-                .map_err(|_| self.error(format!("Invalid numerator: {}", num_str)))?;
-            let den: i64 = den_str
-                .parse()
-                .map_err(|_| self.error(format!("Invalid denominator: {}", den_str)))?;
-            if den == 0 {
-                return Err(self.error("Division by zero in ratio".to_string()));
+
+            // Try parsing as i64 first, fall back to BigInt on overflow
+            match (num_str.parse::<i64>(), den_str.parse::<i64>()) {
+                (Ok(num), Ok(den)) => {
+                    if den == 0 {
+                        return Err(self.error("Division by zero in ratio".to_string()));
+                    }
+                    return Ok(Token::Ratio(num, den));
+                }
+                _ => {
+                    // Overflow - use BigInt
+                    let num: BigInt = num_str
+                        .parse()
+                        .map_err(|_| self.error(format!("Invalid numerator: {}", num_str)))?;
+                    let den: BigInt = den_str
+                        .parse()
+                        .map_err(|_| self.error(format!("Invalid denominator: {}", den_str)))?;
+                    if den == BigInt::from(0) {
+                        return Err(self.error("Division by zero in ratio".to_string()));
+                    }
+                    return Ok(Token::BigRatio(num, den));
+                }
             }
-            return Ok(Token::Ratio(num, den));
         }
 
         // Check for float (contains . or e/E without radix prefix)
@@ -592,12 +611,13 @@ impl<'a> Lexer<'a> {
             return Ok(Token::Float(n));
         }
 
-        // Integer with potential base prefix
-        let n = self.parse_int(s)?;
-        Ok(Token::Int(n))
+        // Integer with potential base prefix - returns Int or BigInt
+        self.parse_int(s)
     }
 
-    fn parse_int(&self, s: &str) -> Result<i64, LexerError> {
+    fn parse_int(&self, s: &str) -> Result<Token, LexerError> {
+        use num_traits::Num;
+
         let (is_negative, s) = if let Some(rest) = s.strip_prefix('-') {
             (true, rest)
         } else if let Some(rest) = s.strip_prefix('+') {
@@ -606,43 +626,55 @@ impl<'a> Lexer<'a> {
             (false, s)
         };
 
-        let result = if s.starts_with("0x") || s.starts_with("0X") {
-            // Hexadecimal
-            i64::from_str_radix(&s[2..], 16)
-                .map_err(|_| self.error(format!("Invalid hex number: {}", s)))?
+        // Determine base and digits
+        let (base, digits) = if s.starts_with("0x") || s.starts_with("0X") {
+            (16, &s[2..])
         } else if s.starts_with('0') && s.len() > 1 && !s.contains('r') {
-            // Octal (starts with 0 and not a radix literal)
-            i64::from_str_radix(&s[1..], 8)
-                .map_err(|_| self.error(format!("Invalid octal number: {}", s)))?
+            (8, &s[1..])
         } else if let Some(r_pos) = s.find('r') {
-            // Radix literal like 2r1010 or 16rff
             let radix: u32 = s[..r_pos]
                 .parse()
                 .map_err(|_| self.error(format!("Invalid radix: {}", &s[..r_pos])))?;
             if !(2..=36).contains(&radix) {
                 return Err(self.error(format!("Radix must be between 2 and 36: {}", radix)));
             }
-            i64::from_str_radix(&s[r_pos + 1..], radix).map_err(|_| {
-                self.error(format!(
-                    "Invalid number for radix {}: {}",
-                    radix,
-                    &s[r_pos + 1..]
-                ))
-            })?
+            (radix, &s[r_pos + 1..])
         } else {
-            // Decimal
-            s.parse()
-                .map_err(|_| self.error(format!("Invalid integer: {}", s)))?
+            (10, s)
         };
 
-        if is_negative {
-            // Use checked negation to handle i64::MIN edge case
-            // (parsing "9223372036854775808" then negating would overflow)
-            result
-                .checked_neg()
-                .ok_or_else(|| self.error(format!("Integer overflow: -{}", result)))
-        } else {
-            Ok(result)
+        // Try parsing as i64 first
+        match i64::from_str_radix(digits, base) {
+            Ok(n) => {
+                let result = if is_negative {
+                    n.checked_neg().ok_or_else(|| {
+                        // Overflow on negation - promote to BigInt
+                        self.error(String::new())
+                    })
+                } else {
+                    Ok(n)
+                };
+                match result {
+                    Ok(n) => Ok(Token::Int(n)),
+                    Err(_) => {
+                        // Overflow - promote to BigInt
+                        let big = BigInt::from_str_radix(digits, base)
+                            .map_err(|_| self.error(format!("Invalid integer: {}", s)))?;
+                        let big = if is_negative { -big } else { big };
+                        Ok(Token::BigInt(big))
+                    }
+                }
+            }
+            Err(_) => {
+                // Overflow or invalid - try BigInt
+                match BigInt::from_str_radix(digits, base) {
+                    Ok(big) => {
+                        let big = if is_negative { -big } else { big };
+                        Ok(Token::BigInt(big))
+                    }
+                    Err(_) => Err(self.error(format!("Invalid integer: {}", s))),
+                }
+            }
         }
     }
 }
