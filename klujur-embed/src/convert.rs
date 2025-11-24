@@ -53,6 +53,71 @@
 //!     }
 //! }
 //! ```
+//!
+//! # HashMap Conversions
+//!
+//! `HashMap<K, V>` converts to/from Klujur maps:
+//!
+//! ```rust
+//! use std::collections::HashMap;
+//! use klujur_embed::{Engine, KlujurVal, FromKlujurVal, IntoKlujurVal};
+//!
+//! let engine = Engine::new().unwrap();
+//!
+//! // Rust HashMap -> Klujur map
+//! let mut scores: HashMap<String, i64> = HashMap::new();
+//! scores.insert("alice".into(), 100);
+//! scores.insert("bob".into(), 85);
+//! engine.set("scores", scores);
+//!
+//! // Klujur map -> Rust HashMap
+//! engine.eval(r#"(def config {"host" "localhost" "env" "production"})"#).unwrap();
+//! let config: HashMap<String, String> = engine.get_as("config").unwrap();
+//! assert_eq!(config.get("host"), Some(&"localhost".to_string()));
+//! ```
+//!
+//! # Option Handling
+//!
+//! `Option<T>` maps to Klujur's nil-punning semantics:
+//!
+//! ```rust
+//! use klujur_embed::{Engine, KlujurVal, FromKlujurVal, IntoKlujurVal};
+//!
+//! let engine = Engine::new().unwrap();
+//!
+//! // Some(T) -> T, None -> nil
+//! engine.set("present", Some(42i64));  // Sets to 42
+//! engine.set("absent", None::<i64>);   // Sets to nil
+//!
+//! // Klujur nil -> None, value -> Some(T)
+//! let present: Option<i64> = engine.get_as("present").unwrap();
+//! assert_eq!(present, Some(42));
+//!
+//! let absent: Option<i64> = engine.get_as("absent").unwrap();
+//! assert_eq!(absent, None);
+//! ```
+//!
+//! # Error Handling
+//!
+//! Conversion errors provide clear type mismatch information:
+//!
+//! ```rust
+//! use klujur_embed::{Engine, KlujurVal, FromKlujurVal};
+//!
+//! let engine = Engine::new().unwrap();
+//! engine.eval(r#"(def name "alice")"#).unwrap();
+//!
+//! // Type mismatch: string cannot convert to i64
+//! let result: Result<Option<i64>, _> = engine.try_get_as("name");
+//! assert!(result.is_err());
+//!
+//! // Use try_get_as to distinguish "not found" from "wrong type"
+//! let not_found: Result<Option<i64>, _> = engine.try_get_as("undefined");
+//! assert!(not_found.unwrap().is_none());  // Ok(None) = not found
+//!
+//! let wrong_type: Result<Option<i64>, _> = engine.try_get_as("name");
+//! assert!(wrong_type.is_err());  // Err(...) = conversion failed
+//! ```
 
 use std::collections::HashMap;
 use std::hash::Hash;

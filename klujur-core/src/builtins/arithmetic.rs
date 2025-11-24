@@ -30,9 +30,38 @@ fn to_float(val: &KlujurVal) -> Result<f64> {
         KlujurVal::Float(n) => Ok(*n),
         KlujurVal::Ratio(num, den) => Ok(*num as f64 / *den as f64),
         KlujurVal::BigRatio(num, den) => {
-            let nf = num.to_f64().unwrap_or(f64::INFINITY);
-            let df = den.to_f64().unwrap_or(f64::INFINITY);
-            Ok(nf / df)
+            // Handle cases where numerator and/or denominator overflow f64.
+            // If both overflow, INFINITY / INFINITY = NaN, which is wrong.
+            // Instead, use BigInt division to compute an approximation.
+            match (num.to_f64(), den.to_f64()) {
+                (Some(nf), Some(df)) => Ok(nf / df),
+                (Some(nf), None) => {
+                    // Denominator too large to fit in f64, result approaches 0
+                    Ok(if nf.is_sign_negative() { -0.0 } else { 0.0 })
+                }
+                (None, Some(df)) => {
+                    // Numerator too large, result is +/- infinity
+                    use num_bigint::Sign;
+                    let num_neg = num.sign() == Sign::Minus;
+                    let den_neg = df < 0.0;
+                    let result_neg = num_neg != den_neg;
+                    Ok(if result_neg {
+                        f64::NEG_INFINITY
+                    } else {
+                        f64::INFINITY
+                    })
+                }
+                (None, None) => {
+                    // Both too large - use BigInt division for approximation
+                    let quotient = num / den;
+                    let result_neg = num.sign() != den.sign();
+                    Ok(quotient.to_f64().unwrap_or(if result_neg {
+                        f64::NEG_INFINITY
+                    } else {
+                        f64::INFINITY
+                    }))
+                }
+            }
         }
         other => Err(Error::type_error_in(
             "arithmetic",
@@ -42,8 +71,12 @@ fn to_float(val: &KlujurVal) -> Result<f64> {
     }
 }
 
-/// Convert a numeric value to a ratio (numerator, denominator).
-fn to_ratio(val: &KlujurVal) -> Result<(i64, i64)> {
+/// Convert a numeric value to an i64 ratio (numerator, denominator).
+///
+/// This function only handles `Int` and `Ratio` types. For `BigInt` and `BigRatio`,
+/// use `to_bigratio` instead. The numeric tower dispatch logic in arithmetic
+/// operations ensures this function is only called for appropriate types.
+fn to_i64_ratio(val: &KlujurVal) -> Result<(i64, i64)> {
     match val {
         KlujurVal::Int(n) => Ok((*n, 1)),
         KlujurVal::Ratio(num, den) => Ok((*num, *den)),
@@ -83,24 +116,60 @@ fn to_bigint(val: &KlujurVal) -> Result<BigInt> {
     }
 }
 
-/// Check if value is a Float type
-fn is_float(val: &KlujurVal) -> bool {
-    matches!(val, KlujurVal::Float(_))
+/// Numeric type category for determining arithmetic precision.
+///
+/// The numeric tower follows the precedence: Float > BigRatio > BigInt > Ratio > Int
+/// However, combining BigInt with Ratio produces BigRatio (not BigInt).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NumericCategory {
+    /// All values are i64 integers
+    Int,
+    /// At least one i64 ratio (no BigInt or BigRatio)
+    Ratio,
+    /// At least one BigInt (no ratios)
+    BigInt,
+    /// BigRatio present, or BigInt + Ratio combination
+    BigRatio,
+    /// At least one Float (highest precedence)
+    Float,
 }
 
-/// Check if value is a BigInt type
-fn is_bigint(val: &KlujurVal) -> bool {
-    matches!(val, KlujurVal::BigInt(_))
-}
+/// Classify numeric arguments in a single pass, returning the appropriate category.
+///
+/// Short-circuits immediately on Float (highest precedence) for performance.
+/// Returns an error if any argument is not a numeric type.
+fn classify_numeric_args(args: &[KlujurVal]) -> Result<NumericCategory> {
+    let mut has_bigint = false;
+    let mut has_bigratio = false;
+    let mut has_ratio = false;
 
-/// Check if value is a Ratio type (either precision)
-fn is_ratio(val: &KlujurVal) -> bool {
-    matches!(val, KlujurVal::Ratio(_, _) | KlujurVal::BigRatio(_, _))
-}
+    for arg in args {
+        match arg {
+            KlujurVal::Int(_) => {}
+            KlujurVal::Ratio(_, _) => has_ratio = true,
+            KlujurVal::BigInt(_) => has_bigint = true,
+            KlujurVal::BigRatio(_, _) => has_bigratio = true,
+            KlujurVal::Float(_) => return Ok(NumericCategory::Float), // Short-circuit
+            other => {
+                return Err(Error::type_error_in(
+                    "arithmetic",
+                    "number",
+                    other.type_name(),
+                ));
+            }
+        }
+    }
 
-/// Check if value is a BigRatio type
-fn is_bigratio(val: &KlujurVal) -> bool {
-    matches!(val, KlujurVal::BigRatio(_, _))
+    // Determine final category based on flags
+    Ok(if has_bigratio || (has_bigint && has_ratio) {
+        NumericCategory::BigRatio
+    } else if has_bigint {
+        NumericCategory::BigInt
+    } else if has_ratio {
+        NumericCategory::Ratio
+    } else {
+        NumericCategory::Int
+    })
 }
 
 // ============================================================================
@@ -112,76 +181,104 @@ pub(crate) fn builtin_add(args: &[KlujurVal]) -> Result<KlujurVal> {
         return Ok(KlujurVal::int(0));
     }
 
-    // Check for floats first (highest precedence)
-    let has_float = args.iter().any(is_float);
-    if has_float {
-        let mut sum: f64 = 0.0;
-        for arg in args {
-            sum += to_float(arg)?;
+    match classify_numeric_args(args)? {
+        NumericCategory::Float => {
+            let mut sum: f64 = 0.0;
+            for arg in args {
+                sum += to_float(arg)?;
+            }
+            Ok(KlujurVal::float(sum))
         }
-        return Ok(KlujurVal::float(sum));
-    }
-
-    // Check for BigInt or BigRatio (must use arbitrary precision)
-    let has_bigint = args.iter().any(is_bigint);
-    let has_bigratio = args.iter().any(is_bigratio);
-
-    if has_bigratio || (has_bigint && args.iter().any(is_ratio)) {
-        // Use BigRatio arithmetic
-        let mut num = BigInt::from(0);
-        let mut den = BigInt::from(1);
-        for arg in args {
-            let (n, d) = to_bigratio(arg)?;
-            // num/den + n/d = (num*d + n*den) / (den*d)
-            num = &num * &d + &n * &den;
-            den = &den * &d;
+        NumericCategory::BigRatio => {
+            let mut num = BigInt::from(0);
+            let mut den = BigInt::from(1);
+            for arg in args {
+                let (n, d) = to_bigratio(arg)?;
+                // num/den + n/d = (num*d + n*den) / (den*d)
+                num = &num * &d + &n * &den;
+                den = &den * &d;
+            }
+            Ok(KlujurVal::bigratio(num, den))
         }
-        return Ok(KlujurVal::bigratio(num, den));
-    }
-
-    if has_bigint {
-        // Use BigInt arithmetic
-        let mut sum = BigInt::from(0);
-        for arg in args {
-            sum += to_bigint(arg)?;
+        NumericCategory::BigInt => {
+            let mut sum = BigInt::from(0);
+            for arg in args {
+                sum += to_bigint(arg)?;
+            }
+            Ok(KlujurVal::bigint(sum))
         }
-        return Ok(KlujurVal::bigint(sum));
-    }
-
-    // Check for ratios (use i64 precision)
-    let has_ratio = args.iter().any(is_ratio);
-    if has_ratio {
-        let mut num: i64 = 0;
-        let mut den: i64 = 1;
-        for arg in args {
-            let (n, d) = to_ratio(arg)?;
-            // num/den + n/d = (num*d + n*den) / (den*d)
-            num = num
-                .checked_mul(d)
-                .and_then(|nd| n.checked_mul(den).and_then(|nd2| nd.checked_add(nd2)))
-                .ok_or(Error::IntegerOverflow { operation: "+" })?;
-            den = den
-                .checked_mul(d)
-                .ok_or(Error::IntegerOverflow { operation: "+" })?;
-        }
-        return Ok(KlujurVal::ratio(num, den));
-    }
-
-    // All integers (i64)
-    let mut int_sum: i64 = 0;
-    for arg in args {
-        match arg {
-            KlujurVal::Int(n) => {
-                int_sum = int_sum
-                    .checked_add(*n)
+        NumericCategory::Ratio => {
+            let mut num: i64 = 0;
+            let mut den: i64 = 1;
+            for arg in args {
+                let (n, d) = to_i64_ratio(arg)?;
+                // num/den + n/d = (num*d + n*den) / (den*d)
+                num = num
+                    .checked_mul(d)
+                    .and_then(|nd| n.checked_mul(den).and_then(|nd2| nd.checked_add(nd2)))
+                    .ok_or(Error::IntegerOverflow { operation: "+" })?;
+                den = den
+                    .checked_mul(d)
                     .ok_or(Error::IntegerOverflow { operation: "+" })?;
             }
+            Ok(KlujurVal::ratio(num, den))
+        }
+        NumericCategory::Int => {
+            let mut int_sum: i64 = 0;
+            for arg in args {
+                match arg {
+                    KlujurVal::Int(n) => {
+                        int_sum = int_sum
+                            .checked_add(*n)
+                            .ok_or(Error::IntegerOverflow { operation: "+" })?;
+                    }
+                    other => {
+                        return Err(Error::type_error_in("+", "number", other.type_name()));
+                    }
+                }
+            }
+            Ok(KlujurVal::int(int_sum))
+        }
+    }
+}
+
+/// Simplified category for auto-promoting operations (`+'`, `-'`, `*'`).
+/// These always use BigInt/BigRatio to avoid overflow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PromotingCategory {
+    /// Use BigInt arithmetic
+    BigInt,
+    /// Use BigRatio arithmetic (has any ratio type)
+    BigRatio,
+    /// Use Float arithmetic
+    Float,
+}
+
+/// Classify numeric arguments for auto-promoting operations.
+/// Short-circuits on Float for performance.
+fn classify_promoting_args(args: &[KlujurVal]) -> Result<PromotingCategory> {
+    let mut has_ratio = false;
+
+    for arg in args {
+        match arg {
+            KlujurVal::Int(_) | KlujurVal::BigInt(_) => {}
+            KlujurVal::Ratio(_, _) | KlujurVal::BigRatio(_, _) => has_ratio = true,
+            KlujurVal::Float(_) => return Ok(PromotingCategory::Float),
             other => {
-                return Err(Error::type_error_in("+", "number", other.type_name()));
+                return Err(Error::type_error_in(
+                    "arithmetic",
+                    "number",
+                    other.type_name(),
+                ));
             }
         }
     }
-    Ok(KlujurVal::int(int_sum))
+
+    Ok(if has_ratio {
+        PromotingCategory::BigRatio
+    } else {
+        PromotingCategory::BigInt
+    })
 }
 
 /// Auto-promoting addition that promotes to BigInt on overflow.
@@ -190,35 +287,32 @@ pub(crate) fn builtin_add_prime(args: &[KlujurVal]) -> Result<KlujurVal> {
         return Ok(KlujurVal::int(0));
     }
 
-    // Check for floats first (highest precedence)
-    let has_float = args.iter().any(is_float);
-    if has_float {
-        let mut sum: f64 = 0.0;
-        for arg in args {
-            sum += to_float(arg)?;
+    match classify_promoting_args(args)? {
+        PromotingCategory::Float => {
+            let mut sum: f64 = 0.0;
+            for arg in args {
+                sum += to_float(arg)?;
+            }
+            Ok(KlujurVal::float(sum))
         }
-        return Ok(KlujurVal::float(sum));
-    }
-
-    // For +', always use BigInt/BigRatio to avoid overflow
-    let has_ratio = args.iter().any(is_ratio);
-    if has_ratio {
-        let mut num = BigInt::from(0);
-        let mut den = BigInt::from(1);
-        for arg in args {
-            let (n, d) = to_bigratio(arg)?;
-            num = &num * &d + &n * &den;
-            den = &den * &d;
+        PromotingCategory::BigRatio => {
+            let mut num = BigInt::from(0);
+            let mut den = BigInt::from(1);
+            for arg in args {
+                let (n, d) = to_bigratio(arg)?;
+                num = &num * &d + &n * &den;
+                den = &den * &d;
+            }
+            Ok(KlujurVal::bigratio(num, den))
         }
-        return Ok(KlujurVal::bigratio(num, den));
+        PromotingCategory::BigInt => {
+            let mut sum = BigInt::from(0);
+            for arg in args {
+                sum += to_bigint(arg)?;
+            }
+            Ok(KlujurVal::bigint(sum))
+        }
     }
-
-    // All integers - use BigInt
-    let mut sum = BigInt::from(0);
-    for arg in args {
-        sum += to_bigint(arg)?;
-    }
-    Ok(KlujurVal::bigint(sum))
 }
 
 pub(crate) fn builtin_sub(args: &[KlujurVal]) -> Result<KlujurVal> {
@@ -246,73 +340,64 @@ pub(crate) fn builtin_sub(args: &[KlujurVal]) -> Result<KlujurVal> {
         };
     }
 
-    // Check for floats first (highest precedence)
-    let has_float = args.iter().any(is_float);
-    if has_float {
-        let mut result = to_float(&args[0])?;
-        for arg in &args[1..] {
-            result -= to_float(arg)?;
+    match classify_numeric_args(args)? {
+        NumericCategory::Float => {
+            let mut result = to_float(&args[0])?;
+            for arg in &args[1..] {
+                result -= to_float(arg)?;
+            }
+            Ok(KlujurVal::float(result))
         }
-        return Ok(KlujurVal::float(result));
-    }
-
-    // Check for BigInt or BigRatio
-    let has_bigint = args.iter().any(is_bigint);
-    let has_bigratio = args.iter().any(is_bigratio);
-
-    if has_bigratio || (has_bigint && args.iter().any(is_ratio)) {
-        let (mut num, mut den) = to_bigratio(&args[0])?;
-        for arg in &args[1..] {
-            let (n, d) = to_bigratio(arg)?;
-            num = &num * &d - &n * &den;
-            den = &den * &d;
+        NumericCategory::BigRatio => {
+            let (mut num, mut den) = to_bigratio(&args[0])?;
+            for arg in &args[1..] {
+                let (n, d) = to_bigratio(arg)?;
+                num = &num * &d - &n * &den;
+                den = &den * &d;
+            }
+            Ok(KlujurVal::bigratio(num, den))
         }
-        return Ok(KlujurVal::bigratio(num, den));
-    }
-
-    if has_bigint {
-        let mut result = to_bigint(&args[0])?;
-        for arg in &args[1..] {
-            result -= to_bigint(arg)?;
+        NumericCategory::BigInt => {
+            let mut result = to_bigint(&args[0])?;
+            for arg in &args[1..] {
+                result -= to_bigint(arg)?;
+            }
+            Ok(KlujurVal::bigint(result))
         }
-        return Ok(KlujurVal::bigint(result));
-    }
-
-    // Check for ratios (i64 precision)
-    let has_ratio = args.iter().any(is_ratio);
-    if has_ratio {
-        let (mut num, mut den) = to_ratio(&args[0])?;
-        for arg in &args[1..] {
-            let (n, d) = to_ratio(arg)?;
-            num = num
-                .checked_mul(d)
-                .and_then(|nd| n.checked_mul(den).and_then(|nd2| nd.checked_sub(nd2)))
-                .ok_or(Error::IntegerOverflow { operation: "-" })?;
-            den = den
-                .checked_mul(d)
-                .ok_or(Error::IntegerOverflow { operation: "-" })?;
-        }
-        return Ok(KlujurVal::ratio(num, den));
-    }
-
-    // All integers (i64)
-    let mut int_result = match &args[0] {
-        KlujurVal::Int(n) => *n,
-        other => return Err(Error::type_error_in("-", "number", other.type_name())),
-    };
-    for arg in &args[1..] {
-        match arg {
-            KlujurVal::Int(n) => {
-                int_result = int_result
-                    .checked_sub(*n)
+        NumericCategory::Ratio => {
+            let (mut num, mut den) = to_i64_ratio(&args[0])?;
+            for arg in &args[1..] {
+                let (n, d) = to_i64_ratio(arg)?;
+                num = num
+                    .checked_mul(d)
+                    .and_then(|nd| n.checked_mul(den).and_then(|nd2| nd.checked_sub(nd2)))
+                    .ok_or(Error::IntegerOverflow { operation: "-" })?;
+                den = den
+                    .checked_mul(d)
                     .ok_or(Error::IntegerOverflow { operation: "-" })?;
             }
-            other => {
-                return Err(Error::type_error_in("-", "number", other.type_name()));
+            Ok(KlujurVal::ratio(num, den))
+        }
+        NumericCategory::Int => {
+            let mut int_result = match &args[0] {
+                KlujurVal::Int(n) => *n,
+                other => return Err(Error::type_error_in("-", "number", other.type_name())),
+            };
+            for arg in &args[1..] {
+                match arg {
+                    KlujurVal::Int(n) => {
+                        int_result = int_result
+                            .checked_sub(*n)
+                            .ok_or(Error::IntegerOverflow { operation: "-" })?;
+                    }
+                    other => {
+                        return Err(Error::type_error_in("-", "number", other.type_name()));
+                    }
+                }
             }
+            Ok(KlujurVal::int(int_result))
         }
     }
-    Ok(KlujurVal::int(int_result))
 }
 
 /// Auto-promoting subtraction that promotes to BigInt on overflow.
@@ -335,34 +420,31 @@ pub(crate) fn builtin_sub_prime(args: &[KlujurVal]) -> Result<KlujurVal> {
         };
     }
 
-    // Check for floats first
-    let has_float = args.iter().any(is_float);
-    if has_float {
-        let mut result = to_float(&args[0])?;
-        for arg in &args[1..] {
-            result -= to_float(arg)?;
+    match classify_promoting_args(args)? {
+        PromotingCategory::Float => {
+            let mut result = to_float(&args[0])?;
+            for arg in &args[1..] {
+                result -= to_float(arg)?;
+            }
+            Ok(KlujurVal::float(result))
         }
-        return Ok(KlujurVal::float(result));
-    }
-
-    // For -', always use BigInt/BigRatio
-    let has_ratio = args.iter().any(is_ratio);
-    if has_ratio {
-        let (mut num, mut den) = to_bigratio(&args[0])?;
-        for arg in &args[1..] {
-            let (n, d) = to_bigratio(arg)?;
-            num = &num * &d - &n * &den;
-            den = &den * &d;
+        PromotingCategory::BigRatio => {
+            let (mut num, mut den) = to_bigratio(&args[0])?;
+            for arg in &args[1..] {
+                let (n, d) = to_bigratio(arg)?;
+                num = &num * &d - &n * &den;
+                den = &den * &d;
+            }
+            Ok(KlujurVal::bigratio(num, den))
         }
-        return Ok(KlujurVal::bigratio(num, den));
+        PromotingCategory::BigInt => {
+            let mut result = to_bigint(&args[0])?;
+            for arg in &args[1..] {
+                result -= to_bigint(arg)?;
+            }
+            Ok(KlujurVal::bigint(result))
+        }
     }
-
-    // All integers - use BigInt
-    let mut result = to_bigint(&args[0])?;
-    for arg in &args[1..] {
-        result -= to_bigint(arg)?;
-    }
-    Ok(KlujurVal::bigint(result))
 }
 
 pub(crate) fn builtin_mul(args: &[KlujurVal]) -> Result<KlujurVal> {
@@ -370,74 +452,63 @@ pub(crate) fn builtin_mul(args: &[KlujurVal]) -> Result<KlujurVal> {
         return Ok(KlujurVal::int(1));
     }
 
-    // Check for floats first (highest precedence)
-    let has_float = args.iter().any(is_float);
-    if has_float {
-        let mut prod: f64 = 1.0;
-        for arg in args {
-            prod *= to_float(arg)?;
+    match classify_numeric_args(args)? {
+        NumericCategory::Float => {
+            let mut prod: f64 = 1.0;
+            for arg in args {
+                prod *= to_float(arg)?;
+            }
+            Ok(KlujurVal::float(prod))
         }
-        return Ok(KlujurVal::float(prod));
-    }
-
-    // Check for BigInt or BigRatio
-    let has_bigint = args.iter().any(is_bigint);
-    let has_bigratio = args.iter().any(is_bigratio);
-
-    if has_bigratio || (has_bigint && args.iter().any(is_ratio)) {
-        // Use BigRatio arithmetic
-        let mut num = BigInt::from(1);
-        let mut den = BigInt::from(1);
-        for arg in args {
-            let (n, d) = to_bigratio(arg)?;
-            num = &num * &n;
-            den = &den * &d;
+        NumericCategory::BigRatio => {
+            let mut num = BigInt::from(1);
+            let mut den = BigInt::from(1);
+            for arg in args {
+                let (n, d) = to_bigratio(arg)?;
+                num = &num * &n;
+                den = &den * &d;
+            }
+            Ok(KlujurVal::bigratio(num, den))
         }
-        return Ok(KlujurVal::bigratio(num, den));
-    }
-
-    if has_bigint {
-        // Use BigInt arithmetic
-        let mut prod = BigInt::from(1);
-        for arg in args {
-            prod *= to_bigint(arg)?;
+        NumericCategory::BigInt => {
+            let mut prod = BigInt::from(1);
+            for arg in args {
+                prod *= to_bigint(arg)?;
+            }
+            Ok(KlujurVal::bigint(prod))
         }
-        return Ok(KlujurVal::bigint(prod));
-    }
-
-    // Check for ratios (i64 precision)
-    let has_ratio = args.iter().any(is_ratio);
-    if has_ratio {
-        let mut num: i64 = 1;
-        let mut den: i64 = 1;
-        for arg in args {
-            let (n, d) = to_ratio(arg)?;
-            // (num/den) * (n/d) = (num*n) / (den*d)
-            num = num
-                .checked_mul(n)
-                .ok_or(Error::IntegerOverflow { operation: "*" })?;
-            den = den
-                .checked_mul(d)
-                .ok_or(Error::IntegerOverflow { operation: "*" })?;
-        }
-        return Ok(KlujurVal::ratio(num, den));
-    }
-
-    // All integers (i64)
-    let mut int_prod: i64 = 1;
-    for arg in args {
-        match arg {
-            KlujurVal::Int(n) => {
-                int_prod = int_prod
-                    .checked_mul(*n)
+        NumericCategory::Ratio => {
+            let mut num: i64 = 1;
+            let mut den: i64 = 1;
+            for arg in args {
+                let (n, d) = to_i64_ratio(arg)?;
+                // (num/den) * (n/d) = (num*n) / (den*d)
+                num = num
+                    .checked_mul(n)
+                    .ok_or(Error::IntegerOverflow { operation: "*" })?;
+                den = den
+                    .checked_mul(d)
                     .ok_or(Error::IntegerOverflow { operation: "*" })?;
             }
-            other => {
-                return Err(Error::type_error_in("*", "number", other.type_name()));
+            Ok(KlujurVal::ratio(num, den))
+        }
+        NumericCategory::Int => {
+            let mut int_prod: i64 = 1;
+            for arg in args {
+                match arg {
+                    KlujurVal::Int(n) => {
+                        int_prod = int_prod
+                            .checked_mul(*n)
+                            .ok_or(Error::IntegerOverflow { operation: "*" })?;
+                    }
+                    other => {
+                        return Err(Error::type_error_in("*", "number", other.type_name()));
+                    }
+                }
             }
+            Ok(KlujurVal::int(int_prod))
         }
     }
-    Ok(KlujurVal::int(int_prod))
 }
 
 /// Auto-promoting multiplication that promotes to BigInt on overflow.
@@ -446,35 +517,32 @@ pub(crate) fn builtin_mul_prime(args: &[KlujurVal]) -> Result<KlujurVal> {
         return Ok(KlujurVal::int(1));
     }
 
-    // Check for floats first (highest precedence)
-    let has_float = args.iter().any(is_float);
-    if has_float {
-        let mut prod: f64 = 1.0;
-        for arg in args {
-            prod *= to_float(arg)?;
+    match classify_promoting_args(args)? {
+        PromotingCategory::Float => {
+            let mut prod: f64 = 1.0;
+            for arg in args {
+                prod *= to_float(arg)?;
+            }
+            Ok(KlujurVal::float(prod))
         }
-        return Ok(KlujurVal::float(prod));
-    }
-
-    // For *', always use BigInt/BigRatio to avoid overflow
-    let has_ratio = args.iter().any(is_ratio);
-    if has_ratio {
-        let mut num = BigInt::from(1);
-        let mut den = BigInt::from(1);
-        for arg in args {
-            let (n, d) = to_bigratio(arg)?;
-            num = &num * &n;
-            den = &den * &d;
+        PromotingCategory::BigRatio => {
+            let mut num = BigInt::from(1);
+            let mut den = BigInt::from(1);
+            for arg in args {
+                let (n, d) = to_bigratio(arg)?;
+                num = &num * &n;
+                den = &den * &d;
+            }
+            Ok(KlujurVal::bigratio(num, den))
         }
-        return Ok(KlujurVal::bigratio(num, den));
+        PromotingCategory::BigInt => {
+            let mut prod = BigInt::from(1);
+            for arg in args {
+                prod *= to_bigint(arg)?;
+            }
+            Ok(KlujurVal::bigint(prod))
+        }
     }
-
-    // All integers - use BigInt
-    let mut prod = BigInt::from(1);
-    for arg in args {
-        prod *= to_bigint(arg)?;
-    }
-    Ok(KlujurVal::bigint(prod))
 }
 
 pub(crate) fn builtin_div(args: &[KlujurVal]) -> Result<KlujurVal> {
@@ -508,52 +576,49 @@ pub(crate) fn builtin_div(args: &[KlujurVal]) -> Result<KlujurVal> {
         };
     }
 
-    // Check for floats first (highest precedence)
-    let has_float = args.iter().any(is_float);
-    if has_float {
-        let mut result = to_float(&args[0])?;
-        for arg in &args[1..] {
-            let divisor = to_float(arg)?;
-            result /= divisor;
-        }
-        return Ok(KlujurVal::float(result));
-    }
-
-    // Check for BigInt or BigRatio
-    let has_bigint = args.iter().any(is_bigint);
-    let has_bigratio = args.iter().any(is_bigratio);
-
-    if has_bigratio || has_bigint || args.iter().any(is_ratio) {
-        // Use BigRatio arithmetic for all rational division
-        let (mut num, mut den) = to_bigratio(&args[0])?;
-        for arg in &args[1..] {
-            let (n, d) = to_bigratio(arg)?;
-            if n.is_zero() {
-                return Err(Error::DivisionByZero);
+    // Division uses rational arithmetic: Float -> Float, otherwise BigRatio or i64 Ratio
+    match classify_numeric_args(args)? {
+        NumericCategory::Float => {
+            let mut result = to_float(&args[0])?;
+            for arg in &args[1..] {
+                let divisor = to_float(arg)?;
+                result /= divisor;
             }
-            // (num/den) / (n/d) = (num*d) / (den*n)
-            num = &num * &d;
-            den = &den * &n;
+            Ok(KlujurVal::float(result))
         }
-        return Ok(KlujurVal::bigratio(num, den));
-    }
-
-    // All integers (i64) - produces a ratio
-    let (mut num, mut den) = to_ratio(&args[0])?;
-    for arg in &args[1..] {
-        let (n, d) = to_ratio(arg)?;
-        if n == 0 {
-            return Err(Error::DivisionByZero);
+        // For division, BigInt/BigRatio/Ratio all use BigRatio arithmetic
+        NumericCategory::BigRatio | NumericCategory::BigInt | NumericCategory::Ratio => {
+            let (mut num, mut den) = to_bigratio(&args[0])?;
+            for arg in &args[1..] {
+                let (n, d) = to_bigratio(arg)?;
+                if n.is_zero() {
+                    return Err(Error::DivisionByZero);
+                }
+                // (num/den) / (n/d) = (num*d) / (den*n)
+                num = &num * &d;
+                den = &den * &n;
+            }
+            Ok(KlujurVal::bigratio(num, den))
         }
-        // (num/den) / (n/d) = (num*d) / (den*n)
-        num = num
-            .checked_mul(d)
-            .ok_or(Error::IntegerOverflow { operation: "/" })?;
-        den = den
-            .checked_mul(n)
-            .ok_or(Error::IntegerOverflow { operation: "/" })?;
+        // All integers (i64) - produces an i64 ratio
+        NumericCategory::Int => {
+            let (mut num, mut den) = to_i64_ratio(&args[0])?;
+            for arg in &args[1..] {
+                let (n, d) = to_i64_ratio(arg)?;
+                if n == 0 {
+                    return Err(Error::DivisionByZero);
+                }
+                // (num/den) / (n/d) = (num*d) / (den*n)
+                num = num
+                    .checked_mul(d)
+                    .ok_or(Error::IntegerOverflow { operation: "/" })?;
+                den = den
+                    .checked_mul(n)
+                    .ok_or(Error::IntegerOverflow { operation: "/" })?;
+            }
+            Ok(KlujurVal::ratio(num, den))
+        }
     }
-    Ok(KlujurVal::ratio(num, den))
 }
 
 pub(crate) fn builtin_quot(args: &[KlujurVal]) -> Result<KlujurVal> {

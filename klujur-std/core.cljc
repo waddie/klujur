@@ -456,9 +456,20 @@
 ;; ============================================================================
 
 (defmacro letfn
-  "Bind mutually recursive local functions.
+  "Bind local functions that can reference each other.
+
    Uses volatiles to enable mutual recursion - each function can call
-   the others even though they're defined simultaneously."
+   the others even though they're defined simultaneously.
+
+   Example:
+     (letfn [(even? [n] (if (zero? n) true (odd? (dec n))))
+             (odd? [n] (if (zero? n) false (even? (dec n))))]
+       (even? 10))  ; => true
+
+   Note: This implementation introduces an extra layer of indirection
+   via wrapper functions. For performance-critical code with deep
+   recursion, consider using a single recursive function with a
+   dispatch parameter instead."
   [fnspecs & body]
   (let [names            (vec (map first fnspecs))
         ;; Create gensyms for the volatile references
@@ -797,7 +808,9 @@
   "Returns the result of applying concat to the result of applying map
    to f and colls. Thus function f should return a collection.
    When called with 1 arg (f), returns a transducer."
-  ([f] (comp (map f) cat))
+  ([f]
+   (comp (map f)
+         (cat)))
   ([f coll] (apply concat (map f coll)))
   ([f & colls] (apply concat (apply map f colls))))
 
@@ -920,13 +933,15 @@
       (if (reduced? result) (reduced result) result))))
 
 (defn cat
-  "A transducer which concatenates nested collections."
-  [rf]
-  (let [rrf (preserving-reduced rf)]
-    (fn
-      ([] (rf))
-      ([result] (rf result))
-      ([result input] (reduce rrf result input)))))
+  "A transducer which concatenates nested collections.
+   Returns a transducer when called with no arguments."
+  []
+  (fn [rf]
+    (let [rrf (preserving-reduced rf)]
+      (fn
+        ([] (rf))
+        ([result] (rf result))
+        ([result input] (reduce rrf result input))))))
 
 (defn dedupe
   "Returns a lazy sequence removing consecutive duplicates.

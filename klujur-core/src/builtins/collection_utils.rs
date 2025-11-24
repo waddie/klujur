@@ -30,7 +30,8 @@ pub(crate) fn builtin_keys(args: &[KlujurVal]) -> Result<KlujurVal> {
             Ok(KlujurVal::list(keys))
         }
         KlujurVal::SortedMapBy(sm) => {
-            let keys: Vec<KlujurVal> = sm.entries().iter().map(|(k, _)| k.clone()).collect();
+            let entries = sm.entries().map_err(|e| Error::EvalError(e.into()))?;
+            let keys: Vec<KlujurVal> = entries.iter().map(|(k, _)| k.clone()).collect();
             Ok(KlujurVal::list(keys))
         }
         other => Err(Error::type_error_in("keys", "map", other.type_name())),
@@ -51,7 +52,8 @@ pub(crate) fn builtin_vals(args: &[KlujurVal]) -> Result<KlujurVal> {
             Ok(KlujurVal::list(vals))
         }
         KlujurVal::SortedMapBy(sm) => {
-            let vals: Vec<KlujurVal> = sm.entries().iter().map(|(_, v)| v.clone()).collect();
+            let entries = sm.entries().map_err(|e| Error::EvalError(e.into()))?;
+            let vals: Vec<KlujurVal> = entries.iter().map(|(_, v)| v.clone()).collect();
             Ok(KlujurVal::list(vals))
         }
         other => Err(Error::type_error_in("vals", "map", other.type_name())),

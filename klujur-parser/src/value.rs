@@ -5,7 +5,8 @@
 //!
 //! `KlujurVal` is the central enum representing all Klujur values.
 
-// Allow mutable key types - KlujurVal has interior mutability for Vars/Atoms by design
+// KlujurVal contains interior-mutable types (Var, Atom, Delay, Volatile) but hashes
+// by identity/qualified-name, not mutable contents. This is intentional and safe.
 #![allow(clippy::mutable_key_type)]
 
 use std::any::Any;
@@ -711,10 +712,17 @@ impl KlujurSortedMapBy {
     }
 
     /// Get a clone of all entries.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the entries are currently borrowed mutably,
+    /// which could occur during re-entrant comparator access.
     #[inline]
-    #[must_use]
-    pub fn entries(&self) -> Vec<(KlujurVal, KlujurVal)> {
-        self.entries.borrow().clone()
+    pub fn entries(&self) -> Result<Vec<(KlujurVal, KlujurVal)>, &'static str> {
+        self.entries
+            .try_borrow()
+            .map(|e| e.clone())
+            .map_err(|_| "Re-entrant access to SortedMapBy during comparator call")
     }
 
     /// Get a reference to the entries RefCell for external manipulation.
@@ -865,10 +873,17 @@ impl KlujurSortedSetBy {
     }
 
     /// Get a clone of all elements.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the elements are currently borrowed mutably,
+    /// which could occur during re-entrant comparator access.
     #[inline]
-    #[must_use]
-    pub fn elements(&self) -> Vec<KlujurVal> {
-        self.elements.borrow().clone()
+    pub fn elements(&self) -> Result<Vec<KlujurVal>, &'static str> {
+        self.elements
+            .try_borrow()
+            .map(|e| e.clone())
+            .map_err(|_| "Re-entrant access to SortedSetBy during comparator call")
     }
 
     /// Get a reference to the elements RefCell for external manipulation.
@@ -2763,9 +2778,32 @@ fn escape_string(s: &str) -> String {
 // Equality and ordering (for use as map keys and set elements)
 // ============================================================================
 
+// # Float and NaN Handling in Collections
+//
+// Unlike IEEE 754 (where NaN != NaN), Klujur treats NaN values as equal to
+// themselves. This is required for correct behaviour in collections:
+//
+// - **Hash/Eq contract**: If two values are equal, they must hash identically.
+//   Since NaN can be used as a map key, NaN must equal itself.
+//
+// - **Total ordering**: For sorted collections, all values must be orderable.
+//   NaN values compare equal to each other.
+//
+// - **Multiple NaN bit patterns**: IEEE 754 defines many valid NaN bit patterns.
+//   All are normalised to `f64::NAN.to_bits()` for consistent hashing/equality.
+//
+// This matches Clojure's behaviour where `(= ##NaN ##NaN)` returns true.
+
 /// Normalize float bits for consistent hashing and equality.
-/// - Treats +0.0 and -0.0 as the same value
-/// - Treats all NaN bit patterns as the same value
+///
+/// Handles two special cases to satisfy the Hash/Eq contract:
+///
+/// 1. **NaN normalisation**: Multiple NaN bit patterns exist in IEEE 754.
+///    All NaN values are mapped to a single canonical representation so they
+///    hash identically and compare equal when used as map keys or set elements.
+///
+/// 2. **Zero normalisation**: IEEE 754 distinguishes +0.0 and -0.0, but they
+///    compare equal. Both are mapped to the same bits for consistent hashing.
 fn normalize_float_bits(f: f64) -> u64 {
     if f.is_nan() {
         // All NaN values hash to the same canonical NaN bits

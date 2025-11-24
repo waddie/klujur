@@ -398,3 +398,43 @@
     (is (false? (eval* "((complement even?) 2)")))
     (is (true? (eval* "((complement nil?) 42)")))
     (is (false? (eval* "((complement nil?) nil)")))))
+
+;; =============================================================================
+;; letfn
+;; =============================================================================
+
+(deftest letfn-basic-test
+  (testing "letfn creates local functions"
+    (is (= 5 (eval* "(letfn [(f [x] (+ x 1))] (f 4))")))
+    (is (= 42 (eval* "(letfn [(answer [] 42)] (answer))")))))
+
+(deftest letfn-multiple-functions-test
+  (testing "letfn with multiple functions"
+    (is
+     (=
+      7
+      (eval*
+       "(letfn [(f [x] (+ x 1))
+                             (g [x] (* x 2))]
+                       (f (g 3)))")))))
+
+(deftest letfn-mutual-recursion-test
+  (testing "letfn enables mutual recursion"
+    (is
+     (true?
+      (eval*
+       "(letfn [(even? [n] (if (zero? n) true (odd? (dec n))))
+                               (odd? [n] (if (zero? n) false (even? (dec n))))]
+                         (even? 10))")))
+    (is
+     (false?
+      (eval*
+       "(letfn [(even? [n] (if (zero? n) true (odd? (dec n))))
+                                (odd? [n] (if (zero? n) false (even? (dec n))))]
+                          (even? 11))")))
+    (is
+     (true?
+      (eval*
+       "(letfn [(even? [n] (if (zero? n) true (odd? (dec n))))
+                               (odd? [n] (if (zero? n) false (even? (dec n))))]
+                         (odd? 7))")))))

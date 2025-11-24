@@ -309,9 +309,9 @@ fn test_partition_by_transducer() {
 
 #[test]
 fn test_cat_transducer() {
-    // cat is directly a transducer (no parens needed)
+    // cat returns a transducer when called with no args (Clojure-compatible)
     assert_eval_stdlib!(
-        "(into [] cat [[1 2] [3 4] [5]])",
+        "(into [] (cat) [[1 2] [3 4] [5]])",
         KlujurVal::vector(vec![
             KlujurVal::int(1),
             KlujurVal::int(2),
@@ -537,7 +537,7 @@ fn test_cat_with_early_termination() {
     // cat should respect reduced from inner sequences
     // Test that take works correctly through cat
     assert_eval_stdlib!(
-        "(into [] (comp cat (take 4)) [[1 2] [3 4] [5 6]])",
+        "(into [] (comp (cat) (take 4)) [[1 2] [3 4] [5 6]])",
         KlujurVal::vector(vec![
             KlujurVal::int(1),
             KlujurVal::int(2),

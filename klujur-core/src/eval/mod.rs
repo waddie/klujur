@@ -3,7 +3,8 @@
 
 //! AST-walking evaluator for Klujur expressions.
 
-// Allow mutable key types - KlujurVal has interior mutability for Vars/Atoms by design
+// KlujurVal contains interior-mutable types (Var, Atom, Delay, Volatile) but hashes
+// by identity/qualified-name, not mutable contents. This is intentional and safe.
 #![allow(clippy::mutable_key_type)]
 
 // Submodules

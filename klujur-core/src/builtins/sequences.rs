@@ -12,81 +12,79 @@ use super::collections::builtin_conj;
 use super::{force_lazy_seq, to_seq};
 
 // ============================================================================
-// Core Sequence Operations
+// Seqable Trait
 // ============================================================================
 
-pub(crate) fn builtin_first(args: &[KlujurVal]) -> Result<KlujurVal> {
-    if args.len() != 1 {
-        return Err(Error::arity_named("first", 1, args.len()));
-    }
+/// Trait for types that can be treated as sequences.
+///
+/// Provides `seq_first`, `seq_rest`, and `seq_next` operations that centralise
+/// sequence handling logic across multiple collection types.
+pub trait Seqable {
+    /// Get the first element. Returns `Ok(KlujurVal::Nil)` if empty.
+    fn seq_first(&self) -> Result<KlujurVal>;
 
-    match &args[0] {
-        KlujurVal::Nil => Ok(KlujurVal::Nil),
-        KlujurVal::List(items, _) => Ok(items.front().cloned().unwrap_or(KlujurVal::Nil)),
-        KlujurVal::Vector(items, _) => Ok(items.front().cloned().unwrap_or(KlujurVal::Nil)),
-        KlujurVal::String(s) => Ok(s
-            .chars()
-            .next()
-            .map(KlujurVal::char)
-            .unwrap_or(KlujurVal::Nil)),
-        KlujurVal::LazySeq(ls) => match force_lazy_seq(ls)? {
-            SeqResult::Empty => Ok(KlujurVal::Nil),
-            SeqResult::Cons(first, _) => Ok(first),
-        },
-        KlujurVal::SortedMapBy(sm) => {
-            let entries = sm.entries();
-            Ok(entries
-                .first()
-                .map(|(k, v)| KlujurVal::vector(vec![k.clone(), v.clone()]))
-                .unwrap_or(KlujurVal::Nil))
+    /// Get all elements after the first as a list.
+    /// Returns `Ok(KlujurVal::empty_list())` if empty or single element.
+    fn seq_rest(&self) -> Result<KlujurVal>;
+
+    /// Like `seq_rest` but returns `Ok(KlujurVal::Nil)` instead of empty list
+    /// when there are no remaining elements (i.e., when the collection has
+    /// 0 or 1 elements).
+    fn seq_next(&self) -> Result<KlujurVal> {
+        let rest = self.seq_rest()?;
+        match &rest {
+            KlujurVal::List(items, _) if items.is_empty() => Ok(KlujurVal::Nil),
+            _ => Ok(rest),
         }
-        KlujurVal::SortedSetBy(ss) => {
-            let elements = ss.elements();
-            Ok(elements.first().cloned().unwrap_or(KlujurVal::Nil))
-        }
-        other => Err(Error::type_error_in("first", "seqable", other.type_name())),
     }
 }
 
-pub(crate) fn builtin_rest(args: &[KlujurVal]) -> Result<KlujurVal> {
-    if args.len() != 1 {
-        return Err(Error::arity_named("rest", 1, args.len()));
+impl Seqable for KlujurVal {
+    fn seq_first(&self) -> Result<KlujurVal> {
+        match self {
+            KlujurVal::Nil => Ok(KlujurVal::Nil),
+            KlujurVal::List(items, _) | KlujurVal::Vector(items, _) => {
+                Ok(items.front().cloned().unwrap_or(KlujurVal::Nil))
+            }
+            KlujurVal::String(s) => Ok(s
+                .chars()
+                .next()
+                .map(KlujurVal::char)
+                .unwrap_or(KlujurVal::Nil)),
+            KlujurVal::LazySeq(ls) => match force_lazy_seq(ls)? {
+                SeqResult::Empty => Ok(KlujurVal::Nil),
+                SeqResult::Cons(first, _) => Ok(first),
+            },
+            KlujurVal::SortedMapBy(sm) => {
+                let entries = sm.entries().map_err(|e| Error::EvalError(e.into()))?;
+                Ok(entries
+                    .first()
+                    .map(|(k, v)| KlujurVal::vector(vec![k.clone(), v.clone()]))
+                    .unwrap_or(KlujurVal::Nil))
+            }
+            KlujurVal::SortedSetBy(ss) => {
+                let elements = ss.elements().map_err(|e| Error::EvalError(e.into()))?;
+                Ok(elements.first().cloned().unwrap_or(KlujurVal::Nil))
+            }
+            other => Err(Error::type_error_in("first", "seqable", other.type_name())),
+        }
     }
 
-    match &args[0] {
-        KlujurVal::Nil => Ok(KlujurVal::empty_list()),
-        KlujurVal::List(items, _) => {
-            if items.is_empty() {
-                Ok(KlujurVal::empty_list())
-            } else {
+    fn seq_rest(&self) -> Result<KlujurVal> {
+        match self {
+            KlujurVal::Nil => Ok(KlujurVal::empty_list()),
+            KlujurVal::List(items, _) | KlujurVal::Vector(items, _) => {
                 Ok(KlujurVal::list(items.iter().skip(1).cloned().collect()))
             }
-        }
-        KlujurVal::Vector(items, _) => {
-            if items.is_empty() {
-                Ok(KlujurVal::empty_list())
-            } else {
-                Ok(KlujurVal::list(items.iter().skip(1).cloned().collect()))
-            }
-        }
-        KlujurVal::String(s) => {
-            if s.is_empty() {
-                Ok(KlujurVal::empty_list())
-            } else {
-                Ok(KlujurVal::list(
-                    s.chars().skip(1).map(KlujurVal::char).collect(),
-                ))
-            }
-        }
-        KlujurVal::LazySeq(ls) => match force_lazy_seq(ls)? {
-            SeqResult::Empty => Ok(KlujurVal::empty_list()),
-            SeqResult::Cons(_, rest) => Ok(rest),
-        },
-        KlujurVal::SortedMapBy(sm) => {
-            let entries = sm.entries();
-            if entries.is_empty() {
-                Ok(KlujurVal::empty_list())
-            } else {
+            KlujurVal::String(s) => Ok(KlujurVal::list(
+                s.chars().skip(1).map(KlujurVal::char).collect(),
+            )),
+            KlujurVal::LazySeq(ls) => match force_lazy_seq(ls)? {
+                SeqResult::Empty => Ok(KlujurVal::empty_list()),
+                SeqResult::Cons(_, rest) => Ok(rest),
+            },
+            KlujurVal::SortedMapBy(sm) => {
+                let entries = sm.entries().map_err(|e| Error::EvalError(e.into()))?;
                 let rest: Vec<KlujurVal> = entries
                     .iter()
                     .skip(1)
@@ -94,17 +92,83 @@ pub(crate) fn builtin_rest(args: &[KlujurVal]) -> Result<KlujurVal> {
                     .collect();
                 Ok(KlujurVal::list(rest))
             }
-        }
-        KlujurVal::SortedSetBy(ss) => {
-            let elements = ss.elements();
-            if elements.is_empty() {
-                Ok(KlujurVal::empty_list())
-            } else {
+            KlujurVal::SortedSetBy(ss) => {
+                let elements = ss.elements().map_err(|e| Error::EvalError(e.into()))?;
                 Ok(KlujurVal::list(elements.iter().skip(1).cloned().collect()))
             }
+            other => Err(Error::type_error_in("rest", "seqable", other.type_name())),
         }
-        other => Err(Error::type_error_in("rest", "seqable", other.type_name())),
     }
+
+    /// Override `seq_next` to handle LazySeq properly by normalizing with `builtin_seq`.
+    fn seq_next(&self) -> Result<KlujurVal> {
+        match self {
+            KlujurVal::Nil => Ok(KlujurVal::Nil),
+            KlujurVal::List(items, _) | KlujurVal::Vector(items, _) if items.len() <= 1 => {
+                Ok(KlujurVal::Nil)
+            }
+            KlujurVal::List(items, _) | KlujurVal::Vector(items, _) => {
+                Ok(KlujurVal::list(items.iter().skip(1).cloned().collect()))
+            }
+            KlujurVal::String(s) => {
+                let char_count = s.chars().count();
+                if char_count <= 1 {
+                    Ok(KlujurVal::Nil)
+                } else {
+                    Ok(KlujurVal::list(
+                        s.chars().skip(1).map(KlujurVal::char).collect(),
+                    ))
+                }
+            }
+            KlujurVal::LazySeq(ls) => match force_lazy_seq(ls)? {
+                SeqResult::Empty => Ok(KlujurVal::Nil),
+                SeqResult::Cons(_, rest) => {
+                    // next returns nil if rest is empty, otherwise rest as seq
+                    builtin_seq(&[rest])
+                }
+            },
+            KlujurVal::SortedMapBy(sm) => {
+                let entries = sm.entries().map_err(|e| Error::EvalError(e.into()))?;
+                if entries.len() <= 1 {
+                    Ok(KlujurVal::Nil)
+                } else {
+                    let rest: Vec<KlujurVal> = entries
+                        .iter()
+                        .skip(1)
+                        .map(|(k, v)| KlujurVal::vector(vec![k.clone(), v.clone()]))
+                        .collect();
+                    Ok(KlujurVal::list(rest))
+                }
+            }
+            KlujurVal::SortedSetBy(ss) => {
+                let elements = ss.elements().map_err(|e| Error::EvalError(e.into()))?;
+                if elements.len() <= 1 {
+                    Ok(KlujurVal::Nil)
+                } else {
+                    Ok(KlujurVal::list(elements.iter().skip(1).cloned().collect()))
+                }
+            }
+            other => Err(Error::type_error_in("next", "seqable", other.type_name())),
+        }
+    }
+}
+
+// ============================================================================
+// Core Sequence Operations
+// ============================================================================
+
+pub(crate) fn builtin_first(args: &[KlujurVal]) -> Result<KlujurVal> {
+    if args.len() != 1 {
+        return Err(Error::arity_named("first", 1, args.len()));
+    }
+    args[0].seq_first()
+}
+
+pub(crate) fn builtin_rest(args: &[KlujurVal]) -> Result<KlujurVal> {
+    if args.len() != 1 {
+        return Err(Error::arity_named("rest", 1, args.len()));
+    }
+    args[0].seq_rest()
 }
 
 pub(crate) fn builtin_cons(args: &[KlujurVal]) -> Result<KlujurVal> {
@@ -142,6 +206,13 @@ pub(crate) fn builtin_cons(args: &[KlujurVal]) -> Result<KlujurVal> {
     }
 }
 
+/// Returns the count of items in a collection.
+///
+/// # Performance
+/// - Collections (List, Vector, Map, Set, Record): O(1)
+/// - String: O(n) - must iterate UTF-8 bytes to count Unicode characters
+/// - LazySeq: O(n) - forces entire sequence
+/// - SortedMapBy, SortedSetBy: O(1)
 pub(crate) fn builtin_count(args: &[KlujurVal]) -> Result<KlujurVal> {
     if args.len() != 1 {
         return Err(Error::arity_named("count", 1, args.len()));
@@ -303,54 +374,7 @@ pub(crate) fn builtin_next(args: &[KlujurVal]) -> Result<KlujurVal> {
     if args.len() != 1 {
         return Err(Error::arity_named("next", 1, args.len()));
     }
-    match &args[0] {
-        KlujurVal::Nil => Ok(KlujurVal::Nil),
-        KlujurVal::List(items, _) if items.len() <= 1 => Ok(KlujurVal::Nil),
-        KlujurVal::List(items, _) => Ok(KlujurVal::list(items.iter().skip(1).cloned().collect())),
-        KlujurVal::Vector(items, _) if items.len() <= 1 => Ok(KlujurVal::Nil),
-        KlujurVal::Vector(items, _) => Ok(KlujurVal::list(items.iter().skip(1).cloned().collect())),
-        KlujurVal::String(s) => {
-            let char_count = s.chars().count();
-            if char_count <= 1 {
-                Ok(KlujurVal::Nil)
-            } else {
-                Ok(KlujurVal::list(
-                    s.chars().skip(1).map(KlujurVal::char).collect(),
-                ))
-            }
-        }
-        KlujurVal::LazySeq(ls) => {
-            match force_lazy_seq(ls)? {
-                SeqResult::Empty => Ok(KlujurVal::Nil),
-                SeqResult::Cons(_, rest) => {
-                    // next returns nil if rest is empty, otherwise rest as seq
-                    builtin_seq(&[rest])
-                }
-            }
-        }
-        KlujurVal::SortedMapBy(sm) => {
-            let entries = sm.entries();
-            if entries.len() <= 1 {
-                Ok(KlujurVal::Nil)
-            } else {
-                let rest: Vec<KlujurVal> = entries
-                    .iter()
-                    .skip(1)
-                    .map(|(k, v)| KlujurVal::vector(vec![k.clone(), v.clone()]))
-                    .collect();
-                Ok(KlujurVal::list(rest))
-            }
-        }
-        KlujurVal::SortedSetBy(ss) => {
-            let elements = ss.elements();
-            if elements.len() <= 1 {
-                Ok(KlujurVal::Nil)
-            } else {
-                Ok(KlujurVal::list(elements.iter().skip(1).cloned().collect()))
-            }
-        }
-        other => Err(Error::type_error_in("next", "seqable", other.type_name())),
-    }
+    args[0].seq_next()
 }
 
 pub(crate) fn builtin_second(args: &[KlujurVal]) -> Result<KlujurVal> {
@@ -829,7 +853,7 @@ pub(crate) fn builtin_seq(args: &[KlujurVal]) -> Result<KlujurVal> {
             }
         }
         KlujurVal::SortedMapBy(sm) => {
-            let entries = sm.entries();
+            let entries = sm.entries().map_err(|e| Error::EvalError(e.into()))?;
             if entries.is_empty() {
                 Ok(KlujurVal::Nil)
             } else {
@@ -841,7 +865,7 @@ pub(crate) fn builtin_seq(args: &[KlujurVal]) -> Result<KlujurVal> {
             }
         }
         KlujurVal::SortedSetBy(ss) => {
-            let elements = ss.elements();
+            let elements = ss.elements().map_err(|e| Error::EvalError(e.into()))?;
             if elements.is_empty() {
                 Ok(KlujurVal::Nil)
             } else {

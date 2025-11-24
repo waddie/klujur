@@ -221,7 +221,7 @@ pub(crate) fn sorted_map_by_assoc(
     key: KlujurVal,
     val: KlujurVal,
 ) -> Result<KlujurSortedMapBy> {
-    let mut entries = sm.entries();
+    let mut entries = sm.entries().map_err(|e| Error::EvalError(e.into()))?;
     let search_result = binary_search_map(&entries, &key, sm.comparator())?;
 
     match search_result {
@@ -246,7 +246,7 @@ pub(crate) fn sorted_map_by_dissoc(
     sm: &KlujurSortedMapBy,
     key: &KlujurVal,
 ) -> Result<KlujurSortedMapBy> {
-    let mut entries = sm.entries();
+    let mut entries = sm.entries().map_err(|e| Error::EvalError(e.into()))?;
     let search_result = binary_search_map(&entries, key, sm.comparator())?;
 
     if let Ok(idx) = search_result {
@@ -261,7 +261,7 @@ pub(crate) fn sorted_map_by_dissoc(
 
 /// Helper: Get a value from a sorted map.
 pub fn sorted_map_by_get(sm: &KlujurSortedMapBy, key: &KlujurVal) -> Result<Option<KlujurVal>> {
-    let entries = sm.entries();
+    let entries = sm.entries().map_err(|e| Error::EvalError(e.into()))?;
     let search_result = binary_search_map(&entries, key, sm.comparator())?;
 
     match search_result {
@@ -275,7 +275,7 @@ pub(crate) fn sorted_set_by_conj(
     ss: &KlujurSortedSetBy,
     elem: KlujurVal,
 ) -> Result<KlujurSortedSetBy> {
-    let mut elements = ss.elements();
+    let mut elements = ss.elements().map_err(|e| Error::EvalError(e.into()))?;
     let search_result = binary_search_set(&elements, &elem, ss.comparator())?;
 
     match search_result {
@@ -299,7 +299,7 @@ pub(crate) fn sorted_set_by_disj(
     ss: &KlujurSortedSetBy,
     elem: &KlujurVal,
 ) -> Result<KlujurSortedSetBy> {
-    let mut elements = ss.elements();
+    let mut elements = ss.elements().map_err(|e| Error::EvalError(e.into()))?;
     let search_result = binary_search_set(&elements, elem, ss.comparator())?;
 
     if let Ok(idx) = search_result {
@@ -314,7 +314,7 @@ pub(crate) fn sorted_set_by_disj(
 
 /// Helper: Check if a sorted set contains an element.
 pub fn sorted_set_by_contains(ss: &KlujurSortedSetBy, elem: &KlujurVal) -> Result<bool> {
-    let elements = ss.elements();
+    let elements = ss.elements().map_err(|e| Error::EvalError(e.into()))?;
     let search_result = binary_search_set(&elements, elem, ss.comparator())?;
     Ok(search_result.is_ok())
 }

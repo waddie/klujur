@@ -412,7 +412,11 @@
 (deftest run!-test
   (testing "run! executes side effects"
     ;; run! should iterate and call proc for each element
-    (is (= [1 2 3] (eval* "(do (def side-effects (atom []))
+    (is
+     (=
+      [1 2 3]
+      (eval*
+       "(do (def side-effects (atom []))
                               (run! #(swap! side-effects conj %) [1 2 3])
                               @side-effects)"))))
   (testing "run! returns nil"
@@ -427,15 +431,22 @@
   (testing "trampoline with non-fn return"
     (is (= 42 (eval* "(trampoline (constantly 42))"))))
   (testing "trampoline with fn chain"
-    (is (= "done!" (eval* "(do (defn countdown [n]
+    (is
+     (=
+      "done!"
+      (eval*
+       "(do (defn countdown [n]
                                  (if (zero? n)
                                    \"done!\"
                                    #(countdown (dec n))))
                               (trampoline countdown 5))"))))
-  (testing "trampoline with args"
-    (is (= 10 (eval* "(trampoline + 1 2 3 4)"))))
+  (testing "trampoline with args" (is (= 10 (eval* "(trampoline + 1 2 3 4)"))))
   (testing "trampoline enables mutual recursion"
-    (is (= true (eval* "(do (defn my-even? [n]
+    (is
+     (=
+      true
+      (eval*
+       "(do (defn my-even? [n]
                                (if (zero? n)
                                  true
                                  #(my-odd? (dec n))))
@@ -475,7 +486,8 @@
     ;; With 0.5 probability, result should be between 0 and 100 elements
     (is (<= 0 (count (eval* "(random-sample 0.5 (range 100))")) 100)))
   (testing "random-sample as transducer"
-    (is (<= 0 (count (eval* "(into [] (random-sample 0.5) (range 100))")) 100))))
+    (is
+     (<= 0 (count (eval* "(into [] (random-sample 0.5) (range 100))")) 100))))
 
 ;; =============================================================================
 ;; halt-when - Early termination transducer
@@ -485,10 +497,13 @@
   (testing "halt-when stops and returns triggering input"
     (is (= 5 (eval* "(into [] (halt-when #(= % 5)) (range 10))"))))
   (testing "halt-when with retf"
-    (is (= [0 1 2 3 4 :stopped-at 5]
-           (eval* "(into [] (halt-when #(= % 5) (fn [r x] (conj r :stopped-at x))) (range 10))"))))
+    (is
+     (=
+      [0 1 2 3 4 :stopped-at 5]
+      (eval*
+       "(into [] (halt-when #(= % 5) (fn [r x] (conj r :stopped-at x))) (range 10))"))))
   (testing "halt-when completes normally if pred never true"
     (is (= [0 1 2 3 4 5 6 7 8 9]
            (eval* "(into [] (halt-when #(= % 100)) (range 10))"))))
   (testing "halt-when works with transduce"
-    (is (= 5 (eval* "(transduce (halt-when #(> % 4)) conj [] (range 10))"))))))
+    (is (= 5 (eval* "(transduce (halt-when #(> % 4)) conj [] (range 10))")))))

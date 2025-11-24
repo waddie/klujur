@@ -126,3 +126,26 @@
                               (fn [acc x] (if (> acc 5) (reduced acc) (+ acc x)))
                               0
                               [1 2 3 4 5])")))))
+
+;; =============================================================================
+;; cat Transducer
+;; =============================================================================
+
+(deftest cat-xf-test
+  (testing "cat as transducer flattens one level"
+    (is (= [1 2 3 4] (eval* "(into [] (cat) [[1 2] [3 4]])"))))
+  (testing "cat with empty nested collections"
+    (is (= [1 2] (eval* "(into [] (cat) [[1] [] [2] []])"))))
+  (testing "cat with single element collections"
+    (is (= [1 2 3] (eval* "(into [] (cat) [[1] [2] [3]])"))))
+  (testing "cat with comp"
+    (is (= [2 3 4 5] (eval* "(into [] (comp (cat) (map inc)) [[1 2] [3 4]])"))))
+  (testing "cat in different order with comp"
+    (is (= [[2 3] [4 5]]
+           (eval* "(into [] (comp (map #(map inc %)) (cat)) [[1 2] [3 4]])")))))
+
+(deftest mapcat-xf-test
+  (testing "mapcat as transducer"
+    (is (= [1 2 2 3 3 3] (eval* "(into [] (mapcat #(repeat % %)) [1 2 3])"))))
+  (testing "mapcat with identity"
+    (is (= [1 2 3 4] (eval* "(into [] (mapcat identity) [[1 2] [3 4]])")))))

@@ -172,7 +172,13 @@
 (deftest condp-threading-test
   (testing "condp with :>> threading"
     ;; (condp pred expr clause :>> fn ...) threads result through fn
-    (is (= 2 (eval* "(condp some [1 2 3] #{2} :>> identity)")))))
+    (is (= 2 (eval* "(condp some [1 2 3] #{2} :>> identity)"))))
+  (testing ":>> threads predicate result through function"
+    (is (= 3 (eval* "(condp some [1 2 3] #{2} :>> inc)"))))
+  (testing ":>> with multiple clauses"
+    (is (= 4 (eval* "(condp some [1 2 3 4] #{5} :>> inc #{4} :>> identity)"))))
+  (testing ":>> with default clause"
+    (is (= :default (eval* "(condp some [1 2 3] #{5} :>> inc :default)")))))
 
 ;; =============================================================================
 ;; case

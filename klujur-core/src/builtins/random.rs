@@ -231,15 +231,15 @@ fn hash_val<H: std::hash::Hasher>(val: &KlujurVal, hasher: &mut H) {
             }
         }
         KlujurVal::SortedMapBy(sm) => {
-            // Hash sorted map entries
-            for (k, v) in sm.entries().iter() {
+            // Hash sorted map entries (use default on re-entrancy - unlikely in hashing context)
+            for (k, v) in sm.entries().unwrap_or_default().iter() {
                 hash_val(k, hasher);
                 hash_val(v, hasher);
             }
         }
         KlujurVal::SortedSetBy(ss) => {
-            // Hash sorted set elements
-            for elem in ss.elements().iter() {
+            // Hash sorted set elements (use default on re-entrancy - unlikely in hashing context)
+            for elem in ss.elements().unwrap_or_default().iter() {
                 hash_val(elem, hasher);
             }
         }

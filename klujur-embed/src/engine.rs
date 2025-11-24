@@ -53,6 +53,12 @@ impl std::fmt::Debug for Engine {
 
 impl Engine {
     /// Create a new Engine with the standard library loaded.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the standard library fails to load. This can occur if:
+    /// - The bundled `core.cljc` contains syntax errors (should never happen in releases)
+    /// - A macro or function definition fails during initialisation
     pub fn new() -> Result<Self> {
         let env = Env::new();
         register_builtins(&env);
@@ -185,6 +191,13 @@ impl Engine {
     }
 
     /// Call a function by name with arguments.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The symbol is not defined in the current namespace
+    /// - The value is not callable (not a function, native function, or multimethod)
+    /// - The function application fails (arity mismatch, runtime error, uncaught exception)
     ///
     /// # Example
     ///

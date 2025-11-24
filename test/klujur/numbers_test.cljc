@@ -445,3 +445,32 @@
       (is (infinite? result)))
     ;; Mixed int/float uses float arithmetic
     (is (number? (eval* "(+ 9223372036854775807 1.0)")))))
+
+;; =============================================================================
+;; BigInt Auto-Promoting Operators
+;; =============================================================================
+
+(deftest bigint-auto-promoting-operators-test
+  (testing "+' auto-promotes to BigInt on overflow"
+    (is (= 9223372036854775808N (eval* "(+' 9223372036854775807 1)")))
+    (is (= -9223372036854775809N (eval* "(+' -9223372036854775808 -1)"))))
+  (testing "-' auto-promotes to BigInt on overflow"
+    (is (= 9223372036854775808N (eval* "(-' 9223372036854775807 -1)")))
+    (is (= -9223372036854775809N (eval* "(-' -9223372036854775808 1)"))))
+  (testing "*' auto-promotes to BigInt on overflow"
+    (is (= 18446744073709551614N (eval* "(*' 9223372036854775807 2)")))
+    (is (= 9223372036854775809N (eval* "(*' 3037000500 3037000500)")))))
+
+(deftest bigint-inc-dec-promoting-test
+  (testing "inc' auto-promotes to BigInt"
+    (is (= 9223372036854775808N (eval* "(inc' 9223372036854775807)"))))
+  (testing "dec' auto-promotes to BigInt"
+    (is (= -9223372036854775809N (eval* "(dec' -9223372036854775808)")))))
+
+(deftest bigint-literal-auto-promotion-test
+  (testing "literals beyond i64 auto-promote to BigInt"
+    (is (true? (eval* "(bigint? 9223372036854775808)")))
+    (is (false? (eval* "(bigint? 9223372036854775807)"))))
+  (testing "integer? returns true for both Int and BigInt"
+    (is (true? (eval* "(integer? 9223372036854775807)")))
+    (is (true? (eval* "(integer? 9223372036854775808)")))))

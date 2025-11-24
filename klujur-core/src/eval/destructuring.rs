@@ -10,7 +10,15 @@ use crate::error::{Error, Result};
 /// Result of destructuring: a list of (symbol, value) bindings
 pub type Bindings = Vec<(Symbol, KlujurVal)>;
 
-/// Maximum nesting depth for destructuring patterns to prevent stack overflow
+/// Maximum nesting depth for destructuring patterns to prevent stack overflow.
+///
+/// 100 levels of nesting is far beyond any reasonable use case (most real-world
+/// patterns are 2-3 levels deep). This limit exists to catch pathological
+/// inputs or infinite loops in pattern expansion, not to restrict legitimate usage.
+///
+/// This is not currently configurable as the limit is generous enough for all
+/// practical purposes. If needed, this could be made configurable via a thread-local
+/// similar to `MAX_EVAL_DEPTH`.
 const MAX_DESTRUCTURE_DEPTH: usize = 100;
 
 /// Destructure a binding pattern against a value, returning bindings.

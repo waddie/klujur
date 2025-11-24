@@ -99,4 +99,43 @@
   (testing "can access metadata fields using keyword lookup"
     (is (= "a doc string"
            (eval* "(:doc (meta (with-meta [] {:doc \"a doc string\"})))")))
-    (is (true? (eval* "(:private (meta (with-meta [] {:private true})))")))))
+    (is (true? (eval* "(:private (meta (with-meta [] {:private true}))")))))
+
+;; =============================================================================
+;; vary-meta
+;; =============================================================================
+
+(deftest vary-meta-test
+  (testing "vary-meta applies function to metadata"
+    (is (= {:a 2}
+           (eval* "(meta (vary-meta (with-meta [] {:a 1}) update :a inc))"))))
+  (testing "vary-meta with additional args"
+    (is (= {:a 1 :b 2}
+           (eval* "(meta (vary-meta (with-meta [] {:a 1}) assoc :b 2))"))))
+  (testing "vary-meta preserves collection value"
+    (is (= [1 2 3]
+           (eval* "(vary-meta (with-meta [1 2 3] {:a 1}) assoc :b 2)"))))
+  (testing "vary-meta on value without metadata"
+    (is (= {:new true} (eval* "(meta (vary-meta [] assoc :new true))")))))
+
+;; =============================================================================
+;; alter-meta!
+;; =============================================================================
+
+(deftest alter-meta-test
+  (testing "alter-meta! modifies var metadata"
+    (is
+     (=
+      {:doc "updated"}
+      (eval*
+       "(do (def ^{:doc \"original\"} test-var 1)
+                      (alter-meta! #'test-var assoc :doc \"updated\")
+                      (select-keys (meta #'test-var) [:doc]))"))))
+  (testing "alter-meta! with additional args"
+    (is
+     (=
+      {:count 2}
+      (eval*
+       "(do (def ^{:count 1} counter-var 0)
+                      (alter-meta! #'counter-var update :count inc)
+                      (select-keys (meta #'counter-var) [:count]))")))))

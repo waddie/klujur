@@ -12,3 +12,6 @@ license.workspace = true
 klujur-parser = { path = "../klujur-parser" }
 num-bigint = "0.4"
 num-traits = "0.2"
+
+[dev-dependencies]
+proptest = "1.5"

@@ -4,6 +4,7 @@
 //! Function application for Klujur.
 
 use std::any::Any;
+use std::borrow::Cow;
 use std::rc::Rc;
 
 use klujur_parser::{KlujurFn, KlujurNativeFn, KlujurVal};
@@ -206,8 +207,9 @@ pub(crate) fn apply_fn(func: &KlujurFn, args: &[KlujurVal]) -> Result<KlujurVal>
         arity.params.len()
     };
 
-    // Current argument values for recur support
-    let mut current_args = args.to_vec();
+    // Current argument values for recur support.
+    // Use Cow to avoid cloning args unless recur is actually used.
+    let mut current_args: Cow<'_, [KlujurVal]> = Cow::Borrowed(args);
 
     // Main evaluation loop for recur support
     'recur_loop: loop {
@@ -279,7 +281,8 @@ pub(crate) fn apply_fn(func: &KlujurFn, args: &[KlujurVal]) -> Result<KlujurVal>
                             name: Some("recur".to_string()),
                         });
                     }
-                    current_args = new_values;
+                    // Take ownership of new_values for subsequent iterations
+                    current_args = Cow::Owned(new_values);
                     continue 'recur_loop;
                 }
                 Err(e) => return Err(e),
