@@ -687,6 +687,7 @@ impl KlujurSortedMapBy {
     }
 
     /// Get a reference to the entries RefCell for external manipulation.
+    #[deprecated(since = "0.2.0", note = "Use from_entries() constructor instead")]
     pub fn entries_cell(&self) -> &Rc<RefCell<Vec<(KlujurVal, KlujurVal)>>> {
         &self.entries
     }
@@ -827,6 +828,7 @@ impl KlujurSortedSetBy {
     }
 
     /// Get a reference to the elements RefCell for external manipulation.
+    #[deprecated(since = "0.2.0", note = "Use from_elements() constructor instead")]
     pub fn elements_cell(&self) -> &Rc<RefCell<Vec<KlujurVal>>> {
         &self.elements
     }
@@ -1516,8 +1518,27 @@ impl KlujurVolatile {
         new_val
     }
 
+    /// Swap the volatile's value, applying a function to the current value.
+    /// Returns the new value.
+    pub fn swap<F>(&self, f: F) -> KlujurVal
+    where
+        F: FnOnce(KlujurVal) -> KlujurVal,
+    {
+        let old_val = self.value.borrow().clone();
+        let new_val = f(old_val);
+        *self.value.borrow_mut() = new_val.clone();
+        new_val
+    }
+
+    /// Get a raw pointer for identity-based operations (hashing, comparison).
+    #[must_use]
+    pub fn as_ptr(&self) -> *const RefCell<KlujurVal> {
+        Rc::as_ptr(&self.value)
+    }
+
     /// Get mutable access to the underlying value cell.
     /// Used by vswap! which needs to compute new value from old.
+    #[deprecated(since = "0.2.0", note = "Use swap() instead")]
     pub fn value_cell(&self) -> &Rc<RefCell<KlujurVal>> {
         &self.value
     }
@@ -2172,16 +2193,19 @@ impl KlujurVal {
     }
 
     /// Check if this value is nil
+    #[must_use]
     pub fn is_nil(&self) -> bool {
         matches!(self, KlujurVal::Nil)
     }
 
     /// Check if this value is truthy (not nil and not false)
+    #[must_use]
     pub fn is_truthy(&self) -> bool {
         !matches!(self, KlujurVal::Nil | KlujurVal::Bool(false))
     }
 
     /// Get the type name as a string
+    #[must_use]
     pub fn type_name(&self) -> &'static str {
         match self {
             KlujurVal::Nil => "nil",
@@ -2220,6 +2244,7 @@ impl KlujurVal {
     ///
     /// This returns a TypeKey that can be used to look up protocol
     /// implementations for this value's type.
+    #[must_use]
     pub fn type_key(&self) -> TypeKey {
         match self {
             KlujurVal::Nil => TypeKey::Nil,
@@ -2341,6 +2366,7 @@ impl KlujurVal {
 
     /// Get the metadata of this value, if any.
     /// Returns None for types that don't support metadata.
+    #[must_use]
     pub fn meta(&self) -> Option<&Rc<Meta>> {
         match self {
             KlujurVal::Symbol(_, meta) => meta.as_ref(),
@@ -2355,6 +2381,7 @@ impl KlujurVal {
     }
 
     /// Returns true if this value type supports metadata.
+    #[must_use]
     pub fn supports_meta(&self) -> bool {
         matches!(
             self,
@@ -2370,6 +2397,7 @@ impl KlujurVal {
 
     /// Return a new value with the given metadata.
     /// Returns None if the value type doesn't support metadata.
+    #[must_use]
     pub fn with_meta(&self, meta: Option<Rc<Meta>>) -> Option<KlujurVal> {
         match self {
             KlujurVal::Symbol(sym, _) => Some(KlujurVal::Symbol(sym.clone(), meta)),
@@ -2849,7 +2877,7 @@ impl Hash for KlujurVal {
             KlujurVal::Volatile(v) => {
                 std::mem::discriminant(self).hash(state);
                 // Hash by pointer address (volatiles are identity-compared)
-                (Rc::as_ptr(v.value_cell()) as usize).hash(state);
+                (v.as_ptr() as usize).hash(state);
             }
             KlujurVal::Protocol(p) => {
                 std::mem::discriminant(self).hash(state);

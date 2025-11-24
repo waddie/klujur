@@ -86,6 +86,16 @@ pub enum Error {
         path: Option<String>,
         message: String,
     },
+    /// Namespace not found
+    NamespaceNotFound(String),
+    /// Protocol not found
+    ProtocolNotFound(String),
+    /// Symbol is not public in its namespace
+    NotPublic { symbol: String, namespace: String },
+    /// Missing required field in record construction
+    MissingField { record: String, field: String },
+    /// Parse error from the parser
+    ParseError(String),
 }
 
 /// Specification for expected arity.
@@ -187,6 +197,25 @@ impl fmt::Display for Error {
                     write!(f, "{}: {}", operation, message)
                 }
             }
+            Error::NamespaceNotFound(ns) => {
+                write!(f, "No namespace: {}", ns)
+            }
+            Error::ProtocolNotFound(proto) => {
+                write!(f, "Protocol not found: {}", proto)
+            }
+            Error::NotPublic { symbol, namespace } => {
+                write!(f, "{}/{} is not public", namespace, symbol)
+            }
+            Error::MissingField { record, field } => {
+                write!(
+                    f,
+                    "Missing required field '{}' for record {}",
+                    field, record
+                )
+            }
+            Error::ParseError(msg) => {
+                write!(f, "Parse error: {}", msg)
+            }
         }
     }
 }
@@ -271,6 +300,37 @@ impl Error {
             path,
             message: message.into(),
         }
+    }
+
+    /// Create a namespace not found error.
+    pub fn namespace_not_found(ns: impl Into<String>) -> Self {
+        Error::NamespaceNotFound(ns.into())
+    }
+
+    /// Create a protocol not found error.
+    pub fn protocol_not_found(proto: impl Into<String>) -> Self {
+        Error::ProtocolNotFound(proto.into())
+    }
+
+    /// Create a not public error.
+    pub fn not_public(symbol: impl Into<String>, namespace: impl Into<String>) -> Self {
+        Error::NotPublic {
+            symbol: symbol.into(),
+            namespace: namespace.into(),
+        }
+    }
+
+    /// Create a missing field error.
+    pub fn missing_field(record: impl Into<String>, field: impl Into<String>) -> Self {
+        Error::MissingField {
+            record: record.into(),
+            field: field.into(),
+        }
+    }
+
+    /// Create a parse error.
+    pub fn parse_error(message: impl Into<String>) -> Self {
+        Error::ParseError(message.into())
     }
 }
 

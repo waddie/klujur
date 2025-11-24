@@ -181,9 +181,10 @@ fn get_exception_type(thrown: &KlujurVal) -> Option<&KlujurVal> {
         // Then check :data/:type for ex-info style exceptions
         let data_key = KlujurVal::Keyword(klujur_parser::Keyword::new("data"));
         if let Some(KlujurVal::Map(data_map, _)) = map.get(&data_key)
-            && let Some(type_val) = data_map.get(&type_key) {
-                return Some(type_val);
-            }
+            && let Some(type_val) = data_map.get(&type_key)
+        {
+            return Some(type_val);
+        }
     }
     None
 }
@@ -204,20 +205,22 @@ fn matches_catch_type(catch_type: &KlujurVal, thrown: &KlujurVal) -> bool {
         // or (throw {:type :my-error})
         KlujurVal::Keyword(catch_kw) => {
             if let Some(type_val) = get_exception_type(thrown)
-                && let KlujurVal::Keyword(thrown_kw) = type_val {
-                    return thrown_kw.name() == catch_kw.name()
-                        && thrown_kw.namespace() == catch_kw.namespace();
-                }
+                && let KlujurVal::Keyword(thrown_kw) = type_val
+            {
+                return thrown_kw.name() == catch_kw.name()
+                    && thrown_kw.namespace() == catch_kw.namespace();
+            }
             false
         }
         // Match by :type symbol in exception maps
         // (catch MyError e ...) matches (throw (ex-info "msg" {:type 'MyError}))
         KlujurVal::Symbol(catch_sym, _) => {
             if let Some(type_val) = get_exception_type(thrown)
-                && let KlujurVal::Symbol(thrown_sym, _) = type_val {
-                    return thrown_sym.name() == catch_sym.name()
-                        && thrown_sym.namespace() == catch_sym.namespace();
-                }
+                && let KlujurVal::Symbol(thrown_sym, _) = type_val
+            {
+                return thrown_sym.name() == catch_sym.name()
+                    && thrown_sym.namespace() == catch_sym.namespace();
+            }
             false
         }
         _ => false,

@@ -40,16 +40,19 @@ thread_local! {
 }
 
 /// Set the maximum eval recursion depth. Returns the previous value.
+#[must_use]
 pub fn set_max_eval_depth(depth: usize) -> usize {
     MAX_EVAL_DEPTH.with(|d| d.replace(depth))
 }
 
 /// Get the current maximum eval recursion depth.
+#[must_use]
 pub fn get_max_eval_depth() -> usize {
     MAX_EVAL_DEPTH.with(|d| d.get())
 }
 
 /// Get the current eval recursion depth.
+#[must_use]
 pub fn get_eval_depth() -> usize {
     EVAL_DEPTH.with(|d| d.get())
 }
@@ -157,6 +160,7 @@ fn realize_for_eval(val: KlujurVal) -> Result<KlujurVal> {
 /// - A function is called with wrong arity
 /// - Type mismatches occur during operations
 /// - Stack overflow occurs (configurable via [`set_max_eval_depth`])
+#[must_use = "eval returns a value that should be used"]
 pub fn eval(expr: &KlujurVal, env: &Env) -> Result<KlujurVal> {
     // Check recursion depth to prevent stack overflow
     let _guard = EvalDepthGuard::new()?;

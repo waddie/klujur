@@ -277,7 +277,7 @@ fn test_error_extend_type_unknown_protocol() {
            UnknownProtocol
            (method [s] s))"]);
     assert!(result.is_err());
-    assert!(result.unwrap_err().contains("Unknown protocol"));
+    assert!(result.unwrap_err().contains("Protocol not found"));
 }
 
 #[test]

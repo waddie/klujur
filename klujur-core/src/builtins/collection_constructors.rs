@@ -55,11 +55,11 @@ pub(crate) fn builtin_hash_map(args: &[KlujurVal]) -> Result<KlujurVal> {
             "requires an even number of arguments",
         ));
     }
-    let mut result = klujur_parser::OrdMap::new();
-    for pair in args.chunks(2) {
-        result.insert(pair[0].clone(), pair[1].clone());
-    }
-    Ok(KlujurVal::Map(result, None))
+    let pairs: Vec<_> = args
+        .chunks(2)
+        .map(|pair| (pair[0].clone(), pair[1].clone()))
+        .collect();
+    Ok(KlujurVal::map(pairs))
 }
 
 /// (hash-set & keys) - create hash set from elements
@@ -107,11 +107,8 @@ pub(crate) fn builtin_zipmap(args: &[KlujurVal]) -> Result<KlujurVal> {
     let keys = to_seq(&args[0])?;
     let vals = to_seq(&args[1])?;
 
-    let mut result = klujur_parser::OrdMap::new();
-    for (k, v) in keys.into_iter().zip(vals) {
-        result.insert(k, v);
-    }
-    Ok(KlujurVal::Map(result, None))
+    let pairs: Vec<_> = keys.into_iter().zip(vals).collect();
+    Ok(KlujurVal::map(pairs))
 }
 
 // ============================================================================
@@ -146,37 +143,32 @@ pub(crate) fn builtin_sorted_map_by(args: &[KlujurVal]) -> Result<KlujurVal> {
         ));
     }
 
-    // Create the sorted map
-    let sm = KlujurSortedMapBy::new(comparator);
+    // Insert all key-value pairs in sorted order
+    let mut entries = Vec::with_capacity(kvs.len() / 2);
 
-    // Insert all key-value pairs
-    if !kvs.is_empty() {
-        let mut entries = Vec::with_capacity(kvs.len() / 2);
+    for pair in kvs.chunks(2) {
+        let key = pair[0].clone();
+        let val = pair[1].clone();
 
-        for pair in kvs.chunks(2) {
-            let key = pair[0].clone();
-            let val = pair[1].clone();
+        // Binary search to find insertion point
+        let search_result = binary_search_map(&entries, &key, &comparator)?;
 
-            // Binary search to find insertion point
-            let search_result = binary_search_map(&entries, &key, sm.comparator())?;
-
-            match search_result {
-                Ok(idx) => {
-                    // Key already exists, replace value
-                    entries[idx].1 = val;
-                }
-                Err(idx) => {
-                    // Insert at the correct position to maintain sorted order
-                    entries.insert(idx, (key, val));
-                }
+        match search_result {
+            Ok(idx) => {
+                // Key already exists, replace value
+                entries[idx].1 = val;
+            }
+            Err(idx) => {
+                // Insert at the correct position to maintain sorted order
+                entries.insert(idx, (key, val));
             }
         }
-
-        // Update the entries
-        *sm.entries_cell().borrow_mut() = entries;
     }
 
-    Ok(KlujurVal::SortedMapBy(sm))
+    // Create the sorted map with the sorted entries
+    Ok(KlujurVal::SortedMapBy(KlujurSortedMapBy::from_entries(
+        comparator, entries,
+    )))
 }
 
 /// (sorted-set-by comparator & keys) - create sorted set with custom comparator
@@ -199,33 +191,28 @@ pub(crate) fn builtin_sorted_set_by(args: &[KlujurVal]) -> Result<KlujurVal> {
     let comparator = args[0].clone();
     let elems = &args[1..];
 
-    // Create the sorted set
-    let ss = KlujurSortedSetBy::new(comparator);
+    // Insert all elements in sorted order
+    let mut elements = Vec::with_capacity(elems.len());
 
-    // Insert all elements
-    if !elems.is_empty() {
-        let mut elements = Vec::with_capacity(elems.len());
+    for elem in elems {
+        // Binary search to find insertion point
+        let search_result = binary_search_set(&elements, elem, &comparator)?;
 
-        for elem in elems {
-            // Binary search to find insertion point
-            let search_result = binary_search_set(&elements, elem, ss.comparator())?;
-
-            match search_result {
-                Ok(_) => {
-                    // Element already exists (according to comparator), skip it
-                }
-                Err(idx) => {
-                    // Insert at the correct position to maintain sorted order
-                    elements.insert(idx, elem.clone());
-                }
+        match search_result {
+            Ok(_) => {
+                // Element already exists (according to comparator), skip it
+            }
+            Err(idx) => {
+                // Insert at the correct position to maintain sorted order
+                elements.insert(idx, elem.clone());
             }
         }
-
-        // Update the elements
-        *ss.elements_cell().borrow_mut() = elements;
     }
 
-    Ok(KlujurVal::SortedSetBy(ss))
+    // Create the sorted set with the sorted elements
+    Ok(KlujurVal::SortedSetBy(KlujurSortedSetBy::from_elements(
+        comparator, elements,
+    )))
 }
 
 /// Helper: Insert a key-value pair into a sorted map, returning a new map.

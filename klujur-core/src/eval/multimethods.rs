@@ -11,7 +11,7 @@ use klujur_parser::{FnArity, KlujurFn, KlujurHierarchy, KlujurMultimethod, Kluju
 
 use crate::bindings::deref_var;
 use crate::env::Env;
-use crate::error::{Error, Result};
+use crate::error::{AritySpec, Error, Result};
 
 use super::{eval, parse_fn_arity};
 
@@ -132,7 +132,7 @@ pub(crate) fn eval_defmethod(args: &[KlujurVal], env: &Env) -> Result<KlujurVal>
     let mm_var = registry
         .current()
         .resolve(&mm_name)
-        .ok_or_else(|| Error::EvalError(format!("Undefined: {}", mm_name)))?;
+        .ok_or_else(|| Error::UndefinedSymbol(mm_name.clone()))?;
 
     let mm_val = deref_var(&mm_var);
     let mm = match &mm_val {
@@ -195,10 +195,11 @@ pub(crate) fn eval_derive(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
                 other => Err(Error::type_error("hierarchy", other.type_name())),
             }
         }
-        n => Err(Error::EvalError(format!(
-            "derive expects 2 or 3 arguments, got {}",
-            n
-        ))),
+        n => Err(Error::ArityError {
+            expected: AritySpec::Range(2, 3),
+            got: n,
+            name: Some("derive".to_string()),
+        }),
     }
 }
 
@@ -227,10 +228,11 @@ pub(crate) fn eval_underive(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> 
                 other => Err(Error::type_error("hierarchy", other.type_name())),
             }
         }
-        n => Err(Error::EvalError(format!(
-            "underive expects 2 or 3 arguments, got {}",
-            n
-        ))),
+        n => Err(Error::ArityError {
+            expected: AritySpec::Range(2, 3),
+            got: n,
+            name: Some("underive".to_string()),
+        }),
     }
 }
 
@@ -255,10 +257,11 @@ pub(crate) fn eval_isa(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
                 other => Err(Error::type_error("hierarchy", other.type_name())),
             }
         }
-        n => Err(Error::EvalError(format!(
-            "isa? expects 2 or 3 arguments, got {}",
-            n
-        ))),
+        n => Err(Error::ArityError {
+            expected: AritySpec::Range(2, 3),
+            got: n,
+            name: Some("isa?".to_string()),
+        }),
     }
 }
 
@@ -285,10 +288,11 @@ pub(crate) fn eval_parents(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
                 other => Err(Error::type_error("hierarchy", other.type_name())),
             }
         }
-        n => Err(Error::EvalError(format!(
-            "parents expects 1 or 2 arguments, got {}",
-            n
-        ))),
+        n => Err(Error::ArityError {
+            expected: AritySpec::Range(1, 2),
+            got: n,
+            name: Some("parents".to_string()),
+        }),
     }
 }
 
@@ -315,10 +319,11 @@ pub(crate) fn eval_ancestors(args: &[KlujurVal], env: &Env) -> Result<KlujurVal>
                 other => Err(Error::type_error("hierarchy", other.type_name())),
             }
         }
-        n => Err(Error::EvalError(format!(
-            "ancestors expects 1 or 2 arguments, got {}",
-            n
-        ))),
+        n => Err(Error::ArityError {
+            expected: AritySpec::Range(1, 2),
+            got: n,
+            name: Some("ancestors".to_string()),
+        }),
     }
 }
 
@@ -345,9 +350,10 @@ pub(crate) fn eval_descendants(args: &[KlujurVal], env: &Env) -> Result<KlujurVa
                 other => Err(Error::type_error("hierarchy", other.type_name())),
             }
         }
-        n => Err(Error::EvalError(format!(
-            "descendants expects 1 or 2 arguments, got {}",
-            n
-        ))),
+        n => Err(Error::ArityError {
+            expected: AritySpec::Range(1, 2),
+            got: n,
+            name: Some("descendants".to_string()),
+        }),
     }
 }

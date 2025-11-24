@@ -64,12 +64,12 @@ pub fn eval_load_string(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
 
     // Parse and evaluate all forms
     let mut parser =
-        klujur_parser::Parser::new(code).map_err(|e| Error::EvalError(format!("{:?}", e)))?;
+        klujur_parser::Parser::new(code).map_err(|e| Error::parse_error(format!("{:?}", e)))?;
 
     let mut result = KlujurVal::Nil;
     while let Some(form) = parser
         .parse()
-        .map_err(|e| Error::EvalError(format!("{:?}", e)))?
+        .map_err(|e| Error::parse_error(format!("{:?}", e)))?
     {
         result = eval(&form, env)?;
     }
@@ -98,16 +98,16 @@ pub fn eval_load_file(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
 
     // Read the file contents
     let content = std::fs::read_to_string(path)
-        .map_err(|e| Error::EvalError(format!("Could not read file '{}': {}", path, e)))?;
+        .map_err(|e| Error::io("Reading file", Some(path.to_string()), e))?;
 
     // Parse and evaluate all forms
     let mut parser =
-        klujur_parser::Parser::new(&content).map_err(|e| Error::EvalError(format!("{:?}", e)))?;
+        klujur_parser::Parser::new(&content).map_err(|e| Error::parse_error(format!("{:?}", e)))?;
 
     let mut result = KlujurVal::Nil;
     while let Some(form) = parser
         .parse()
-        .map_err(|e| Error::EvalError(format!("{:?}", e)))?
+        .map_err(|e| Error::parse_error(format!("{:?}", e)))?
     {
         result = eval(&form, env)?;
     }

@@ -145,16 +145,19 @@ impl Keyword {
     }
 
     /// Get the namespace, if any.
+    #[must_use]
     pub fn namespace(&self) -> Option<&str> {
         self.inner.namespace.as_deref()
     }
 
     /// Get the name.
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.inner.name
     }
 
     /// Check if this keyword has a namespace.
+    #[must_use]
     pub fn has_namespace(&self) -> bool {
         self.inner.namespace.is_some()
     }

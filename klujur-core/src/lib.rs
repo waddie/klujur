@@ -88,11 +88,11 @@ pub fn init_stdlib(env: &Env) -> Result<()> {
     registry.set_current(NamespaceRegistry::CORE_NS);
 
     let mut parser = klujur_parser::Parser::new(CORE_STDLIB)
-        .map_err(|e| Error::EvalError(format!("Failed to parse stdlib: {:?}", e)))?;
+        .map_err(|e| Error::parse_error(format!("Failed to parse stdlib: {:?}", e)))?;
 
     while let Some(expr) = parser
         .parse()
-        .map_err(|e| Error::EvalError(format!("Failed to parse stdlib: {:?}", e)))?
+        .map_err(|e| Error::parse_error(format!("Failed to parse stdlib: {:?}", e)))?
     {
         eval::eval(&expr, env)?;
     }

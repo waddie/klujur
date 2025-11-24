@@ -9,7 +9,7 @@ use std::rc::Rc;
 
 use klujur_parser::{KlujurHierarchy, KlujurVal, OrdMap};
 
-use crate::error::{Error, Result};
+use crate::error::{AritySpec, Error, Result};
 
 // ============================================================================
 // Multimethod Functions
@@ -177,10 +177,11 @@ pub(crate) fn builtin_isa(args: &[KlujurVal]) -> Result<KlujurVal> {
             let parent = &args[2];
             Ok(KlujurVal::Bool(h.borrow().isa(child, parent)))
         }
-        n => Err(Error::EvalError(format!(
-            "isa? expects 2 or 3 arguments, got {}",
-            n
-        ))),
+        n => Err(Error::ArityError {
+            expected: AritySpec::Range(2, 3),
+            got: n,
+            name: Some("isa?".to_string()),
+        }),
     }
 }
 
@@ -209,10 +210,11 @@ pub(crate) fn builtin_parents(args: &[KlujurVal]) -> Result<KlujurVal> {
             let parents = h.borrow().parents(child);
             Ok(KlujurVal::set(parents.into_iter().collect()))
         }
-        n => Err(Error::EvalError(format!(
-            "parents expects 1 or 2 arguments, got {}",
-            n
-        ))),
+        n => Err(Error::ArityError {
+            expected: AritySpec::Range(1, 2),
+            got: n,
+            name: Some("parents".to_string()),
+        }),
     }
 }
 
@@ -241,10 +243,11 @@ pub(crate) fn builtin_ancestors(args: &[KlujurVal]) -> Result<KlujurVal> {
             let ancestors = h.borrow().ancestors(child);
             Ok(KlujurVal::set(ancestors.into_iter().collect()))
         }
-        n => Err(Error::EvalError(format!(
-            "ancestors expects 1 or 2 arguments, got {}",
-            n
-        ))),
+        n => Err(Error::ArityError {
+            expected: AritySpec::Range(1, 2),
+            got: n,
+            name: Some("ancestors".to_string()),
+        }),
     }
 }
 
@@ -273,9 +276,10 @@ pub(crate) fn builtin_descendants(args: &[KlujurVal]) -> Result<KlujurVal> {
             let descendants = h.borrow().descendants(parent);
             Ok(KlujurVal::set(descendants.into_iter().collect()))
         }
-        n => Err(Error::EvalError(format!(
-            "descendants expects 1 or 2 arguments, got {}",
-            n
-        ))),
+        n => Err(Error::ArityError {
+            expected: AritySpec::Range(1, 2),
+            got: n,
+            name: Some("descendants".to_string()),
+        }),
     }
 }

@@ -146,10 +146,7 @@ fn create_protocol_dispatch_fn(protocol: Rc<Protocol>, method_name: String) -> K
     // Create a closure that performs protocol dispatch
     let dispatch_fn = move |args: &[KlujurVal]| -> Result<KlujurVal> {
         if args.is_empty() {
-            return Err(Error::EvalError(format!(
-                "Protocol method {} requires at least one argument",
-                name
-            )));
+            return Err(Error::arity_at_least(1, 0));
         }
 
         let first_arg = &args[0];
@@ -219,7 +216,7 @@ pub(crate) fn eval_extend_type(args: &[KlujurVal], env: &Env) -> Result<KlujurVa
         // Find the protocol
         let protocol = registry
             .resolve_protocol(protocol_name.name())
-            .ok_or_else(|| Error::EvalError(format!("Unknown protocol: {}", protocol_name)))?;
+            .ok_or_else(|| Error::protocol_not_found(protocol_name.name()))?;
 
         i += 1;
 
@@ -325,7 +322,7 @@ pub(crate) fn eval_extend(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
         let protocol = match &args[i] {
             KlujurVal::Symbol(s, _) => registry
                 .resolve_protocol(s.name())
-                .ok_or_else(|| Error::EvalError(format!("Unknown protocol: {}", s)))?,
+                .ok_or_else(|| Error::protocol_not_found(s.name()))?,
             KlujurVal::Protocol(p) => p.0.clone(),
             other => {
                 return Err(Error::syntax(

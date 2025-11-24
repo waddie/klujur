@@ -90,12 +90,14 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse a string and return the first form (convenience function).
+    #[must_use = "parse_str returns a result that should be used"]
     pub fn parse_str(source: &str) -> Result<Option<KlujurVal>, ParseError> {
         let mut parser = Parser::new(source)?;
         parser.parse()
     }
 
     /// Parse a string and return all forms (convenience function).
+    #[must_use = "parse_all_str returns a result that should be used"]
     pub fn parse_all_str(source: &str) -> Result<Vec<KlujurVal>, ParseError> {
         let mut parser = Parser::new(source)?;
         parser.parse_all()
@@ -504,11 +506,13 @@ impl<'a> Parser<'a> {
 // ============================================================================
 
 /// Parse a string and return the first form.
+#[must_use = "read returns a result that should be used"]
 pub fn read(source: &str) -> Result<Option<KlujurVal>, ParseError> {
     Parser::parse_str(source)
 }
 
 /// Parse a string and return all forms.
+#[must_use = "read_all returns a result that should be used"]
 pub fn read_all(source: &str) -> Result<Vec<KlujurVal>, ParseError> {
     Parser::parse_all_str(source)
 }

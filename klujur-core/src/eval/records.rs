@@ -110,7 +110,7 @@ pub(crate) fn eval_defrecord(args: &[KlujurVal], env: &Env) -> Result<KlujurVal>
         // Look up the protocol
         let protocol = registry
             .resolve_protocol(protocol_name.name())
-            .ok_or_else(|| Error::EvalError(format!("Protocol not found: {}", protocol_name)))?;
+            .ok_or_else(|| Error::protocol_not_found(protocol_name.name()))?;
 
         // Collect method implementations until we hit another symbol or end
         while i < args.len() {
@@ -257,9 +257,9 @@ fn create_map_record_constructor(
         // Extract required fields
         for field in &fields {
             let key = KlujurVal::Keyword(Keyword::new(field.name()));
-            let value = map.get(&key).ok_or_else(|| {
-                Error::EvalError(format!("Missing required field: {}", field.name()))
-            })?;
+            let value = map
+                .get(&key)
+                .ok_or_else(|| Error::missing_field(record_type.name(), field.name()))?;
             values.insert(Keyword::new(field.name()), value.clone());
         }
 

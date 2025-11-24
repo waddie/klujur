@@ -94,7 +94,7 @@ fn get_namespace_from_arg(
     let registry = env.registry();
     registry
         .find(&ns_name)
-        .ok_or_else(|| Error::EvalError(format!("No namespace: {}", ns_name)))
+        .ok_or_else(|| Error::namespace_not_found(&ns_name))
 }
 
 /// (ns-publics ns) - returns a map of symbols to public vars in namespace
@@ -305,7 +305,7 @@ pub(crate) fn eval_refer(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
 
         for name in only_list {
             if all_interns.contains_key(name) && !public_names.contains(name) {
-                return Err(Error::EvalError(format!("{} is not public", name)));
+                return Err(Error::not_public(name, source_ns.name()));
             }
         }
     }
@@ -355,7 +355,7 @@ pub(crate) fn eval_alias(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
     // Find or create the target namespace
     let target_ns = registry
         .find(&ns_name)
-        .ok_or_else(|| Error::EvalError(format!("No namespace: {}", ns_name)))?;
+        .ok_or_else(|| Error::namespace_not_found(&ns_name))?;
 
     // Add alias to current namespace
     let current_ns = registry.current();
@@ -517,16 +517,15 @@ pub(crate) fn eval_require(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
             // Find the file
             if let Some(path) = registry.find_namespace_file(&ns_name) {
                 // Load the file
-                let content = std::fs::read_to_string(&path).map_err(|e| {
-                    Error::EvalError(format!("Could not read '{}': {}", path.display(), e))
-                })?;
+                let content = std::fs::read_to_string(&path)
+                    .map_err(|e| Error::io("Reading file", Some(path.display().to_string()), e))?;
 
                 let mut parser = klujur_parser::Parser::new(&content)
-                    .map_err(|e| Error::EvalError(format!("{:?}", e)))?;
+                    .map_err(|e| Error::parse_error(format!("{:?}", e)))?;
 
                 while let Some(form) = parser
                     .parse()
-                    .map_err(|e| Error::EvalError(format!("{:?}", e)))?
+                    .map_err(|e| Error::parse_error(format!("{:?}", e)))?
                 {
                     eval(&form, env)?;
                 }
@@ -537,8 +536,8 @@ pub(crate) fn eval_require(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
                 registry.set_current(&original_ns_name);
             } else if registry.find(&ns_name).is_none() {
                 // Namespace doesn't exist and no file found
-                return Err(Error::EvalError(format!(
-                    "Could not locate {} (searched load paths: {:?})",
+                return Err(Error::namespace_not_found(format!(
+                    "{} (searched load paths: {:?})",
                     ns_name,
                     registry.load_paths()
                 )));
@@ -572,11 +571,10 @@ pub(crate) fn eval_require(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
                         if let Some(var) = publics.get(&name) {
                             current_ns.refer(name, var.clone());
                         } else if source_ns.interns().contains_key(&name) {
-                            return Err(Error::EvalError(format!("{} is not public", name)));
+                            return Err(Error::not_public(&name, &ns_name));
                         } else {
-                            return Err(Error::EvalError(format!(
-                                "{} does not exist in {}",
-                                name, ns_name
+                            return Err(Error::UndefinedSymbol(Symbol::with_namespace(
+                                &ns_name, &name,
                             )));
                         }
                     }
@@ -687,16 +685,15 @@ pub(crate) fn eval_use(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
         // Load namespace if not loaded
         if !registry.is_loaded(&ns_name) {
             if let Some(path) = registry.find_namespace_file(&ns_name) {
-                let content = std::fs::read_to_string(&path).map_err(|e| {
-                    Error::EvalError(format!("Could not read '{}': {}", path.display(), e))
-                })?;
+                let content = std::fs::read_to_string(&path)
+                    .map_err(|e| Error::io("Reading file", Some(path.display().to_string()), e))?;
 
                 let mut parser = klujur_parser::Parser::new(&content)
-                    .map_err(|e| Error::EvalError(format!("{:?}", e)))?;
+                    .map_err(|e| Error::parse_error(format!("{:?}", e)))?;
 
                 while let Some(form) = parser
                     .parse()
-                    .map_err(|e| Error::EvalError(format!("{:?}", e)))?
+                    .map_err(|e| Error::parse_error(format!("{:?}", e)))?
                 {
                     eval(&form, env)?;
                 }
@@ -706,7 +703,7 @@ pub(crate) fn eval_use(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
                 // Restore original namespace after loading (file may have switched namespaces)
                 registry.set_current(&original_ns_name);
             } else if registry.find(&ns_name).is_none() {
-                return Err(Error::EvalError(format!("Could not locate {}", ns_name)));
+                return Err(Error::namespace_not_found(&ns_name));
             }
         }
 
@@ -894,7 +891,7 @@ pub(crate) fn eval_ns_name(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
     let registry = env.registry();
     registry
         .find(&ns_name)
-        .ok_or_else(|| Error::EvalError(format!("No namespace: {}", ns_name)))?;
+        .ok_or_else(|| Error::namespace_not_found(&ns_name))?;
 
     Ok(KlujurVal::symbol(Symbol::new(&ns_name)))
 }

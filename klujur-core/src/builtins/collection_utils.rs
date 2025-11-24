@@ -125,13 +125,11 @@ pub(crate) fn builtin_select_keys(args: &[KlujurVal]) -> Result<KlujurVal> {
         }
     };
     let keys = to_seq(&args[1])?;
-    let mut result = klujur_parser::OrdMap::new();
-    for key in keys {
-        if let Some(val) = map.get(&key) {
-            result.insert(key, val.clone());
-        }
-    }
-    Ok(KlujurVal::Map(result, None))
+    let pairs: Vec<_> = keys
+        .into_iter()
+        .filter_map(|key| map.get(&key).map(|val| (key, val.clone())))
+        .collect();
+    Ok(KlujurVal::map(pairs))
 }
 
 /// (merge & maps) - merge maps left-to-right

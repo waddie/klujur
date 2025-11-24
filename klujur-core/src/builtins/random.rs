@@ -214,7 +214,7 @@ fn hash_val<H: std::hash::Hasher>(val: &KlujurVal, hasher: &mut H) {
         KlujurVal::Multimethod(mm) => std::ptr::hash(mm, hasher),
         KlujurVal::Hierarchy(h) => std::ptr::hash(h, hasher),
         KlujurVal::Reduced(v) => hash_val(v, hasher),
-        KlujurVal::Volatile(v) => std::ptr::hash(v.value_cell(), hasher),
+        KlujurVal::Volatile(v) => std::ptr::hash(v.as_ptr(), hasher),
         KlujurVal::Protocol(p) => std::ptr::hash(p, hasher),
         KlujurVal::Record(r) => {
             // Hash record type and values
