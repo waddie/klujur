@@ -18,7 +18,8 @@ pub(crate) fn builtin_str(args: &[KlujurVal]) -> Result<KlujurVal> {
     for arg in args {
         match arg {
             KlujurVal::String(s) => result.push_str(s),
-            KlujurVal::Nil => {} // nil contributes nothing
+            KlujurVal::Char(c) => result.push(*c), // raw char value, not \e notation
+            KlujurVal::Nil => {}                   // nil contributes nothing
             other => result.push_str(&format!("{}", other)),
         }
     }
@@ -39,6 +40,7 @@ pub(crate) fn builtin_print(args: &[KlujurVal]) -> Result<KlujurVal> {
         }
         match arg {
             KlujurVal::String(s) => print!("{}", s),
+            KlujurVal::Char(c) => print!("{}", c), // raw char value, not \e notation
             other => print!("{}", other),
         }
     }
