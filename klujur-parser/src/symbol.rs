@@ -146,18 +146,21 @@ impl Symbol {
     }
 
     /// Get the namespace, if any.
+    #[inline]
     #[must_use]
     pub fn namespace(&self) -> Option<&str> {
         self.inner.namespace.as_deref()
     }
 
     /// Get the name.
+    #[inline]
     #[must_use]
     pub fn name(&self) -> &str {
         &self.inner.name
     }
 
     /// Check if this symbol has a namespace.
+    #[inline]
     #[must_use]
     pub fn has_namespace(&self) -> bool {
         self.inner.namespace.is_some()
@@ -181,6 +184,7 @@ impl fmt::Debug for Symbol {
 }
 
 impl PartialEq for Symbol {
+    #[inline]
     fn eq(&self, other: &Self) -> bool {
         // Due to interning, pointer comparison is sufficient
         Arc::ptr_eq(&self.inner, &other.inner)
@@ -210,6 +214,7 @@ impl Ord for Symbol {
 }
 
 impl Hash for Symbol {
+    #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
         // Use pointer hash for interned symbols
         Arc::as_ptr(&self.inner).hash(state);

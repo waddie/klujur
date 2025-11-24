@@ -145,18 +145,21 @@ impl Keyword {
     }
 
     /// Get the namespace, if any.
+    #[inline]
     #[must_use]
     pub fn namespace(&self) -> Option<&str> {
         self.inner.namespace.as_deref()
     }
 
     /// Get the name.
+    #[inline]
     #[must_use]
     pub fn name(&self) -> &str {
         &self.inner.name
     }
 
     /// Check if this keyword has a namespace.
+    #[inline]
     #[must_use]
     pub fn has_namespace(&self) -> bool {
         self.inner.namespace.is_some()
@@ -180,6 +183,7 @@ impl fmt::Debug for Keyword {
 }
 
 impl PartialEq for Keyword {
+    #[inline]
     fn eq(&self, other: &Self) -> bool {
         // Due to interning, pointer comparison is sufficient
         Arc::ptr_eq(&self.inner, &other.inner)
@@ -209,6 +213,7 @@ impl Ord for Keyword {
 }
 
 impl Hash for Keyword {
+    #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
         // Use pointer hash for interned keywords
         Arc::as_ptr(&self.inner).hash(state);

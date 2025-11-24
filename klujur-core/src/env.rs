@@ -68,6 +68,7 @@ impl Env {
     }
 
     /// Create a child environment with this environment as parent.
+    #[inline]
     #[must_use]
     pub fn child(&self) -> Self {
         Env {
@@ -118,6 +119,7 @@ impl Env {
     }
 
     /// Define a binding in this environment (not parent).
+    #[inline]
     pub fn define(&self, sym: Symbol, val: KlujurVal) {
         self.inner.borrow_mut().bindings.insert(sym, val);
     }
@@ -166,6 +168,7 @@ impl Env {
 
     /// Check if a symbol is defined in this environment or parent chain.
     /// Uses iterative traversal to avoid stack overflow on deep environments.
+    #[inline]
     #[must_use]
     pub fn is_defined(&self, sym: &Symbol) -> bool {
         let mut current = self.clone();

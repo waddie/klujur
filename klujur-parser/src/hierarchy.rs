@@ -105,6 +105,7 @@ impl KlujurHierarchy {
     /// - child == parent (reflexive)
     /// - child has parent as a direct parent
     /// - child has parent as an ancestor (transitively)
+    #[inline]
     #[must_use]
     pub fn isa(&self, child: &KlujurVal, parent: &KlujurVal) -> bool {
         if child == parent {
@@ -118,12 +119,14 @@ impl KlujurHierarchy {
     }
 
     /// Get direct parents of a value.
+    #[inline]
     #[must_use]
     pub fn parents(&self, child: &KlujurVal) -> HashSet<KlujurVal> {
         self.parents.get(child).cloned().unwrap_or_default()
     }
 
     /// Get all ancestors of a value (transitive closure of parents).
+    #[inline]
     #[must_use]
     pub fn ancestors(&self, child: &KlujurVal) -> HashSet<KlujurVal> {
         self.ancestors.get(child).cloned().unwrap_or_default()

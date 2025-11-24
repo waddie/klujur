@@ -105,6 +105,7 @@ impl Drop for BindingGuard {
 
 /// Get the thread-local binding for a var, if any.
 /// Returns None if the var has no thread-local binding.
+#[inline]
 #[must_use]
 pub fn get_thread_binding(var: &KlujurVar) -> Option<KlujurVal> {
     if !var.is_dynamic() {
@@ -116,6 +117,7 @@ pub fn get_thread_binding(var: &KlujurVar) -> Option<KlujurVal> {
 }
 
 /// Check if a var has a thread-local binding.
+#[inline]
 pub fn has_thread_binding(var: &KlujurVar) -> bool {
     if !var.is_dynamic() {
         return false;
@@ -157,6 +159,7 @@ pub fn set_thread_binding(var: &KlujurVar, value: KlujurVal) -> bool {
 /// Dereference a var, checking thread-local bindings first.
 /// This is the function that should be used instead of KlujurVar::deref()
 /// when evaluating code that might have dynamic bindings.
+#[inline]
 pub fn deref_var(var: &KlujurVar) -> KlujurVal {
     // Check thread-local binding first
     if let Some(val) = get_thread_binding(var) {

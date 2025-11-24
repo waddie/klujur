@@ -19,6 +19,7 @@ use crate::error::{Error, Result};
 pub type NativeFnImpl = dyn Fn(&[KlujurVal]) -> Result<KlujurVal>;
 
 /// Apply a function to arguments.
+#[inline]
 pub fn apply(func: &KlujurVal, args: &[KlujurVal]) -> Result<KlujurVal> {
     match func {
         KlujurVal::Fn(f) => apply_fn(f, args),
@@ -165,6 +166,7 @@ pub fn apply(func: &KlujurVal, args: &[KlujurVal]) -> Result<KlujurVal> {
 
 /// Apply a user-defined function.
 /// Supports destructuring patterns in parameters and `recur` in tail position.
+#[inline]
 pub(crate) fn apply_fn(func: &KlujurFn, args: &[KlujurVal]) -> Result<KlujurVal> {
     // Find matching arity
     let arity = func.find_arity(args.len()).ok_or_else(|| {
@@ -289,6 +291,7 @@ pub(crate) fn apply_fn(func: &KlujurFn, args: &[KlujurVal]) -> Result<KlujurVal>
 }
 
 /// Apply a native function.
+#[inline]
 pub(crate) fn apply_native(func: &KlujurNativeFn, args: &[KlujurVal]) -> Result<KlujurVal> {
     // Downcast the function
     let f = func

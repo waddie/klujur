@@ -119,12 +119,14 @@ impl KlujurCustom {
     }
 
     /// Get the type name of the wrapped value.
+    #[inline]
     #[must_use]
     pub fn type_name(&self) -> &'static str {
         self.inner.type_name()
     }
 
     /// Attempt to downcast to a specific type.
+    #[inline]
     #[must_use]
     pub fn downcast_ref<T: 'static>(&self) -> Option<&T> {
         self.inner.as_any().downcast_ref::<T>()
@@ -292,12 +294,14 @@ impl Protocol {
     }
 
     /// Get the implementation for a type
+    #[inline]
     #[must_use]
     pub fn get_impl(&self, type_key: &TypeKey) -> Option<TypeImpl> {
         self.impls.borrow().get(type_key).cloned()
     }
 
     /// Check if a type has an implementation for this protocol
+    #[inline]
     pub fn has_impl(&self, type_key: &TypeKey) -> bool {
         self.impls.borrow().contains_key(type_key)
     }
@@ -369,6 +373,7 @@ impl KlujurProtocol {
         KlujurProtocol(Rc::new(protocol))
     }
 
+    #[inline]
     pub fn protocol(&self) -> &Protocol {
         &self.0
     }
@@ -477,6 +482,7 @@ impl RecordInstance {
     }
 
     /// Get a field value by keyword.
+    #[inline]
     #[must_use]
     pub fn get(&self, key: &Keyword) -> Option<&KlujurVal> {
         self.values.get(key)
@@ -527,6 +533,7 @@ impl RecordInstance {
     }
 
     /// Check if this is a base field of the record.
+    #[inline]
     #[must_use]
     pub fn is_base_field(&self, key: &Keyword) -> bool {
         self.fields.iter().any(|f| f.name() == key.name())
@@ -672,30 +679,35 @@ impl KlujurSortedMapBy {
     }
 
     /// Get the comparator function.
+    #[inline]
     #[must_use]
     pub fn comparator(&self) -> &KlujurVal {
         &self.comparator
     }
 
     /// Get a clone of the comparator Rc.
+    #[inline]
     #[must_use]
     pub fn comparator_rc(&self) -> Rc<KlujurVal> {
         Rc::clone(&self.comparator)
     }
 
     /// Get the number of entries.
+    #[inline]
     #[must_use]
     pub fn len(&self) -> usize {
         self.entries.borrow().len()
     }
 
     /// Check if the map is empty.
+    #[inline]
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.entries.borrow().is_empty()
     }
 
     /// Get a clone of all entries.
+    #[inline]
     #[must_use]
     pub fn entries(&self) -> Vec<(KlujurVal, KlujurVal)> {
         self.entries.borrow().clone()
@@ -821,30 +833,35 @@ impl KlujurSortedSetBy {
     }
 
     /// Get the comparator function.
+    #[inline]
     #[must_use]
     pub fn comparator(&self) -> &KlujurVal {
         &self.comparator
     }
 
     /// Get a clone of the comparator Rc.
+    #[inline]
     #[must_use]
     pub fn comparator_rc(&self) -> Rc<KlujurVal> {
         Rc::clone(&self.comparator)
     }
 
     /// Get the number of elements.
+    #[inline]
     #[must_use]
     pub fn len(&self) -> usize {
         self.elements.borrow().len()
     }
 
     /// Check if the set is empty.
+    #[inline]
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.elements.borrow().is_empty()
     }
 
     /// Get a clone of all elements.
+    #[inline]
     #[must_use]
     pub fn elements(&self) -> Vec<KlujurVal> {
         self.elements.borrow().clone()
@@ -1058,12 +1075,14 @@ impl FnArity {
     }
 
     /// Get the minimum number of arguments this arity accepts.
+    #[inline]
     #[must_use]
     pub fn min_arity(&self) -> usize {
         self.params.len()
     }
 
     /// Check if this arity can accept the given number of arguments.
+    #[inline]
     #[must_use]
     pub fn matches(&self, arg_count: usize) -> bool {
         if self.rest_param.is_some() {
@@ -1139,6 +1158,7 @@ impl KlujurFn {
     }
 
     /// Find the arity that matches the given argument count.
+    #[inline]
     #[must_use]
     pub fn find_arity(&self, arg_count: usize) -> Option<&FnArity> {
         // First try to find an exact match (non-variadic)
@@ -1157,6 +1177,7 @@ impl KlujurFn {
     /// Get parameters of the first (or only) arity.
     ///
     /// Returns `None` if the function has no arities.
+    #[inline]
     #[must_use]
     pub fn params(&self) -> Option<&[Symbol]> {
         self.arities.first().map(|a| a.params.as_slice())
@@ -1165,6 +1186,7 @@ impl KlujurFn {
     /// Get rest parameter of the first (or only) arity.
     ///
     /// Returns `None` if the function has no arities.
+    #[inline]
     #[must_use]
     pub fn rest_param(&self) -> Option<&Symbol> {
         self.arities.first().and_then(|a| a.rest_param.as_ref())
@@ -1173,6 +1195,7 @@ impl KlujurFn {
     /// Get body of the first (or only) arity.
     ///
     /// Returns `None` if the function has no arities.
+    #[inline]
     #[must_use]
     pub fn body(&self) -> Option<&[KlujurVal]> {
         self.arities.first().map(|a| a.body.as_slice())
@@ -1290,6 +1313,7 @@ impl KlujurVar {
     /// Get the current value (deref).
     /// Note: Thread-local bindings are checked in klujur-core, not here,
     /// to avoid circular dependency. This only returns the root value.
+    #[inline]
     #[must_use]
     pub fn deref(&self) -> KlujurVal {
         self.root.borrow().clone()
@@ -1301,6 +1325,7 @@ impl KlujurVar {
     }
 
     /// Check if this var is dynamic.
+    #[inline]
     #[must_use]
     pub fn is_dynamic(&self) -> bool {
         *self.dynamic.borrow()
@@ -1423,6 +1448,7 @@ impl KlujurAtom {
     }
 
     /// Get the current value (deref).
+    #[inline]
     #[must_use]
     pub fn deref(&self) -> KlujurVal {
         self.value.borrow().clone()
@@ -1446,6 +1472,7 @@ impl KlujurAtom {
     }
 
     /// Set the value directly (used by swap! after computing new value).
+    #[inline]
     pub fn set_value(&self, new_val: KlujurVal) {
         *self.value.borrow_mut() = new_val;
     }
@@ -1550,6 +1577,7 @@ impl KlujurVolatile {
     }
 
     /// Get the current value (deref).
+    #[inline]
     #[must_use]
     pub fn deref(&self) -> KlujurVal {
         self.value.borrow().clone()
@@ -1657,12 +1685,14 @@ impl KlujurDelay {
     }
 
     /// Check if the delay has been realized.
+    #[inline]
     #[must_use]
     pub fn is_realized(&self) -> bool {
         matches!(*self.state.borrow(), DelayState::Realized(_))
     }
 
     /// Get the thunk if pending, or None if already realized.
+    #[inline]
     #[must_use]
     pub fn get_thunk(&self) -> Option<KlujurVal> {
         match &*self.state.borrow() {
@@ -1672,6 +1702,7 @@ impl KlujurDelay {
     }
 
     /// Get the cached value if realized, or None if pending.
+    #[inline]
     #[must_use]
     pub fn get_cached(&self) -> Option<KlujurVal> {
         match &*self.state.borrow() {
@@ -1681,6 +1712,7 @@ impl KlujurDelay {
     }
 
     /// Set the realized value (called after evaluating the thunk).
+    #[inline]
     pub fn set_realized(&self, val: KlujurVal) {
         *self.state.borrow_mut() = DelayState::Realized(val);
     }
@@ -1783,12 +1815,14 @@ impl KlujurLazySeq {
     }
 
     /// Check if the lazy sequence has been realized.
+    #[inline]
     #[must_use]
     pub fn is_realized(&self) -> bool {
         matches!(*self.state.borrow(), LazySeqState::Realized(_))
     }
 
     /// Get the thunk if pending, or None if already realized.
+    #[inline]
     #[must_use]
     pub fn get_thunk(&self) -> Option<KlujurFn> {
         match &*self.state.borrow() {
@@ -1798,6 +1832,7 @@ impl KlujurLazySeq {
     }
 
     /// Get the cached result if realized, or None if pending.
+    #[inline]
     #[must_use]
     pub fn get_cached(&self) -> Option<SeqResult> {
         match &*self.state.borrow() {
@@ -1999,6 +2034,7 @@ impl KlujurMultimethod {
 
     /// Get the method for a dispatch value.
     /// Uses hierarchy-based lookup if a hierarchy is set, then falls back to default.
+    #[inline]
     #[must_use]
     pub fn get_method(&self, dispatch_val: &KlujurVal) -> Option<KlujurVal> {
         // First try exact match
@@ -2022,6 +2058,7 @@ impl KlujurMultimethod {
     }
 
     /// Get all methods as a map.
+    #[inline]
     #[must_use]
     pub fn get_methods(&self) -> HashMap<KlujurVal, KlujurVal> {
         self.methods.borrow().clone()
@@ -2093,24 +2130,28 @@ impl Ord for KlujurMultimethod {
 
 impl KlujurVal {
     /// Create a nil value
+    #[inline]
     #[must_use]
     pub fn nil() -> Self {
         KlujurVal::Nil
     }
 
     /// Create a boolean value
+    #[inline]
     #[must_use]
     pub fn bool(b: bool) -> Self {
         KlujurVal::Bool(b)
     }
 
     /// Create an integer value
+    #[inline]
     #[must_use]
     pub fn int(n: i64) -> Self {
         KlujurVal::Int(n)
     }
 
     /// Create a float value
+    #[inline]
     #[must_use]
     pub fn float(n: f64) -> Self {
         KlujurVal::Float(n)
@@ -2144,6 +2185,7 @@ impl KlujurVal {
     }
 
     /// Create a character value
+    #[inline]
     #[must_use]
     pub fn char(c: char) -> Self {
         KlujurVal::Char(c)
@@ -2174,6 +2216,7 @@ impl KlujurVal {
     }
 
     /// Create an empty list
+    #[inline]
     #[must_use]
     pub fn empty_list() -> Self {
         KlujurVal::List(Vector::new(), None)
@@ -2192,6 +2235,7 @@ impl KlujurVal {
     }
 
     /// Create an empty vector
+    #[inline]
     #[must_use]
     pub fn empty_vector() -> Self {
         KlujurVal::Vector(Vector::new(), None)
@@ -2210,6 +2254,7 @@ impl KlujurVal {
     }
 
     /// Create an empty map
+    #[inline]
     #[must_use]
     pub fn empty_map() -> Self {
         KlujurVal::Map(OrdMap::new(), None)
@@ -2228,6 +2273,7 @@ impl KlujurVal {
     }
 
     /// Create an empty set
+    #[inline]
     #[must_use]
     pub fn empty_set() -> Self {
         KlujurVal::Set(OrdSet::new(), None)
@@ -2246,18 +2292,21 @@ impl KlujurVal {
     }
 
     /// Check if this value is nil
+    #[inline]
     #[must_use]
     pub fn is_nil(&self) -> bool {
         matches!(self, KlujurVal::Nil)
     }
 
     /// Check if this value is truthy (not nil and not false)
+    #[inline]
     #[must_use]
     pub fn is_truthy(&self) -> bool {
         !matches!(self, KlujurVal::Nil | KlujurVal::Bool(false))
     }
 
     /// Get the type name as a string
+    #[inline]
     #[must_use]
     pub fn type_name(&self) -> &'static str {
         match self {
@@ -2297,6 +2346,7 @@ impl KlujurVal {
     ///
     /// This returns a TypeKey that can be used to look up protocol
     /// implementations for this value's type.
+    #[inline]
     #[must_use]
     pub fn type_key(&self) -> TypeKey {
         match self {
@@ -2331,56 +2381,67 @@ impl KlujurVal {
     }
 
     /// Create an atom value
+    #[inline]
     pub fn atom(value: KlujurVal) -> Self {
         KlujurVal::Atom(KlujurAtom::new(value))
     }
 
     /// Create a delay value with a thunk
+    #[inline]
     pub fn delay(thunk: KlujurVal) -> Self {
         KlujurVal::Delay(KlujurDelay::new(thunk))
     }
 
     /// Create a lazy sequence value with a thunk
+    #[inline]
     pub fn lazy_seq(thunk: KlujurFn) -> Self {
         KlujurVal::LazySeq(KlujurLazySeq::new(thunk))
     }
 
     /// Create a new hierarchy value
+    #[inline]
     pub fn hierarchy() -> Self {
         KlujurVal::Hierarchy(Rc::new(RefCell::new(KlujurHierarchy::new())))
     }
 
     /// Create a hierarchy value from an existing hierarchy
+    #[inline]
     pub fn from_hierarchy(h: Rc<RefCell<KlujurHierarchy>>) -> Self {
         KlujurVal::Hierarchy(h)
     }
 
     /// Create a reduced value (for transducer early termination)
+    #[inline]
     pub fn reduced(value: KlujurVal) -> Self {
         KlujurVal::Reduced(Box::new(value))
     }
 
     /// Create a volatile reference
+    #[inline]
     pub fn volatile(value: KlujurVal) -> Self {
         KlujurVal::Volatile(KlujurVolatile::new(value))
     }
 
     /// Create a protocol value
+    #[inline]
     pub fn protocol(protocol: Protocol) -> Self {
         KlujurVal::Protocol(KlujurProtocol::new(protocol))
     }
 
     /// Create a protocol value from an existing Rc<Protocol>
+    #[inline]
     pub fn from_protocol(protocol: Rc<Protocol>) -> Self {
         KlujurVal::Protocol(KlujurProtocol(protocol))
     }
 
     /// Create a record value from a RecordInstance
+    #[inline]
     pub fn record(instance: RecordInstance) -> Self {
         KlujurVal::Record(Rc::new(instance))
     }
 
     /// Create a record value from an existing Rc<RecordInstance>
+    #[inline]
     pub fn from_record(instance: Rc<RecordInstance>) -> Self {
         KlujurVal::Record(instance)
     }
@@ -2400,6 +2461,7 @@ impl KlujurVal {
     /// Try to downcast a custom value to a specific type.
     ///
     /// Returns `None` if this is not a `Custom` variant or if the type doesn't match.
+    #[inline]
     pub fn downcast_custom<T: 'static>(&self) -> Option<&T> {
         match self {
             KlujurVal::Custom(c) => c.downcast_ref::<T>(),
@@ -2408,17 +2470,20 @@ impl KlujurVal {
     }
 
     /// Create a sorted map with a custom comparator
+    #[inline]
     pub fn sorted_map_by(comparator: KlujurVal) -> Self {
         KlujurVal::SortedMapBy(KlujurSortedMapBy::new(comparator))
     }
 
     /// Create a sorted set with a custom comparator
+    #[inline]
     pub fn sorted_set_by(comparator: KlujurVal) -> Self {
         KlujurVal::SortedSetBy(KlujurSortedSetBy::new(comparator))
     }
 
     /// Get the metadata of this value, if any.
     /// Returns None for types that don't support metadata.
+    #[inline]
     #[must_use]
     pub fn meta(&self) -> Option<&Rc<Meta>> {
         match self {
@@ -2434,6 +2499,7 @@ impl KlujurVal {
     }
 
     /// Returns true if this value type supports metadata.
+    #[inline]
     #[must_use]
     pub fn supports_meta(&self) -> bool {
         matches!(
