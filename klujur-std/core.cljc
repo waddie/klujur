@@ -2,6 +2,24 @@
 ;; Copyright (c) 2025 Tom Waddington. MIT licensed.
 
 ;; ============================================================================
+;; Gensym Naming Convention
+;; ============================================================================
+;;
+;; CONVENTION: All gensym calls MUST use an underscore suffix
+;;
+;; Examples:
+;;   (gensym "x_")      - for binding names
+;;   (gensym "case_")   - for macro-specific temporaries
+;;   (gensym "args_")   - for argument lists
+;;   (gensym (str var-name "_impl_"))  - for generated implementations
+;;
+;; RATIONALE:
+;; - Consistent naming makes generated code more readable in macroexpansions
+;; - Underscore suffix clearly indicates generated/temporary variables
+;; - Follows Clojure convention (though Clojure uses # for auto-gensym)
+;; - Makes debugging macro expansions easier
+
+;; ============================================================================
 ;; Bootstrap aliases - these are redefined with full support later
 ;; ============================================================================
 
@@ -69,7 +87,7 @@
    value of x supplied at the front of the given arguments. The forms
    are evaluated in order. Returns x."
   [x & forms]
-  (let [gx    (gensym)
+  (let [gx    (gensym "x_")
         calls (map (fn [f]
                      (if (seq? f) (list* (first f) gx (next f)) (list f gx)))
                    forms)]
@@ -363,8 +381,28 @@
                                       ~@body))]
                  (when-not (= result# ::doseq-stop) (recur (next s#)))))))))))
 
-;; NOTE: These are public helper functions for the `for` macro.
-;; They are qualified to klujur.core by syntax-quote when the macro expands.
+;; NOTE: These helper functions for the `for` macro MUST remain public.
+;;
+;; DECISION: Cannot make these private (blocked in TODO.md)
+;;
+;; REASON: The `for` macro uses syntax-quote which qualifies symbols as
+;; klujur.core/for-step. When a user calls (for ...) from the 'user namespace,
+;; the macro expands and generates code that references klujur.core/for-step.
+;; That generated code executes in the 'user namespace context.
+;;
+;; In Klujur, private vars can only be accessed from within the same namespace
+;; (see eval/mod.rs lines 216 and 231: `if !var.is_public() && var_ns !=
+;; current_ns_name`).
+;; Since the generated code runs in a different namespace than klujur.core,
+;; making these functions private would cause "var: klujur.core/for-step is not
+;; public" errors.
+;;
+;; ALTERNATIVES CONSIDERED:
+;; 1. Unqualified references - doesn't work, syntax-quote always qualifies
+;; 2. Inline expansion - would make macro too complex and hurt performance
+;; 3. Same-namespace access exception - would require runtime changes
+;;
+;; CONCLUSION: These must remain public as part of klujur.core's API.
 (defn for-step
   "Helper for the for macro - iterates over seq, applying f to each element.
    Stops early if f returns a result containing [:for-while-stop]."
@@ -432,7 +470,7 @@
         name->vol        (zipmap names vol-syms)
         ;; Create wrapper functions that deref their volatiles
         wrapper-bindings (vec (mapcat (fn [[name vol]]
-                                        (let [args-sym (gensym "args")]
+                                        (let [args-sym (gensym "args_")]
                                           [name
                                            (list 'fn
                                                  (vector '& args-sym)

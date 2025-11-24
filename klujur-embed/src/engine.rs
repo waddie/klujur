@@ -38,6 +38,19 @@ pub struct Engine {
     env: Env,
 }
 
+impl std::fmt::Debug for Engine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let registry = self.env.registry();
+        let current_ns = registry.current();
+        let ns_count = registry.all_ns().len();
+
+        f.debug_struct("Engine")
+            .field("current_namespace", &current_ns.name())
+            .field("namespace_count", &ns_count)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Engine {
     /// Create a new Engine with the standard library loaded.
     pub fn new() -> Result<Self> {
@@ -261,3 +274,18 @@ impl Engine {
 // Note: Default is intentionally not implemented for Engine because
 // Engine::new() can fail (e.g., stdlib loading errors). Users should
 // call Engine::new() directly and handle the Result.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_engine_debug() {
+        let engine = Engine::new().unwrap();
+        let debug_str = format!("{:?}", engine);
+        eprintln!("Debug output: {}", debug_str);
+        assert!(debug_str.contains("Engine"));
+        assert!(debug_str.contains("current_namespace"));
+        assert!(debug_str.contains("namespace_count"));
+    }
+}

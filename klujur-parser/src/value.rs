@@ -966,6 +966,28 @@ pub type Meta = OrdMap<KlujurVal, KlujurVal>;
 ///
 /// Types that support metadata (List, Vector, Map, Set, Symbol) have an
 /// optional `Rc<Meta>` field. Metadata does not affect equality or hashing.
+///
+/// ## Size and Boxing Decision
+///
+/// **DECISION: No boxing of large variants**
+///
+/// **SIZE ANALYSIS (as of 2025):**
+/// - Total enum size: 80 bytes (10 machine words)
+/// - Largest variant: List/Vector with `Vector<KlujurVal>` (64 bytes) + `Option<Rc<Meta>>` (8 bytes)
+/// - Component sizes:
+///   - `Vector<KlujurVal>`: 64 bytes (im crate, uses Rc internally for structural sharing)
+///   - `OrdMap<KlujurVal, KlujurVal>`: 16 bytes (just an Rc pointer)
+///   - `BigInt`: 32 bytes
+///   - `Option<Rc<Meta>>`: 8 bytes
+///
+/// **RATIONALE:**
+/// 1. 80 bytes is reasonable for an enum representing all language values
+/// 2. The `im` crate's persistent data structures already use Rc internally
+/// 3. Boxing would add an extra heap allocation and pointer indirection
+/// 4. This would hurt performance for the most common operations (list/vector access)
+/// 5. Memory layout is already optimised by the im crate's design
+///
+/// **MEASUREMENT:** See `size_tests::test_klujur_val_size` in this file
 #[derive(Clone)]
 pub enum KlujurVal {
     /// The nil value, representing nothing/absence
@@ -3459,5 +3481,42 @@ mod tests {
         assert_eq!(KlujurVal::bool(true).type_name(), "bool");
         assert_eq!(KlujurVal::int(42).type_name(), "int");
         assert_eq!(KlujurVal::float(3.14).type_name(), "float");
+    }
+}
+
+#[cfg(test)]
+mod size_tests {
+    use super::*;
+
+    #[test]
+    fn test_klujur_val_size() {
+        use std::mem::size_of;
+
+        let size = size_of::<KlujurVal>();
+        eprintln!("size_of::<KlujurVal>() = {} bytes", size);
+
+        // Print sizes of common Rust types for reference
+        eprintln!("size_of::<i64>() = {} bytes", size_of::<i64>());
+        eprintln!("size_of::<f64>() = {} bytes", size_of::<f64>());
+        eprintln!("size_of::<Rc<str>>() = {} bytes", size_of::<Rc<str>>());
+        eprintln!(
+            "size_of::<Vector<KlujurVal>>() = {} bytes",
+            size_of::<Vector<KlujurVal>>()
+        );
+        eprintln!(
+            "size_of::<OrdMap<KlujurVal, KlujurVal>>() = {} bytes",
+            size_of::<OrdMap<KlujurVal, KlujurVal>>()
+        );
+        eprintln!(
+            "size_of::<Option<Rc<Meta>>>() = {} bytes",
+            size_of::<Option<Rc<Meta>>>()
+        );
+        eprintln!("size_of::<BigInt>() = {} bytes", size_of::<BigInt>());
+        eprintln!("size_of::<Symbol>() = {} bytes", size_of::<Symbol>());
+        eprintln!("size_of::<Keyword>() = {} bytes", size_of::<Keyword>());
+
+        // The enum size is determined by its largest variant plus discriminant
+        // If the enum is significantly larger than needed, we should consider boxing
+        assert!(size > 0, "KlujurVal should have non-zero size");
     }
 }

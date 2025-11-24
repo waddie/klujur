@@ -108,7 +108,38 @@
    Returns {:result <result> :output <string>}
 
    Usage:
-     (capture-output #(eval* '(println \"hello\")))"
+     (capture-output #(eval* '(println \"hello\")))
+
+   DECISION: Stub implementation only
+
+   STATUS: Function exists with documented interface but only returns empty string.
+   Full implementation BLOCKED pending runtime architecture changes.
+
+   REASON: Klujur's I/O builtins (println, print, etc.) directly call Rust's
+   println! macro, which writes to stdout. There is no dynamic *out* binding
+   or redirection mechanism like Clojure has.
+
+   IMPLEMENTATION REQUIREMENTS (for future work):
+   1. Add a dynamic *out* var to klujur.core (similar to Clojure)
+   2. Create a Writer abstraction/protocol in Rust
+   3. Modify builtin_print/println in klujur-core/src/builtins/io.rs to:
+      - Check for thread-local *out* binding
+      - Write to bound writer instead of stdout
+      - Fall back to stdout if no binding exists
+   4. Provide StringWriter type that accumulates to a String buffer
+   5. Update this function to:
+      - Create a StringWriter
+      - Bind *out* to the writer using (binding [*out* writer] ...)
+      - Evaluate thunk
+      - Extract accumulated output from writer
+
+   ALTERNATIVES CONSIDERED:
+   - Process-level stdout redirection: not thread-safe, affects entire runtime
+   - Monkey-patching println: fragile, doesn't work with native functions
+   - Output interception via macros: doesn't capture native function output
+
+   CURRENT WORKAROUND: Tests should verify behaviour without checking output,
+   or use side-effect patterns like atoms to observe effects."
   [thunk]
-  ;; TODO: Implement output capture when println is available
+  ;; Stub implementation - evaluates thunk but cannot capture output
   {:result (thunk) :output ""})
