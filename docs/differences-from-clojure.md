@@ -42,23 +42,18 @@ Klujur maps use `im::OrdMap` and sets use `im::OrdSet`, providing iteration in *
 
 ## Lazy Sequences
 
-### Element-by-Element Evaluation (Not Chunked)
+### Chunked Sequences
 
-Klujur lazy sequences realise one element at a time. Clojure uses 32-element chunks for performance.
+Klujur supports chunked sequences like Clojure, processing elements in batches of 32 for better performance.
 
-**Implications:**
+**Chunked sequence functions:**
 
-| Aspect       | Clojure (Chunked)           | Klujur (Element-wise)     |
-| ------------ | --------------------------- | ------------------------- |
-| Side effects | May evaluate extra elements | Precise control           |
-| Performance  | Better for bulk operations  | More overhead per element |
-| Memory       | 32 elements at once         | One element at a time     |
+- `chunked-seq?`, `chunk?` - predicates
+- `chunk-first`, `chunk-rest`, `chunk-next` - navigation
+- `chunk-cons`, `chunk-buffer`, `chunk-append`, `chunk` - construction
+- `chunk-count`, `chunk-nth` - access
 
-**When this matters:**
-
-- Side-effecting lazy sequences behave more predictably
-- Performance-sensitive code may need `mapv`/`filterv` for bulk operations
-- Memory pressure may differ for large lazy sequences
+**Note:** `range` produces chunked sequences. Other lazy sequences (from `lazy-seq`, `map`, `filter`, etc.) are element-by-element.
 
 ## Exception Handling
 
@@ -80,7 +75,7 @@ Klujur’s `try`/`catch` uses `:default` to catch all exceptions, not Java class
 
 ### Implementation Uses Volatiles
 
-Klujur’s `letfn` uses volatiles to enable forward references between functions.
+Klujur’s `letfn` uses volatiles to enable forward references between functions, including mutual recursion.
 
 **How it works internally:**
 
@@ -88,25 +83,41 @@ Klujur’s `letfn` uses volatiles to enable forward references between functions
 2. Defines functions that dereference the volatiles
 3. Assigns the actual function implementations
 
+**Example (mutual recursion):**
+
+```clojure
+(letfn [(even? [n] (if (zero? n) true (odd? (dec n))))
+        (odd? [n] (if (zero? n) false (even? (dec n))))]
+  (even? 10))  ; => true
+```
+
 **Performance implications:**
 
 - Each function call involves a volatile dereference
 - Suitable for occasional use, not tight loops
-- Consider `let` with explicit ordering for performance-critical code:
-
-**Note:** Klujur’s `letfn` does not support mutual recursion (functions calling each other). This is a known limitation.
+- Consider `let` with explicit ordering for performance-critical code
 
 ## Integer Overflow
 
-Unlike Clojure which auto-promotes to `BigInteger`, Klujur uses checked arithmetic and returns an error on overflow.
+Klujur follows Clojure 1.3+ semantics for integer overflow:
 
-**Affected operations:** `+`, `-`, `*`, `inc`, `dec`, `abs` (for `i64::MIN`), unary negation (for `i64::MIN`).
+- **Default ops** (`+`, `-`, `*`, `inc`, `dec`) use checked arithmetic and error on overflow
+- **Prime variants** (`+'`, `-'`, `*'`, `inc'`, `dec'`) auto-promote to `BigInt`
 
-**Workarounds:**
+```clojure
+(+ 9223372036854775807 1)   ; Error: Integer overflow
+(+' 9223372036854775807 1)  ; => 9223372036854775808N
+(*' 9223372036854775807 2)  ; => 18446744073709551614N
+```
 
-- Use ratios for arbitrary precision: `(+ 9223372036854775807/1 1/1)`
-- Check bounds before operations
-- Operations involving floats do not check for overflow
+**Literal auto-promotion:** Integer literals that overflow i64 are automatically promoted to BigInt during parsing:
+
+```clojure
+9223372036854775807   ; i64::MAX - stays as Int
+9223372036854775808   ; i64::MAX + 1 - auto-promotes to BigInt (prints with N suffix)
+```
+
+**Predicates:** `bigint?` tests for BigInt type. `integer?` returns true for both Int and BigInt.
 
 ## Threading Model
 

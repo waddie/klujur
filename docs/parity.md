@@ -29,7 +29,8 @@ A comprehensive comparison of Klujur against Clojure (the reference) and SCI (Sm
 | Maps              | ✓      | ✓       | ✓   | **Differs**: ordered (`im::OrdMap`), not hash-based  |
 | Sets              | ✓      | ✓       | ✓   | **Differs**: ordered (`im::OrdSet`), not hash-based  |
 | Regex             | ✓      | ✓       | ✓   | `#"pattern"` syntax                                  |
-| BigInt            | ✗      | ✓       | ✗   |                                                      |
+| BigInt            | ✓      | ✓       | ✗   | With `+'`, `-'`, `*'` auto-promotion                 |
+| BigRatio          | ✓      | ✗       | ✗   | Arbitrary precision rationals                        |
 | BigDecimal        | ✗      | ✓       | ✗   |                                                      |
 
 ## Special Forms
@@ -58,39 +59,39 @@ A comprehensive comparison of Klujur against Clojure (the reference) and SCI (Sm
 | `defrecord`                     | ✓      | ✓       | ✓   |                            |
 | `deftype`                       | ✗      | ✓       | ✗   |                            |
 | `reify`                         | ✗      | ✓       | ✓   |                            |
-| `letfn`                         | ~      | ✓       | ✓   | No mutual recursion        |
+| `letfn`                         | ✓      | ✓       | ✓   | Via volatiles              |
 
 ## Core Macros (klujur-std/core.cljc)
 
-| Feature                 | Klujur | Clojure | SCI | Notes                        |
-| ----------------------- | ------ | ------- | --- | ---------------------------- |
-| `defn` / `defn-`        | ✓      | ✓       | ✓   |                              |
-| `when` / `when-not`     | ✓      | ✓       | ✓   |                              |
-| `if-not`                | ✓      | ✓       | ✓   |                              |
-| `cond`                  | ✓      | ✓       | ✓   |                              |
-| `case`                  | ✓      | ✓       | ✓   |                              |
-| `condp`                 | ~      | ✓       | ✓   | `:>>` handling broken        |
-| `if-let` / `when-let`   | ✓      | ✓       | ✓   |                              |
-| `if-some` / `when-some` | ✓      | ✓       | ✓   |                              |
-| `when-first`            | ✓      | ✓       | ✓   |                              |
-| `->` / `->>`            | ✓      | ✓       | ✓   |                              |
-| `as->`                  | ✓      | ✓       | ✓   |                              |
-| `cond->` / `cond->>`    | ~      | ✓       | ✓   | Slightly different expansion |
-| `some->` / `some->>`    | ~      | ✓       | ✓   | Slightly different expansion |
-| `and` / `or`            | ✓      | ✓       | ✓   |                              |
-| `doto`                  | ✓      | ✓       | ✓   |                              |
-| `..`                    | ✗      | ✓       | ✓   | Java interop                 |
-| `delay`                 | ✓      | ✓       | ✓   |                              |
-| `time`                  | ✓      | ✓       | ✓   |                              |
-| `assert`                | ✓      | ✓       | ✓   |                              |
-| `comment`               | ✓      | ✓       | ✓   |                              |
-| `declare`               | ✓      | ✓       | ✓   |                              |
-| `ns`                    | ✓      | ✓       | ✓   | `:require`, `:use`           |
-| `lazy-cat`              | ✓      | ✓       | ✓   |                              |
-| `for`                   | ✓      | ✓       | ✓   | List comprehension           |
-| `doseq`                 | ✓      | ✓       | ✓   |                              |
-| `dotimes`               | ✓      | ✓       | ✓   |                              |
-| `while`                 | ✓      | ✓       | ✓   |                              |
+| Feature                 | Klujur | Clojure | SCI | Notes              |
+| ----------------------- | ------ | ------- | --- | ------------------ |
+| `defn` / `defn-`        | ✓      | ✓       | ✓   |                    |
+| `when` / `when-not`     | ✓      | ✓       | ✓   |                    |
+| `if-not`                | ✓      | ✓       | ✓   |                    |
+| `cond`                  | ✓      | ✓       | ✓   |                    |
+| `case`                  | ✓      | ✓       | ✓   |                    |
+| `condp`                 | ✓      | ✓       | ✓   |                    |
+| `if-let` / `when-let`   | ✓      | ✓       | ✓   |                    |
+| `if-some` / `when-some` | ✓      | ✓       | ✓   |                    |
+| `when-first`            | ✓      | ✓       | ✓   |                    |
+| `->` / `->>`            | ✓      | ✓       | ✓   |                    |
+| `as->`                  | ✓      | ✓       | ✓   |                    |
+| `cond->` / `cond->>`    | ✓      | ✓       | ✓   |                    |
+| `some->` / `some->>`    | ✓      | ✓       | ✓   |                    |
+| `and` / `or`            | ✓      | ✓       | ✓   |                    |
+| `doto`                  | ✓      | ✓       | ✓   |                    |
+| `..`                    | ✗      | ✓       | ✓   | Java interop       |
+| `delay`                 | ✓      | ✓       | ✓   |                    |
+| `time`                  | ✓      | ✓       | ✓   |                    |
+| `assert`                | ✓      | ✓       | ✓   |                    |
+| `comment`               | ✓      | ✓       | ✓   |                    |
+| `declare`               | ✓      | ✓       | ✓   |                    |
+| `ns`                    | ✓      | ✓       | ✓   | `:require`, `:use` |
+| `lazy-cat`              | ✓      | ✓       | ✓   |                    |
+| `for`                   | ✓      | ✓       | ✓   | List comprehension |
+| `doseq`                 | ✓      | ✓       | ✓   |                    |
+| `dotimes`               | ✓      | ✓       | ✓   |                    |
+| `while`                 | ✓      | ✓       | ✓   |                    |
 
 ## Sequences
 
@@ -137,7 +138,7 @@ A comprehensive comparison of Klujur against Clojure (the reference) and SCI (Sm
 | `reductions`                  | ✓      | ✓       | ✓   |       |
 | `realized?`                   | ✓      | ✓       | ✓   |       |
 | `doall` / `dorun`             | ✓      | ✓       | ✓   |       |
-| Chunked sequences             | ✗      | ✓       | ✗   |       |
+| Chunked sequences             | ✓      | ✓       | ✗   | Used by `range` |
 
 ## Higher-Order Functions
 
@@ -197,26 +198,26 @@ A comprehensive comparison of Klujur against Clojure (the reference) and SCI (Sm
 
 ## Transducers
 
-| Feature                        | Klujur | Clojure | SCI | Notes                                      |
-| ------------------------------ | ------ | ------- | --- | ------------------------------------------ |
-| `transduce`                    | ✓      | ✓       | ✓   |                                            |
-| `into` (3-arity)               | ✓      | ✓       | ✓   |                                            |
-| `sequence` (2-arity)           | ✗      | ✓       | ✓   |                                            |
-| `eduction`                     | ✗      | ✓       | ✓   |                                            |
-| `completing`                   | ✓      | ✓       | ✓   |                                            |
-| `reduced` / `reduced?`         | ✓      | ✓       | ✓   |                                            |
-| `unreduced` / `ensure-reduced` | ✓      | ✓       | ✓   |                                            |
-| `(map f)` transducer           | ✓      | ✓       | ✓   |                                            |
-| `(filter pred)` transducer     | ✓      | ✓       | ✓   |                                            |
-| `(take n)` transducer          | ✓      | ✓       | ✓   |                                            |
-| `(drop n)` transducer          | ✓      | ✓       | ✓   |                                            |
-| `(partition-all n)` transducer | ✓      | ✓       | ✓   |                                            |
-| `(partition-by f)` transducer  | ✓      | ✓       | ✓   |                                            |
-| `(dedupe)` transducer          | ✓      | ✓       | ✓   |                                            |
-| `(distinct)` transducer        | ✓      | ✓       | ✓   |                                            |
-| `cat` transducer               | ~      | ✓       | ✓   | Wrong arity (takes 0 args, should take rf) |
-| `(mapcat f)` transducer        | ✓      | ✓       | ✓   |                                            |
-| `(interpose sep)` transducer   | ✓      | ✓       | ✓   |                                            |
+| Feature                        | Klujur | Clojure | SCI | Notes |
+| ------------------------------ | ------ | ------- | --- | ----- |
+| `transduce`                    | ✓      | ✓       | ✓   |       |
+| `into` (3-arity)               | ✓      | ✓       | ✓   |       |
+| `sequence` (2-arity)           | ✗      | ✓       | ✓   |       |
+| `eduction`                     | ✗      | ✓       | ✓   |       |
+| `completing`                   | ✓      | ✓       | ✓   |       |
+| `reduced` / `reduced?`         | ✓      | ✓       | ✓   |       |
+| `unreduced` / `ensure-reduced` | ✓      | ✓       | ✓   |       |
+| `(map f)` transducer           | ✓      | ✓       | ✓   |       |
+| `(filter pred)` transducer     | ✓      | ✓       | ✓   |       |
+| `(take n)` transducer          | ✓      | ✓       | ✓   |       |
+| `(drop n)` transducer          | ✓      | ✓       | ✓   |       |
+| `(partition-all n)` transducer | ✓      | ✓       | ✓   |       |
+| `(partition-by f)` transducer  | ✓      | ✓       | ✓   |       |
+| `(dedupe)` transducer          | ✓      | ✓       | ✓   |       |
+| `(distinct)` transducer        | ✓      | ✓       | ✓   |       |
+| `cat` transducer               | ✓      | ✓       | ✓   |       |
+| `(mapcat f)` transducer        | ✓      | ✓       | ✓   |       |
+| `(interpose sep)` transducer   | ✓      | ✓       | ✓   |       |
 
 ## Multimethods
 
@@ -351,11 +352,11 @@ A comprehensive comparison of Klujur against Clojure (the reference) and SCI (Sm
 
 ## Interop
 
-| Feature            | Klujur | Clojure | SCI | Notes                |
-| ------------------ | ------ | ------- | --- | -------------------- |
-| Java interop       | N/A    | ✓       | N/A | Not applicable       |
-| JavaScript interop | N/A    | N/A     | ✓   | SCI targets JS       |
-| Rust FFI           | ✗      | N/A     | N/A | Planned (Engine API) |
+| Feature            | Klujur | Clojure | SCI | Notes                    |
+| ------------------ | ------ | ------- | --- | ------------------------ |
+| Java interop       | N/A    | ✓       | N/A | Not applicable           |
+| JavaScript interop | N/A    | N/A     | ✓   | SCI targets JS           |
+| Rust FFI           | ✓      | N/A     | N/A | Via `klujur-embed` crate |
 
 ## Threading Model
 
@@ -384,40 +385,10 @@ A comprehensive comparison of Klujur against Clojure (the reference) and SCI (Sm
 
 1. **List performance**: Klujur lists have O(log n) `first`/`rest` vs O(1) in Clojure
 2. **Map iteration order**: Klujur maps iterate in key order, Clojure in insertion order
-3. **No chunked sequences**: Klujur realises one element at a time
-4. **Single-threaded**: No concurrent primitives (atoms work but aren't thread-safe)
+3. **Single-threaded**: No concurrent primitives (atoms work but aren't thread-safe)
 
 ### Missing Features
 
-1. **Embedding API** - Planned
-2. **Transient collections** - Not planned for v1.0
-3. **Concurrency primitives** - Not planned (single-threaded by design)
-4. **Java/JS interop** - Not applicable
-
----
-
-## Known Issues (Code Review 2025-11-23)
-
-Issues identified during code review that affect parity. See `CODE_REVIEW.md` for full details.
-
-### Critical Bugs
-
-| Issue                          | Location             | Impact                                    |
-| ------------------------------ | -------------------- | ----------------------------------------- |
-| `condp` `:>>` handling broken  | `core.cljc:191-212`  | `:>>` threading form doesn't work         |
-| `letfn` no mutual recursion    | `core.cljc:268-275`  | Can't define mutually recursive functions |
-| `cat` wrong arity              | `core.cljc:741-748`  | Breaks transducer composition patterns    |
-| Parser positions always `1:1`  | `parser.rs:46-64`    | Error locations useless                   |
-| Ratio comparison overflow      | `value.rs:2372-2375` | Incorrect ordering for large ratios       |
-| Float Hash/Eq/Ord inconsistent | `value.rs`           | Violates Rust trait contracts             |
-
-### Semantic Differences
-
-| Feature              | Difference                                 |
-| -------------------- | ------------------------------------------ |
-| `cond->` / `cond->>` | Uses `reduce` instead of rebinding pattern |
-| `some->` / `some->>` | Uses `reduce` instead of rebinding pattern |
-
-### Missing (Despite Being Tested)
-
-- `for` macro - list comprehension (tests exist, implementation missing)
+1. **Transient collections** - Not planned for v1.0
+2. **Concurrency primitives** - Not planned (single-threaded by design)
+3. **Java/JS interop** - Not applicable

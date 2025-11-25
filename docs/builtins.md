@@ -115,7 +115,7 @@ Functions for getting the current time. In Clojure, these require Java interop (
   (println "Elapsed:" (- end start) "ns"))
 ```
 
-## Klujur.io
+## klujur.io
 
 Additional I/O functions beyond standard Clojure.
 
