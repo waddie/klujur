@@ -3,11 +3,16 @@
 
 //! Sequence operations: first, rest, cons, count, nth, take, drop, etc.
 
-use klujur_parser::{KlujurLazySeq, KlujurVal, SeqResult};
+use std::rc::Rc;
+
+use klujur_parser::{
+    KlujurChunk, KlujurChunkedSeq, KlujurLazySeq, KlujurVal, NativeChunkThunk, SeqResult,
+};
 
 use crate::error::{Error, Result};
 use crate::eval::{apply, make_native_fn};
 
+use super::chunked::force_chunked_rest;
 use super::collections::builtin_conj;
 use super::{force_lazy_seq, to_seq};
 
@@ -55,6 +60,13 @@ impl Seqable for KlujurVal {
                 SeqResult::Empty => Ok(KlujurVal::Nil),
                 SeqResult::Cons(first, _) => Ok(first),
             },
+            KlujurVal::ChunkedSeq(cs) => {
+                // Get first element from the current chunk
+                cs.chunk()
+                    .nth(0)
+                    .cloned()
+                    .ok_or_else(|| Error::EvalError("empty chunked-seq".into()))
+            }
             KlujurVal::SortedMapBy(sm) => {
                 let entries = sm.entries().map_err(|e| Error::EvalError(e.into()))?;
                 Ok(entries
@@ -83,6 +95,24 @@ impl Seqable for KlujurVal {
                 SeqResult::Empty => Ok(KlujurVal::empty_list()),
                 SeqResult::Cons(_, rest) => Ok(rest),
             },
+            KlujurVal::ChunkedSeq(cs) => {
+                // If chunk has more elements, return a ChunkedSeq with offset+1
+                if let Some(rest_chunk) = cs.chunk().drop_first() {
+                    // Return a new ChunkedSeq with the rest of the current chunk
+                    Ok(KlujurVal::ChunkedSeq(KlujurChunkedSeq::with_rest(
+                        rest_chunk,
+                        force_chunked_rest(cs)?,
+                    )))
+                } else {
+                    // Last element of current chunk - move to next chunk
+                    let rest = force_chunked_rest(cs)?;
+                    if rest == KlujurVal::Nil {
+                        Ok(KlujurVal::empty_list())
+                    } else {
+                        Ok(rest)
+                    }
+                }
+            }
             KlujurVal::SortedMapBy(sm) => {
                 let entries = sm.entries().map_err(|e| Error::EvalError(e.into()))?;
                 let rest: Vec<KlujurVal> = entries
@@ -127,6 +157,19 @@ impl Seqable for KlujurVal {
                     builtin_seq(&[rest])
                 }
             },
+            KlujurVal::ChunkedSeq(cs) => {
+                // Like seq_rest but returns nil instead of empty list
+                if let Some(rest_chunk) = cs.chunk().drop_first() {
+                    // Return a new ChunkedSeq with the rest of the current chunk
+                    Ok(KlujurVal::ChunkedSeq(KlujurChunkedSeq::with_rest(
+                        rest_chunk,
+                        force_chunked_rest(cs)?,
+                    )))
+                } else {
+                    // Last element of current chunk - move to next chunk
+                    Ok(force_chunked_rest(cs)?)
+                }
+            }
             KlujurVal::SortedMapBy(sm) => {
                 let entries = sm.entries().map_err(|e| Error::EvalError(e.into()))?;
                 if entries.len() <= 1 {
@@ -202,6 +245,11 @@ pub(crate) fn builtin_cons(args: &[KlujurVal]) -> Result<KlujurVal> {
             head,
             args[1].clone(),
         ))),
+        // For chunked seqs, also wrap in a lazy-seq cons to preserve laziness
+        KlujurVal::ChunkedSeq(_) => Ok(KlujurVal::LazySeq(KlujurLazySeq::from_cons(
+            head,
+            args[1].clone(),
+        ))),
         other => Err(Error::type_error_in("cons", "seqable", other.type_name())),
     }
 }
@@ -226,8 +274,8 @@ pub(crate) fn builtin_count(args: &[KlujurVal]) -> Result<KlujurVal> {
         KlujurVal::Set(set, _) => set.len(),
         KlujurVal::String(s) => s.chars().count(),
         KlujurVal::Record(r) => r.values.len(),
-        KlujurVal::LazySeq(_) => {
-            // Force the lazy-seq and count its elements
+        KlujurVal::LazySeq(_) | KlujurVal::ChunkedSeq(_) => {
+            // Force the lazy/chunked seq and count its elements
             let items = to_seq(&args[0])?;
             items.len()
         }
@@ -468,7 +516,7 @@ pub(crate) fn builtin_take(args: &[KlujurVal]) -> Result<KlujurVal> {
             // Take n elements from the lazy seq
             let mut result = Vec::with_capacity(n);
             let mut current = KlujurVal::LazySeq(ls.clone());
-            while result.len() < n {
+            'outer: while result.len() < n {
                 match &current {
                     KlujurVal::Nil => break,
                     KlujurVal::List(items, _) if items.is_empty() => break,
@@ -484,6 +532,53 @@ pub(crate) fn builtin_take(args: &[KlujurVal]) -> Result<KlujurVal> {
                             current = rest;
                         }
                     },
+                    KlujurVal::ChunkedSeq(cs) => {
+                        // Rest is a chunked seq - take from it
+                        for val in cs.chunk().iter() {
+                            if result.len() >= n {
+                                break 'outer;
+                            }
+                            result.push(val.clone());
+                        }
+                        // Move to next chunk/seq
+                        current = force_chunked_rest(cs)?;
+                    }
+                    _ => break,
+                }
+            }
+            Ok(KlujurVal::list(result))
+        }
+        KlujurVal::ChunkedSeq(cs) => {
+            // Take n elements from the chunked seq
+            let mut result = Vec::with_capacity(n);
+            let mut current: KlujurVal = KlujurVal::ChunkedSeq(cs.clone());
+            'outer: while result.len() < n {
+                match &current {
+                    KlujurVal::Nil => break,
+                    KlujurVal::ChunkedSeq(cs) => {
+                        // Take from current chunk
+                        for val in cs.chunk().iter() {
+                            if result.len() >= n {
+                                break 'outer;
+                            }
+                            result.push(val.clone());
+                        }
+                        // Move to next chunk (or lazy-seq rest)
+                        current = force_chunked_rest(cs)?;
+                    }
+                    KlujurVal::LazySeq(ls) => match force_lazy_seq(ls)? {
+                        SeqResult::Empty => break,
+                        SeqResult::Cons(first, rest) => {
+                            result.push(first);
+                            current = rest;
+                        }
+                    },
+                    KlujurVal::List(items, _) if items.is_empty() => break,
+                    KlujurVal::List(items, _) => {
+                        let remaining = n - result.len();
+                        result.extend(items.iter().take(remaining).cloned());
+                        break;
+                    }
                     _ => break,
                 }
             }
@@ -532,13 +627,56 @@ pub(crate) fn builtin_drop(args: &[KlujurVal]) -> Result<KlujurVal> {
                             current = rest;
                         }
                     },
+                    KlujurVal::ChunkedSeq(cs) => {
+                        // Drop within chunked seq
+                        let remaining = n - dropped;
+                        return drop_from_chunked_seq(cs, remaining);
+                    }
                     _ => return Ok(KlujurVal::empty_list()),
                 }
             }
             // Return the remaining sequence
             Ok(current)
         }
+        KlujurVal::ChunkedSeq(cs) => drop_from_chunked_seq(cs, n),
         other => Err(Error::type_error_in("drop", "seqable", other.type_name())),
+    }
+}
+
+/// Drop n elements from a chunked sequence
+fn drop_from_chunked_seq(cs: &KlujurChunkedSeq, n: usize) -> Result<KlujurVal> {
+    let mut current: KlujurVal = KlujurVal::ChunkedSeq(cs.clone());
+    let mut remaining = n;
+
+    loop {
+        match &current {
+            KlujurVal::Nil => return Ok(KlujurVal::empty_list()),
+            KlujurVal::ChunkedSeq(cs) => {
+                let chunk_len = cs.chunk().len();
+                if remaining < chunk_len {
+                    // Drop remaining elements from this chunk
+                    let mut new_chunk = cs.chunk().clone();
+                    for _ in 0..remaining {
+                        new_chunk = new_chunk.drop_first().unwrap_or(new_chunk);
+                    }
+                    return Ok(KlujurVal::ChunkedSeq(KlujurChunkedSeq::with_rest(
+                        new_chunk,
+                        force_chunked_rest(cs)?,
+                    )));
+                } else {
+                    // Drop entire chunk and continue
+                    remaining -= chunk_len;
+                    current = force_chunked_rest(cs)?;
+                }
+            }
+            // Rest is a lazy-seq or other seqable - drop remaining from it
+            other => {
+                if remaining == 0 {
+                    return Ok(other.clone());
+                }
+                return builtin_drop(&[KlujurVal::int(remaining as i64), other.clone()]);
+            }
+        }
     }
 }
 
@@ -682,8 +820,188 @@ pub(crate) fn builtin_reverse(args: &[KlujurVal]) -> Result<KlujurVal> {
     }
 }
 
-// Note: range and repeat are implemented in stdlib (core.cljc) as lazy sequences
-// to support infinite sequences like (range) and (repeat x).
+// Note: repeat is implemented in stdlib (core.cljc) as a lazy sequence
+// to support infinite sequences like (repeat x).
+
+// ============================================================================
+// Range (chunked for large ranges, eager list for small)
+// ============================================================================
+
+/// Default chunk size for chunked sequences
+pub const CHUNK_SIZE: usize = 32;
+
+/// (range end), (range start end), or (range start end step) - return finite range
+///
+/// For small ranges (≤32 elements), returns an eager list.
+/// For large ranges (>32 elements), returns a chunked sequence for efficiency.
+/// For infinite range (no args), use the stdlib lazy version.
+pub(crate) fn builtin_range(args: &[KlujurVal]) -> Result<KlujurVal> {
+    match args.len() {
+        0 => {
+            // (range) with no args - infinite sequence, use stdlib
+            Err(Error::EvalError(
+                "range with no args requires stdlib lazy version".into(),
+            ))
+        }
+        1 => {
+            // (range end) - 0 to end
+            let end = as_i64(&args[0], "range")?;
+            make_range(0, end, 1)
+        }
+        2 => {
+            // (range start end)
+            let start = as_i64(&args[0], "range")?;
+            let end = as_i64(&args[1], "range")?;
+            make_range(start, end, 1)
+        }
+        3 => {
+            // (range start end step)
+            let start = as_i64(&args[0], "range")?;
+            let end = as_i64(&args[1], "range")?;
+            let step = as_i64(&args[2], "range")?;
+            make_range(start, end, step)
+        }
+        _ => Err(Error::ArityError {
+            expected: crate::error::AritySpec::Range(0, 3),
+            got: args.len(),
+            name: Some("range".into()),
+        }),
+    }
+}
+
+/// Create a range, choosing between eager list and chunked sequence
+fn make_range(start: i64, end: i64, step: i64) -> Result<KlujurVal> {
+    if step == 0 {
+        return Ok(KlujurVal::empty_list());
+    }
+
+    // Calculate the count of elements
+    let count = if step > 0 && end > start {
+        ((end - start + step - 1) / step) as usize
+    } else if step < 0 && start > end {
+        ((start - end + (-step) - 1) / (-step)) as usize
+    } else {
+        0
+    };
+
+    if count == 0 {
+        Ok(KlujurVal::empty_list())
+    } else if count <= CHUNK_SIZE {
+        // Small range: return eager list
+        Ok(KlujurVal::list(range_vec(start, end, step)))
+    } else {
+        // Large range: return chunked sequence
+        Ok(make_chunked_range(start, end, step))
+    }
+}
+
+/// Create a chunked range sequence
+fn make_chunked_range(start: i64, end: i64, step: i64) -> KlujurVal {
+    // Build the first chunk
+    let first_chunk = build_range_chunk(start, end, step);
+
+    if first_chunk.is_empty() {
+        return KlujurVal::empty_list();
+    }
+
+    // Calculate where the next chunk starts
+    let next_start = start + (first_chunk.len() as i64) * step;
+
+    // Create a thunk that generates the rest of the range
+    let rest_thunk = make_range_thunk(next_start, end, step);
+
+    KlujurVal::ChunkedSeq(KlujurChunkedSeq::new_native(first_chunk, rest_thunk))
+}
+
+/// Build a single chunk of range values
+fn build_range_chunk(start: i64, end: i64, step: i64) -> KlujurChunk {
+    let mut elements = Vec::with_capacity(CHUNK_SIZE);
+    let mut i = start;
+
+    if step > 0 {
+        while i < end && elements.len() < CHUNK_SIZE {
+            elements.push(KlujurVal::int(i));
+            i += step;
+        }
+    } else {
+        while i > end && elements.len() < CHUNK_SIZE {
+            elements.push(KlujurVal::int(i));
+            i += step;
+        }
+    }
+
+    KlujurChunk::new(elements)
+}
+
+/// Create a native thunk that generates the rest of a range as chunked seq
+fn make_range_thunk(start: i64, end: i64, step: i64) -> NativeChunkThunk {
+    Rc::new(move || {
+        // Check if we've reached the end
+        let at_end = if step > 0 { start >= end } else { start <= end };
+
+        if at_end {
+            Ok(KlujurVal::Nil)
+        } else {
+            // Build the next chunk
+            let chunk = build_range_chunk(start, end, step);
+
+            if chunk.is_empty() {
+                Ok(KlujurVal::Nil)
+            } else {
+                // Calculate next chunk start
+                let next_start = start + (chunk.len() as i64) * step;
+
+                // Create the next thunk
+                let rest_thunk = make_range_thunk(next_start, end, step);
+
+                Ok(KlujurVal::ChunkedSeq(KlujurChunkedSeq::new_native(
+                    chunk, rest_thunk,
+                )))
+            }
+        }
+    })
+}
+
+/// Helper to extract i64 from a KlujurVal
+fn as_i64(val: &KlujurVal, fn_name: &str) -> Result<i64> {
+    match val {
+        KlujurVal::Int(n) => Ok(*n),
+        KlujurVal::Float(f) => Ok(*f as i64),
+        other => Err(Error::type_error_in(fn_name, "number", other.type_name())),
+    }
+}
+
+/// Generate a Vec of integers for the range (used for small ranges)
+fn range_vec(start: i64, end: i64, step: i64) -> Vec<KlujurVal> {
+    if step == 0 {
+        return Vec::new();
+    }
+
+    // Estimate capacity
+    let cap = if step > 0 && end > start {
+        ((end - start) / step) as usize
+    } else if step < 0 && start > end {
+        ((start - end) / (-step)) as usize
+    } else {
+        0
+    };
+
+    let mut result = Vec::with_capacity(cap);
+    let mut i = start;
+
+    if step > 0 {
+        while i < end {
+            result.push(KlujurVal::int(i));
+            i += step;
+        }
+    } else {
+        while i > end {
+            result.push(KlujurVal::int(i));
+            i += step;
+        }
+    }
+    result
+}
 
 // ============================================================================
 // Into (collection conversion)
@@ -837,6 +1155,21 @@ pub(crate) fn builtin_seq(args: &[KlujurVal]) -> Result<KlujurVal> {
             match force_lazy_seq(ls)? {
                 SeqResult::Empty => Ok(KlujurVal::Nil),
                 SeqResult::Cons(_, _) => Ok(args[0].clone()), // Return the lazy seq itself
+            }
+        }
+        KlujurVal::ChunkedSeq(cs) => {
+            // Return the chunked seq if non-empty
+            if cs.chunk().is_empty() {
+                // Force rest to check if there are more chunks
+                let rest = force_chunked_rest(cs)?;
+                if rest == KlujurVal::Nil {
+                    Ok(KlujurVal::Nil)
+                } else {
+                    // Rest could be ChunkedSeq, LazySeq, or other seqable
+                    builtin_seq(&[rest])
+                }
+            } else {
+                Ok(args[0].clone())
             }
         }
         KlujurVal::Record(r) => {

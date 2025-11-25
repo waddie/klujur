@@ -227,6 +227,12 @@ pub enum TypeKey {
     Record(crate::symbol::Symbol),
     /// Custom embedded Rust type
     Custom(&'static str),
+    /// Chunk of realized values
+    Chunk,
+    /// Buffer for building chunks
+    ChunkBuffer,
+    /// Chunked lazy sequence
+    ChunkedSeq,
 }
 
 // ============================================================================
@@ -1067,6 +1073,12 @@ pub enum KlujurVal {
     SortedSetBy(KlujurSortedSetBy),
     /// Custom embedded Rust type
     Custom(KlujurCustom),
+    /// Chunk of realized values (for chunked sequences)
+    Chunk(KlujurChunk),
+    /// Buffer for building chunks incrementally
+    ChunkBuffer(KlujurChunkBuffer),
+    /// Chunked lazy sequence (efficient batch processing)
+    ChunkedSeq(KlujurChunkedSeq),
 }
 
 // ============================================================================
@@ -2000,6 +2012,409 @@ impl Ord for KlujurLazySeq {
 }
 
 // ============================================================================
+// Chunked Sequence Types
+// ============================================================================
+
+/// A chunk of realized values (typically 32 elements).
+/// Used for efficient batch processing of lazy sequences.
+#[derive(Clone)]
+pub struct KlujurChunk {
+    /// The realized elements
+    elements: Rc<Vec<KlujurVal>>,
+    /// Starting offset (for efficient slicing without copying)
+    offset: usize,
+}
+
+impl KlujurChunk {
+    /// Default chunk size (matches Clojure)
+    pub const CHUNK_SIZE: usize = 32;
+
+    /// Create a new chunk from a vector of values.
+    #[must_use]
+    pub fn new(elements: Vec<KlujurVal>) -> Self {
+        KlujurChunk {
+            elements: Rc::new(elements),
+            offset: 0,
+        }
+    }
+
+    /// Create an empty chunk.
+    #[must_use]
+    pub fn empty() -> Self {
+        KlujurChunk {
+            elements: Rc::new(Vec::new()),
+            offset: 0,
+        }
+    }
+
+    /// Number of elements in this chunk (accounting for offset).
+    #[inline]
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.elements.len().saturating_sub(self.offset)
+    }
+
+    /// Check if the chunk is empty.
+    #[inline]
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Get the first element, if any.
+    #[inline]
+    #[must_use]
+    pub fn first(&self) -> Option<&KlujurVal> {
+        self.elements.get(self.offset)
+    }
+
+    /// Get the nth element (0-indexed from current offset).
+    #[inline]
+    #[must_use]
+    pub fn nth(&self, n: usize) -> Option<&KlujurVal> {
+        self.elements.get(self.offset + n)
+    }
+
+    /// Create a new chunk with the first element dropped.
+    /// Returns None if only one element remains.
+    #[must_use]
+    pub fn drop_first(&self) -> Option<KlujurChunk> {
+        if self.offset + 1 < self.elements.len() {
+            Some(KlujurChunk {
+                elements: Rc::clone(&self.elements),
+                offset: self.offset + 1,
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Iterate over elements in this chunk.
+    pub fn iter(&self) -> impl Iterator<Item = &KlujurVal> {
+        self.elements[self.offset..].iter()
+    }
+
+    /// Convert to a vector of values.
+    #[must_use]
+    pub fn to_vec(&self) -> Vec<KlujurVal> {
+        self.elements[self.offset..].to_vec()
+    }
+}
+
+impl fmt::Debug for KlujurChunk {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "#<Chunk: {} elements>", self.len())
+    }
+}
+
+impl fmt::Display for KlujurChunk {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[")?;
+        for (i, val) in self.iter().enumerate() {
+            if i > 0 {
+                write!(f, " ")?;
+            }
+            write!(f, "{}", val)?;
+        }
+        write!(f, "]")
+    }
+}
+
+impl PartialEq for KlujurChunk {
+    fn eq(&self, other: &Self) -> bool {
+        // Compare by content
+        self.len() == other.len() && self.iter().zip(other.iter()).all(|(a, b)| a == b)
+    }
+}
+
+impl Eq for KlujurChunk {}
+
+impl PartialOrd for KlujurChunk {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for KlujurChunk {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        for (a, b) in self.iter().zip(other.iter()) {
+            match a.cmp(b) {
+                std::cmp::Ordering::Equal => continue,
+                ord => return ord,
+            }
+        }
+        self.len().cmp(&other.len())
+    }
+}
+
+impl std::hash::Hash for KlujurChunk {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        for val in self.iter() {
+            val.hash(state);
+        }
+    }
+}
+
+/// A buffer for building chunks incrementally.
+/// Used by map/filter to collect transformed elements.
+#[derive(Clone)]
+pub struct KlujurChunkBuffer {
+    /// The accumulated elements
+    buffer: Rc<RefCell<Vec<KlujurVal>>>,
+}
+
+impl KlujurChunkBuffer {
+    /// Create a new chunk buffer with the given capacity.
+    #[must_use]
+    pub fn new(capacity: usize) -> Self {
+        KlujurChunkBuffer {
+            buffer: Rc::new(RefCell::new(Vec::with_capacity(capacity))),
+        }
+    }
+
+    /// Append a value to the buffer.
+    pub fn add(&self, val: KlujurVal) {
+        self.buffer.borrow_mut().push(val);
+    }
+
+    /// Finalize the buffer into a chunk, consuming the contents.
+    #[must_use]
+    pub fn to_chunk(&self) -> KlujurChunk {
+        let elements = std::mem::take(&mut *self.buffer.borrow_mut());
+        KlujurChunk::new(elements)
+    }
+
+    /// Get the current count of elements.
+    #[must_use]
+    pub fn count(&self) -> usize {
+        self.buffer.borrow().len()
+    }
+}
+
+impl fmt::Debug for KlujurChunkBuffer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "#<ChunkBuffer: {} elements>", self.count())
+    }
+}
+
+impl fmt::Display for KlujurChunkBuffer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "#<ChunkBuffer: {} elements>", self.count())
+    }
+}
+
+impl PartialEq for KlujurChunkBuffer {
+    fn eq(&self, other: &Self) -> bool {
+        // Buffers are equal if they point to the same underlying storage
+        Rc::ptr_eq(&self.buffer, &other.buffer)
+    }
+}
+
+impl Eq for KlujurChunkBuffer {}
+
+impl PartialOrd for KlujurChunkBuffer {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for KlujurChunkBuffer {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let self_ptr = Rc::as_ptr(&self.buffer) as usize;
+        let other_ptr = Rc::as_ptr(&other.buffer) as usize;
+        self_ptr.cmp(&other_ptr)
+    }
+}
+
+impl std::hash::Hash for KlujurChunkBuffer {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        (Rc::as_ptr(&self.buffer) as usize).hash(state);
+    }
+}
+
+/// A native thunk function type for chunked sequences.
+/// Takes no arguments and returns either a ChunkedSeq or Nil.
+pub type NativeChunkThunk = Rc<dyn Fn() -> std::result::Result<KlujurVal, String>>;
+
+/// Internal state of a chunked sequence's rest thunk.
+#[derive(Clone)]
+pub enum ChunkedRestState {
+    /// Not yet evaluated - contains a zero-arg Klujur function to call
+    Pending(KlujurFn),
+    /// Not yet evaluated - contains a native (Rust) thunk
+    PendingNative(NativeChunkThunk),
+    /// Already evaluated - contains the rest as a seqable value (or Nil if exhausted).
+    /// The rest can be any seqable type (ChunkedSeq, LazySeq, List, Vector, etc.)
+    Realized(Box<KlujurVal>),
+}
+
+/// A chunked lazy sequence - processes elements in batches for efficiency.
+#[derive(Clone)]
+pub struct KlujurChunkedSeq {
+    /// Current chunk of realized elements
+    chunk: KlujurChunk,
+    /// Lazy thunk for the rest of the sequence
+    rest: Rc<RefCell<ChunkedRestState>>,
+}
+
+impl KlujurChunkedSeq {
+    /// Create a new chunked sequence from a chunk and a rest thunk (Klujur function).
+    #[must_use]
+    pub fn new(chunk: KlujurChunk, rest_thunk: KlujurFn) -> Self {
+        KlujurChunkedSeq {
+            chunk,
+            rest: Rc::new(RefCell::new(ChunkedRestState::Pending(rest_thunk))),
+        }
+    }
+
+    /// Create a new chunked sequence from a chunk and a native (Rust) thunk.
+    #[must_use]
+    pub fn new_native(chunk: KlujurChunk, rest_thunk: NativeChunkThunk) -> Self {
+        KlujurChunkedSeq {
+            chunk,
+            rest: Rc::new(RefCell::new(ChunkedRestState::PendingNative(rest_thunk))),
+        }
+    }
+
+    /// Create a chunked sequence with an already-realized rest.
+    /// The rest should be a seqable value (ChunkedSeq, LazySeq, List, etc.) or Nil.
+    #[must_use]
+    pub fn with_rest(chunk: KlujurChunk, rest: KlujurVal) -> Self {
+        KlujurChunkedSeq {
+            chunk,
+            rest: Rc::new(RefCell::new(ChunkedRestState::Realized(Box::new(rest)))),
+        }
+    }
+
+    /// Get a reference to the current chunk.
+    #[inline]
+    #[must_use]
+    pub fn chunk(&self) -> &KlujurChunk {
+        &self.chunk
+    }
+
+    /// Get a reference to the rest state.
+    #[inline]
+    #[must_use]
+    pub fn rest_state(&self) -> &Rc<RefCell<ChunkedRestState>> {
+        &self.rest
+    }
+
+    /// Check if the rest has been realized.
+    #[inline]
+    #[must_use]
+    pub fn is_rest_realized(&self) -> bool {
+        matches!(*self.rest.borrow(), ChunkedRestState::Realized(_))
+    }
+
+    /// Get the rest thunk if pending (Klujur function), or None otherwise.
+    #[must_use]
+    pub fn get_rest_thunk(&self) -> Option<KlujurFn> {
+        match &*self.rest.borrow() {
+            ChunkedRestState::Pending(thunk) => Some(thunk.clone()),
+            ChunkedRestState::PendingNative(_) | ChunkedRestState::Realized(_) => None,
+        }
+    }
+
+    /// Get the native rest thunk if pending, or None otherwise.
+    #[must_use]
+    pub fn get_native_rest_thunk(&self) -> Option<NativeChunkThunk> {
+        match &*self.rest.borrow() {
+            ChunkedRestState::PendingNative(thunk) => Some(thunk.clone()),
+            ChunkedRestState::Pending(_) | ChunkedRestState::Realized(_) => None,
+        }
+    }
+
+    /// Get the cached rest if realized, or None if still pending.
+    #[must_use]
+    pub fn get_cached_rest(&self) -> Option<KlujurVal> {
+        match &*self.rest.borrow() {
+            ChunkedRestState::Pending(_) | ChunkedRestState::PendingNative(_) => None,
+            ChunkedRestState::Realized(rest) => Some((**rest).clone()),
+        }
+    }
+
+    /// Set the realized rest (called after evaluating the thunk).
+    /// The rest should be a seqable value (ChunkedSeq, LazySeq, etc.) or Nil.
+    pub fn set_rest_realized(&self, rest: KlujurVal) {
+        *self.rest.borrow_mut() = ChunkedRestState::Realized(Box::new(rest));
+    }
+
+    /// Create a new chunked seq with the first element dropped from the chunk.
+    /// If the chunk is exhausted, returns None (caller should force rest).
+    #[must_use]
+    pub fn drop_first(&self) -> Option<KlujurChunkedSeq> {
+        self.chunk.drop_first().map(|new_chunk| KlujurChunkedSeq {
+            chunk: new_chunk,
+            rest: Rc::clone(&self.rest),
+        })
+    }
+}
+
+impl fmt::Debug for KlujurChunkedSeq {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "#<ChunkedSeq: chunk={}>", self.chunk.len())
+    }
+}
+
+impl fmt::Display for KlujurChunkedSeq {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Display the current chunk, with "..." for unforced rest
+        write!(f, "(")?;
+        for (i, val) in self.chunk.iter().enumerate() {
+            if i > 0 {
+                write!(f, " ")?;
+            }
+            write!(f, "{}", val)?;
+        }
+        match &*self.rest.borrow() {
+            ChunkedRestState::Pending(_) | ChunkedRestState::PendingNative(_) => write!(f, " ...")?,
+            ChunkedRestState::Realized(rest) => {
+                if **rest != KlujurVal::Nil {
+                    write!(f, " ...")?;
+                }
+            }
+        }
+        write!(f, ")")
+    }
+}
+
+impl PartialEq for KlujurChunkedSeq {
+    fn eq(&self, other: &Self) -> bool {
+        // ChunkedSeqs are equal if they point to the same rest state
+        // (similar to LazySeq semantics)
+        Rc::ptr_eq(&self.rest, &other.rest) && self.chunk == other.chunk
+    }
+}
+
+impl Eq for KlujurChunkedSeq {}
+
+impl PartialOrd for KlujurChunkedSeq {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for KlujurChunkedSeq {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Compare by pointer address for consistent ordering
+        let self_ptr = Rc::as_ptr(&self.rest) as usize;
+        let other_ptr = Rc::as_ptr(&other.rest) as usize;
+        match self_ptr.cmp(&other_ptr) {
+            std::cmp::Ordering::Equal => self.chunk.cmp(&other.chunk),
+            ord => ord,
+        }
+    }
+}
+
+impl std::hash::Hash for KlujurChunkedSeq {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        (Rc::as_ptr(&self.rest) as usize).hash(state);
+        self.chunk.hash(state);
+    }
+}
+
+// ============================================================================
 // Multimethod Type
 // ============================================================================
 
@@ -2444,6 +2859,9 @@ impl KlujurVal {
             KlujurVal::SortedMapBy(_) => "sorted-map",
             KlujurVal::SortedSetBy(_) => "sorted-set",
             KlujurVal::Custom(c) => c.type_name(),
+            KlujurVal::Chunk(_) => "chunk",
+            KlujurVal::ChunkBuffer(_) => "chunk-buffer",
+            KlujurVal::ChunkedSeq(_) => "chunked-seq",
         }
     }
 
@@ -2484,6 +2902,9 @@ impl KlujurVal {
             KlujurVal::SortedMapBy(_) => TypeKey::SortedMapBy,
             KlujurVal::SortedSetBy(_) => TypeKey::SortedSetBy,
             KlujurVal::Custom(c) => TypeKey::Custom(c.type_name()),
+            KlujurVal::Chunk(_) => TypeKey::Chunk,
+            KlujurVal::ChunkBuffer(_) => TypeKey::ChunkBuffer,
+            KlujurVal::ChunkedSeq(_) => TypeKey::ChunkedSeq,
         }
     }
 
@@ -2563,6 +2984,31 @@ impl KlujurVal {
     /// ```
     pub fn custom<T: CustomType + 'static>(value: T) -> Self {
         KlujurVal::Custom(KlujurCustom::new(value))
+    }
+
+    /// Create a chunk value from a vector of values.
+    #[inline]
+    pub fn chunk(elements: Vec<KlujurVal>) -> Self {
+        KlujurVal::Chunk(KlujurChunk::new(elements))
+    }
+
+    /// Create a chunk buffer with the given capacity.
+    #[inline]
+    pub fn chunk_buffer(capacity: usize) -> Self {
+        KlujurVal::ChunkBuffer(KlujurChunkBuffer::new(capacity))
+    }
+
+    /// Create a chunked sequence from a chunk and rest thunk.
+    #[inline]
+    pub fn chunked_seq(chunk: KlujurChunk, rest_thunk: KlujurFn) -> Self {
+        KlujurVal::ChunkedSeq(KlujurChunkedSeq::new(chunk, rest_thunk))
+    }
+
+    /// Create a chunked sequence with an already-realized rest.
+    /// The rest should be a seqable value (ChunkedSeq, LazySeq, etc.) or Nil.
+    #[inline]
+    pub fn chunked_seq_with_rest(chunk: KlujurChunk, rest: KlujurVal) -> Self {
+        KlujurVal::ChunkedSeq(KlujurChunkedSeq::with_rest(chunk, rest))
     }
 
     /// Try to downcast a custom value to a specific type.
@@ -2737,6 +3183,9 @@ impl fmt::Display for KlujurVal {
             KlujurVal::SortedMapBy(sm) => write!(f, "{}", sm),
             KlujurVal::SortedSetBy(ss) => write!(f, "{}", ss),
             KlujurVal::Custom(c) => write!(f, "{}", c),
+            KlujurVal::Chunk(ch) => write!(f, "{}", ch),
+            KlujurVal::ChunkBuffer(cb) => write!(f, "{}", cb),
+            KlujurVal::ChunkedSeq(cs) => write!(f, "{}", cs),
         }
     }
 }
@@ -2945,6 +3394,9 @@ impl PartialEq for KlujurVal {
             (KlujurVal::SortedMapBy(a), KlujurVal::SortedMapBy(b)) => a == b,
             (KlujurVal::SortedSetBy(a), KlujurVal::SortedSetBy(b)) => a == b,
             (KlujurVal::Custom(a), KlujurVal::Custom(b)) => a == b,
+            (KlujurVal::Chunk(a), KlujurVal::Chunk(b)) => a == b,
+            (KlujurVal::ChunkBuffer(a), KlujurVal::ChunkBuffer(b)) => a == b,
+            (KlujurVal::ChunkedSeq(a), KlujurVal::ChunkedSeq(b)) => a == b,
             _ => false,
         }
     }
@@ -2997,6 +3449,9 @@ impl Ord for KlujurVal {
                 KlujurVal::SortedMapBy(_) => 24,
                 KlujurVal::SortedSetBy(_) => 25,
                 KlujurVal::Custom(_) => 26,
+                KlujurVal::Chunk(_) => 27,
+                KlujurVal::ChunkBuffer(_) => 28,
+                KlujurVal::ChunkedSeq(_) => 29,
             }
         }
 
@@ -3140,6 +3595,9 @@ impl Ord for KlujurVal {
             (KlujurVal::SortedMapBy(a), KlujurVal::SortedMapBy(b)) => a.cmp(b),
             (KlujurVal::SortedSetBy(a), KlujurVal::SortedSetBy(b)) => a.cmp(b),
             (KlujurVal::Custom(a), KlujurVal::Custom(b)) => a.cmp(b),
+            (KlujurVal::Chunk(a), KlujurVal::Chunk(b)) => a.cmp(b),
+            (KlujurVal::ChunkBuffer(a), KlujurVal::ChunkBuffer(b)) => a.cmp(b),
+            (KlujurVal::ChunkedSeq(a), KlujurVal::ChunkedSeq(b)) => a.cmp(b),
             _ => Ordering::Equal,
         }
     }
@@ -3317,6 +3775,18 @@ impl Hash for KlujurVal {
             KlujurVal::Custom(c) => {
                 std::mem::discriminant(self).hash(state);
                 c.hash(state);
+            }
+            KlujurVal::Chunk(ch) => {
+                std::mem::discriminant(self).hash(state);
+                ch.hash(state);
+            }
+            KlujurVal::ChunkBuffer(cb) => {
+                std::mem::discriminant(self).hash(state);
+                cb.hash(state);
+            }
+            KlujurVal::ChunkedSeq(cs) => {
+                std::mem::discriminant(self).hash(state);
+                cs.hash(state);
             }
         }
     }

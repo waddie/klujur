@@ -1421,5 +1421,8 @@ fn type_name(val: &KlujurVal) -> &'static str {
         KlujurVal::SortedMapBy(_) => "sorted-map-by",
         KlujurVal::SortedSetBy(_) => "sorted-set-by",
         KlujurVal::Custom(_) => "custom",
+        KlujurVal::Chunk(_) => "chunk",
+        KlujurVal::ChunkBuffer(_) => "chunk-buffer",
+        KlujurVal::ChunkedSeq(_) => "chunked-seq",
     }
 }

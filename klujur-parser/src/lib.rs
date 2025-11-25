@@ -22,8 +22,9 @@ pub use num_traits::ToPrimitive;
 pub use parser::Parser;
 pub use symbol::Symbol;
 pub use value::{
-    CustomType, FnArity, KlujurAtom, KlujurCustom, KlujurDelay, KlujurFn, KlujurLazySeq,
-    KlujurMultimethod, KlujurNativeFn, KlujurProtocol, KlujurSortedMapBy, KlujurSortedSetBy,
-    KlujurVal, KlujurVar, KlujurVolatile, LazySeqState, Meta, MethodSignature, Protocol, RecordDef,
+    ChunkedRestState, CustomType, FnArity, KlujurAtom, KlujurChunk, KlujurChunkBuffer,
+    KlujurChunkedSeq, KlujurCustom, KlujurDelay, KlujurFn, KlujurLazySeq, KlujurMultimethod,
+    KlujurNativeFn, KlujurProtocol, KlujurSortedMapBy, KlujurSortedSetBy, KlujurVal, KlujurVar,
+    KlujurVolatile, LazySeqState, Meta, MethodSignature, NativeChunkThunk, Protocol, RecordDef,
     RecordInstance, SeqResult, TypeImpl, TypeKey, get_print_length, set_print_length,
 };

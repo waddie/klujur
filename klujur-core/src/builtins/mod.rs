@@ -11,6 +11,7 @@ mod additional_predicates;
 mod arithmetic;
 mod atoms;
 mod bitwise;
+pub mod chunked;
 pub mod collection_constructors;
 mod collection_utils;
 mod collections;
@@ -34,7 +35,7 @@ mod transducers;
 mod type_checks;
 mod vars;
 
-use klujur_parser::KlujurVal;
+use klujur_parser::{KlujurChunk, KlujurVal};
 
 use crate::env::Env;
 use crate::error::{Error, Result};
@@ -65,6 +66,11 @@ use bitwise::{
     builtin_bit_and, builtin_bit_and_not, builtin_bit_clear, builtin_bit_flip, builtin_bit_not,
     builtin_bit_or, builtin_bit_set, builtin_bit_shift_left, builtin_bit_shift_right,
     builtin_bit_test, builtin_bit_xor, builtin_unsigned_bit_shift_right, require_int,
+};
+use chunked::{
+    builtin_chunk, builtin_chunk_append, builtin_chunk_buffer, builtin_chunk_cons,
+    builtin_chunk_count, builtin_chunk_first, builtin_chunk_next, builtin_chunk_nth,
+    builtin_chunk_p, builtin_chunk_rest, builtin_chunked_seq_p,
 };
 use collection_constructors::{
     builtin_hash_map, builtin_hash_set, builtin_list_star, builtin_set, builtin_sorted_map,
@@ -135,9 +141,10 @@ use random::{
 use sequences::{
     builtin_butlast, builtin_concat, builtin_cons, builtin_count, builtin_drop, builtin_empty_p,
     builtin_first, builtin_into, builtin_last, builtin_mapcat, builtin_next, builtin_nth,
-    builtin_partition, builtin_rest, builtin_reverse, builtin_second, builtin_seq, builtin_take,
+    builtin_partition, builtin_range, builtin_rest, builtin_reverse, builtin_second, builtin_seq,
+    builtin_take,
 };
-// Note: range and repeat are implemented in stdlib (core.cljc) as lazy sequences
+// Note: repeat is implemented in stdlib (core.cljc) as a lazy sequence
 use strings::{builtin_keyword, builtin_name, builtin_namespace, builtin_subs, builtin_symbol};
 use transducers::{
     builtin_ensure_reduced, builtin_reduced, builtin_reduced_p, builtin_transduce,
@@ -288,6 +295,19 @@ pub fn register_builtins(env: &Env) {
     // Memoization
     core_ns.define_native("memoize", builtin_memoize);
 
+    // Chunked Sequences
+    core_ns.define_native("chunked-seq?", builtin_chunked_seq_p);
+    core_ns.define_native("chunk?", builtin_chunk_p);
+    core_ns.define_native("chunk-first", builtin_chunk_first);
+    core_ns.define_native("chunk-rest", builtin_chunk_rest);
+    core_ns.define_native("chunk-next", builtin_chunk_next);
+    core_ns.define_native("chunk-cons", builtin_chunk_cons);
+    core_ns.define_native("chunk-buffer", builtin_chunk_buffer);
+    core_ns.define_native("chunk-append", builtin_chunk_append);
+    core_ns.define_native("chunk", builtin_chunk);
+    core_ns.define_native("chunk-count", builtin_chunk_count);
+    core_ns.define_native("chunk-nth", builtin_chunk_nth);
+
     // Sequences
     core_ns.define_native("first", builtin_first);
     core_ns.define_native("rest", builtin_rest);
@@ -305,7 +325,8 @@ pub fn register_builtins(env: &Env) {
     core_ns.define_native("mapcat*", builtin_mapcat);
     core_ns.define_native("partition", builtin_partition);
     core_ns.define_native("reverse", builtin_reverse);
-    // range and repeat are implemented in stdlib (core.cljc) as lazy sequences
+    core_ns.define_native("range-builtin", builtin_range);
+    // repeat is implemented in stdlib (core.cljc) as a lazy sequence
     core_ns.define_native("into", builtin_into);
     core_ns.define_native("seq", builtin_seq);
 
@@ -682,7 +703,7 @@ pub(crate) fn compare_numbers(a: &KlujurVal, b: &KlujurVal) -> Result<std::cmp::
 // Sequences
 // ============================================================================
 
-use klujur_parser::{KlujurLazySeq, SeqResult};
+use klujur_parser::{KlujurChunkedSeq, KlujurLazySeq, SeqResult};
 
 /// Force a lazy sequence and return its SeqResult.
 /// If already realized, returns the cached result.
@@ -743,6 +764,72 @@ pub(crate) fn force_lazy_seq(ls: &KlujurLazySeq) -> Result<SeqResult> {
                 KlujurVal::LazySeq(inner_ls) => {
                     current_ls = inner_ls;
                     continue;
+                }
+                // If the body returns a chunked seq, convert to Cons
+                KlujurVal::ChunkedSeq(cs) => {
+                    // Helper to get rest from chunked seq
+                    fn get_chunked_rest(cs: &KlujurChunkedSeq) -> crate::error::Result<KlujurVal> {
+                        let chunk = cs.chunk();
+                        if chunk.len() <= 1 {
+                            // Only one element in chunk, rest is next chunk/seq
+                            let next = chunked::force_chunked_rest(cs)?;
+                            if next == KlujurVal::Nil {
+                                Ok(KlujurVal::empty_list())
+                            } else {
+                                Ok(next)
+                            }
+                        } else {
+                            // Multiple elements in chunk, rest is chunked seq with drop_first
+                            Ok(KlujurVal::ChunkedSeq(KlujurChunkedSeq::with_rest(
+                                chunk.drop_first().unwrap_or_else(|| chunk.clone()),
+                                chunked::force_chunked_rest(cs)?,
+                            )))
+                        }
+                    }
+
+                    if cs.chunk().is_empty() {
+                        // Force the rest to check if there are more chunks
+                        let next = chunked::force_chunked_rest(&cs)?;
+                        match next {
+                            KlujurVal::Nil => {
+                                let result = SeqResult::Empty;
+                                current_ls.set_realized(result.clone());
+                                return Ok(result);
+                            }
+                            KlujurVal::ChunkedSeq(next_cs) => {
+                                // Return first from next chunk, rest is the rest of chunked seq
+                                let chunk = next_cs.chunk();
+                                let first = chunk.nth(0).cloned().unwrap_or(KlujurVal::Nil);
+                                let rest = get_chunked_rest(&next_cs)?;
+                                let result = SeqResult::Cons(first, rest);
+                                current_ls.set_realized(result.clone());
+                                return Ok(result);
+                            }
+                            // Rest is a lazy-seq - continue processing it
+                            KlujurVal::LazySeq(next_ls) => {
+                                current_ls = next_ls;
+                                continue;
+                            }
+                            // Other seqable types - this shouldn't normally happen
+                            other => {
+                                return Err(Error::type_error_in(
+                                    "chunked-seq empty chunk rest",
+                                    "chunked-seq, lazy-seq, or nil",
+                                    other.type_name(),
+                                ));
+                            }
+                        }
+                    } else {
+                        let chunk = cs.chunk();
+                        let first = chunk.nth(0).cloned().unwrap_or(KlujurVal::Nil);
+                        let rest = get_chunked_rest(&cs)?;
+                        let result = SeqResult::Cons(first, rest);
+                        current_ls.set_realized(result.clone());
+                        if !std::ptr::eq(&current_ls as *const _, original_ls as *const _) {
+                            original_ls.set_realized(result.clone());
+                        }
+                        return Ok(result);
+                    }
                 }
                 other => {
                     return Err(Error::type_error_in(
@@ -811,6 +898,39 @@ pub(crate) fn to_seq(val: &KlujurVal) -> Result<Vec<KlujurVal>> {
                             current = rest;
                         }
                     },
+                    KlujurVal::ChunkedSeq(cs) => {
+                        // Rest is a chunked seq - collect all its elements
+                        result.extend(cs.chunk().iter().cloned());
+                        current = chunked::force_chunked_rest(cs)?;
+                    }
+                    _ => break,
+                }
+            }
+            Ok(result)
+        }
+        KlujurVal::ChunkedSeq(cs) => {
+            // Collect all elements from the chunked seq
+            let mut result = Vec::new();
+            let mut current: KlujurVal = KlujurVal::ChunkedSeq(cs.clone());
+            loop {
+                match &current {
+                    KlujurVal::Nil => break,
+                    KlujurVal::ChunkedSeq(cs) => {
+                        result.extend(cs.chunk().iter().cloned());
+                        current = chunked::force_chunked_rest(cs)?;
+                    }
+                    KlujurVal::LazySeq(ls) => match force_lazy_seq(ls)? {
+                        SeqResult::Empty => break,
+                        SeqResult::Cons(first, rest) => {
+                            result.push(first);
+                            current = rest;
+                        }
+                    },
+                    KlujurVal::List(items, _) if items.is_empty() => break,
+                    KlujurVal::List(items, _) => {
+                        result.extend(items.iter().cloned());
+                        break;
+                    }
                     _ => break,
                 }
             }
@@ -818,4 +938,162 @@ pub(crate) fn to_seq(val: &KlujurVal) -> Result<Vec<KlujurVal>> {
         }
         other => Err(Error::type_error_in("seq", "seqable", other.type_name())),
     }
+}
+
+// ============================================================================
+// Streaming Sequence Iterator
+// ============================================================================
+
+/// Iterator that streams through any seqable.
+/// For realized collections, converts to Vec upfront for efficiency.
+/// For lazy sequences, streams element-by-element to avoid forcing all into memory.
+pub struct SeqIter {
+    inner: SeqIterInner,
+}
+
+enum SeqIterInner {
+    /// Fast path: iterate over a pre-collected Vec
+    Realized(std::vec::IntoIter<KlujurVal>),
+    /// Lazy path: stream through lazy-seq one element at a time
+    Lazy(KlujurVal),
+    /// Chunked path: iterate through chunks efficiently
+    Chunked {
+        /// Current chunk being iterated
+        chunk: KlujurChunk,
+        /// Index into current chunk
+        index: usize,
+        /// Rest of the chunked sequence (for forcing next chunk)
+        rest: KlujurVal,
+    },
+}
+
+impl SeqIter {
+    pub fn new(val: KlujurVal) -> Result<Self> {
+        match &val {
+            // Fast path: realized collections - collect once
+            KlujurVal::Nil => Ok(SeqIter {
+                inner: SeqIterInner::Realized(Vec::new().into_iter()),
+            }),
+            KlujurVal::List(items, _) | KlujurVal::Vector(items, _) => Ok(SeqIter {
+                inner: SeqIterInner::Realized(
+                    items.iter().cloned().collect::<Vec<_>>().into_iter(),
+                ),
+            }),
+            KlujurVal::Set(items, _) => Ok(SeqIter {
+                inner: SeqIterInner::Realized(
+                    items.iter().cloned().collect::<Vec<_>>().into_iter(),
+                ),
+            }),
+            KlujurVal::Map(items, _) => {
+                let pairs: Vec<_> = items
+                    .iter()
+                    .map(|(k, v)| KlujurVal::vector(vec![k.clone(), v.clone()]))
+                    .collect();
+                Ok(SeqIter {
+                    inner: SeqIterInner::Realized(pairs.into_iter()),
+                })
+            }
+            KlujurVal::String(s) => Ok(SeqIter {
+                inner: SeqIterInner::Realized(
+                    s.chars()
+                        .map(KlujurVal::char)
+                        .collect::<Vec<_>>()
+                        .into_iter(),
+                ),
+            }),
+            // Lazy path: stream through lazy-seq
+            KlujurVal::LazySeq(_) => Ok(SeqIter {
+                inner: SeqIterInner::Lazy(val.clone()),
+            }),
+            // Chunked path: iterate through chunks efficiently
+            KlujurVal::ChunkedSeq(cs) => Ok(SeqIter {
+                inner: SeqIterInner::Chunked {
+                    chunk: cs.chunk().clone(),
+                    index: 0,
+                    rest: val.clone(),
+                },
+            }),
+            other => Err(Error::type_error_in("seq", "seqable", other.type_name())),
+        }
+    }
+}
+
+impl Iterator for SeqIter {
+    type Item = Result<KlujurVal>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match &mut self.inner {
+            SeqIterInner::Realized(iter) => iter.next().map(Ok),
+            SeqIterInner::Lazy(current) => {
+                match std::mem::replace(current, KlujurVal::Nil) {
+                    KlujurVal::Nil => None,
+                    KlujurVal::List(items, _) if items.is_empty() => None,
+                    KlujurVal::List(items, _) => {
+                        // Switch to realized mode for the rest
+                        let mut iter = items.iter().cloned().collect::<Vec<_>>().into_iter();
+                        let first = iter.next();
+                        self.inner = SeqIterInner::Realized(iter);
+                        first.map(Ok)
+                    }
+                    KlujurVal::LazySeq(ls) => match force_lazy_seq(&ls) {
+                        Ok(SeqResult::Empty) => None,
+                        Ok(SeqResult::Cons(first, rest)) => {
+                            *current = rest;
+                            Some(Ok(first))
+                        }
+                        Err(e) => Some(Err(e)),
+                    },
+                    KlujurVal::ChunkedSeq(cs) => {
+                        // Switch to chunked mode
+                        self.inner = SeqIterInner::Chunked {
+                            chunk: cs.chunk().clone(),
+                            index: 0,
+                            rest: KlujurVal::ChunkedSeq(cs),
+                        };
+                        self.next()
+                    }
+                    _ => None,
+                }
+            }
+            SeqIterInner::Chunked { chunk, index, rest } => {
+                // Fast path: iterate through current chunk
+                if *index < chunk.len() {
+                    let val = chunk.nth(*index).cloned();
+                    *index += 1;
+                    return val.map(Ok);
+                }
+
+                // Current chunk exhausted - try to get next chunk
+                match rest {
+                    KlujurVal::ChunkedSeq(cs) => match chunked::force_chunked_rest(cs) {
+                        Ok(KlujurVal::Nil) => None, // End of sequence
+                        Ok(KlujurVal::ChunkedSeq(next_cs)) => {
+                            // Move to next chunk
+                            *chunk = next_cs.chunk().clone();
+                            *index = 0;
+                            *rest = KlujurVal::ChunkedSeq(next_cs);
+                            // Recurse to get first element of new chunk
+                            self.next()
+                        }
+                        Ok(next_rest) => {
+                            // Rest is a lazy-seq or other seqable - switch to Lazy mode
+                            self.inner = SeqIterInner::Lazy(next_rest);
+                            self.next()
+                        }
+                        Err(e) => Some(Err(e)),
+                    },
+                    _ => None, // End of sequence
+                }
+            }
+        }
+    }
+}
+
+/// Create a streaming iterator over any seqable value.
+///
+/// For realized collections (List, Vector, Set, Map, String), this collects
+/// into a Vec upfront for fast iteration. For lazy sequences, it streams
+/// element-by-element to avoid forcing all into memory.
+pub(crate) fn seq_iter(val: &KlujurVal) -> Result<SeqIter> {
+    SeqIter::new(val.clone())
 }

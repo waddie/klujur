@@ -1,5 +1,7 @@
 # Klujur
 
+This is an LLM coded experiment. I don’t recommend actually using it. I was curious how far you can get prompting Claude Code over a weekend to build something complex.
+
 Klujur is an interpreted programming language modelled on [Clojure](https://github.com/clojure/clojure). Klujur is written in Rust and intended to be useful as an embedded scripting language, but also ships with a standalone CLI REPL.
 
 ## Installation
@@ -15,9 +17,12 @@ cargo xtask install
 ```sh
 # Run with rlwrap wrapper
 klj
+# And with the bytecode VM
+klj -b
 
 # Or the unwrapped executable, if rlwrap is unavailable
 klujur
+klujur -b
 ```
 
 ## Embedding
@@ -49,6 +54,34 @@ fn main() -> Result<()> {
     });
 
     engine.eval("(println (greet \"Klujur\"))")?; // hello, Klujur!
+    Ok(())
+}
+```
+
+### Using the Bytecode VM
+
+Enable the bytecode compiler for improved performance:
+
+```rust
+use klujur_embed::{Engine, Result};
+
+fn main() -> Result<()> {
+    let mut engine = Engine::new()?;
+
+    // Enable bytecode compilation mode
+    engine.enable_bytecode_mode();
+
+    // Functions are now compiled to bytecode and executed by a stack-based VM
+    let result = engine.eval("((fn [x] (* x x)) 5)")?;
+    println!("{}", result); // 25
+
+    // Bytecode mode is particularly beneficial for:
+    // - Recursive functions
+    // - Tight loops
+    // - Numerical computation
+    let sum = engine.eval("(reduce + (range 10000))")?;
+    println!("{}", sum); // 49995000
+
     Ok(())
 }
 ```

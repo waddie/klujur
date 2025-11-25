@@ -554,7 +554,14 @@
        ([result input] (rf result (f input))))))
   ([f coll]
    (lazy-seq (when-let [s (seq coll)]
-               (cons (f (first s)) (map f (rest s))))))
+               (if (chunked-seq? s)
+                 (let [c (chunk-first s)
+                       size (chunk-count c)
+                       b (chunk-buffer size)]
+                   (dotimes [i size]
+                     (chunk-append b (f (chunk-nth c i))))
+                   (chunk-cons (chunk b) (map f (chunk-rest s))))
+                 (cons (f (first s)) (map f (rest s)))))))
   ([f c1 c2]
    (lazy-seq (let [s1 (seq c1)
                    s2 (seq c2)]
@@ -587,10 +594,19 @@
        ([result input] (if (pred input) (rf result input) result)))))
   ([pred coll]
    (lazy-seq (when-let [s (seq coll)]
-               (let [f (first s)]
-                 (if (pred f)
-                   (cons f (filter pred (rest s)))
-                   (filter pred (rest s))))))))
+               (if (chunked-seq? s)
+                 (let [c (chunk-first s)
+                       size (chunk-count c)
+                       b (chunk-buffer size)]
+                   (dotimes [i size]
+                     (let [v (chunk-nth c i)]
+                       (when (pred v)
+                         (chunk-append b v))))
+                   (chunk-cons (chunk b) (filter pred (chunk-rest s))))
+                 (let [f (first s)]
+                   (if (pred f)
+                     (cons f (filter pred (rest s)))
+                     (filter pred (rest s)))))))))
 
 (defn remove
   "Returns a lazy sequence of the items in coll for which
@@ -611,14 +627,13 @@
 
 (defn range
   "Returns a lazy seq of nums from start (inclusive) to end (exclusive),
-   by step, where start defaults to 0, step to 1, and end to infinity."
+   by step, where start defaults to 0, step to 1, and end to infinity.
+   For finite ranges (1-3 args), returns an eager list for better performance.
+   For infinite range (no args), returns a lazy sequence."
   ([] (iterate inc 0))
-  ([end] (range 0 end 1))
-  ([start end] (range start end 1))
-  ([start end step]
-   (lazy-seq (if (if (pos? step) (< start end) (> start end))
-               (cons start (range (+ start step) end step))
-               nil))))
+  ([end] (range-builtin end))
+  ([start end] (range-builtin start end))
+  ([start end step] (range-builtin start end step)))
 
 (defn repeat
   "Returns a lazy (infinite!, or length n if supplied) sequence of xs."

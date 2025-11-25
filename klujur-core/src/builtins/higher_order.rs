@@ -11,7 +11,7 @@ use klujur_parser::KlujurVal;
 use crate::error::{Error, Result};
 use crate::eval::{NativeFnImpl, apply};
 
-use super::to_seq;
+use super::{seq_iter, to_seq};
 
 // ============================================================================
 // Core Higher-Order Functions
@@ -62,15 +62,14 @@ pub(crate) fn builtin_map(args: &[KlujurVal]) -> Result<KlujurVal> {
     let func = &args[0];
 
     if args.len() == 2 {
-        // Single collection
-        let items = to_seq(&args[1])?;
-        let mut result = Vec::with_capacity(items.len());
-        for item in items {
-            result.push(apply(func, &[item])?);
+        // Single collection - use streaming iterator
+        let mut result = Vec::new();
+        for item in seq_iter(&args[1])? {
+            result.push(apply(func, &[item?])?);
         }
         Ok(KlujurVal::list(result))
     } else {
-        // Multiple collections - zip them
+        // Multiple collections - zip them (still needs to_seq for indexing)
         let colls: Result<Vec<Vec<KlujurVal>>> = args[1..].iter().map(to_seq).collect();
         let colls = colls?;
 
@@ -93,10 +92,9 @@ pub(crate) fn builtin_filter(args: &[KlujurVal]) -> Result<KlujurVal> {
     }
 
     let pred = &args[0];
-    let items = to_seq(&args[1])?;
-
     let mut result = Vec::new();
-    for item in items {
+    for item in seq_iter(&args[1])? {
+        let item = item?;
         let test = apply(pred, std::slice::from_ref(&item))?;
         if test.is_truthy() {
             result.push(item);
@@ -112,10 +110,9 @@ pub(crate) fn builtin_remove(args: &[KlujurVal]) -> Result<KlujurVal> {
     }
 
     let pred = &args[0];
-    let items = to_seq(&args[1])?;
-
     let mut result = Vec::new();
-    for item in items {
+    for item in seq_iter(&args[1])? {
+        let item = item?;
         let test = apply(pred, std::slice::from_ref(&item))?;
         if !test.is_truthy() {
             result.push(item);
@@ -138,14 +135,13 @@ pub(crate) fn builtin_reduce(args: &[KlujurVal]) -> Result<KlujurVal> {
 
     if args.len() == 2 {
         // No initial value - use first element
-        let items = to_seq(&args[1])?;
-        if items.is_empty() {
-            // (reduce f []) => (f)
-            return apply(func, &[]);
-        }
-        let mut acc = items[0].clone();
-        for item in &items[1..] {
-            acc = apply(func, &[acc, item.clone()])?;
+        let mut iter = seq_iter(&args[1])?;
+        let mut acc = match iter.next() {
+            None => return apply(func, &[]), // (reduce f []) => (f)
+            Some(first) => first?,
+        };
+        for item in iter {
+            acc = apply(func, &[acc, item?])?;
             // Check for early termination with Reduced
             if let KlujurVal::Reduced(v) = acc {
                 return Ok((*v).clone());
@@ -154,10 +150,9 @@ pub(crate) fn builtin_reduce(args: &[KlujurVal]) -> Result<KlujurVal> {
         Ok(acc)
     } else {
         // With initial value
-        let items = to_seq(&args[2])?;
         let mut acc = args[1].clone();
-        for item in items {
-            acc = apply(func, &[acc, item])?;
+        for item in seq_iter(&args[2])? {
+            acc = apply(func, &[acc, item?])?;
             // Check for early termination with Reduced
             if let KlujurVal::Reduced(v) = acc {
                 return Ok((*v).clone());
@@ -255,10 +250,8 @@ pub(crate) fn builtin_every_p(args: &[KlujurVal]) -> Result<KlujurVal> {
     }
 
     let pred = &args[0];
-    let items = to_seq(&args[1])?;
-
-    for item in items {
-        let test = apply(pred, &[item])?;
+    for item in seq_iter(&args[1])? {
+        let test = apply(pred, &[item?])?;
         if !test.is_truthy() {
             return Ok(KlujurVal::bool(false));
         }
@@ -273,10 +266,8 @@ pub(crate) fn builtin_some(args: &[KlujurVal]) -> Result<KlujurVal> {
     }
 
     let pred = &args[0];
-    let items = to_seq(&args[1])?;
-
-    for item in items {
-        let test = apply(pred, &[item])?;
+    for item in seq_iter(&args[1])? {
+        let test = apply(pred, &[item?])?;
         if test.is_truthy() {
             return Ok(test);
         }
@@ -291,10 +282,8 @@ pub(crate) fn builtin_not_any_p(args: &[KlujurVal]) -> Result<KlujurVal> {
     }
 
     let pred = &args[0];
-    let items = to_seq(&args[1])?;
-
-    for item in items {
-        let test = apply(pred, &[item])?;
+    for item in seq_iter(&args[1])? {
+        let test = apply(pred, &[item?])?;
         if test.is_truthy() {
             return Ok(KlujurVal::bool(false));
         }
@@ -309,10 +298,8 @@ pub(crate) fn builtin_not_every_p(args: &[KlujurVal]) -> Result<KlujurVal> {
     }
 
     let pred = &args[0];
-    let items = to_seq(&args[1])?;
-
-    for item in items {
-        let test = apply(pred, &[item])?;
+    for item in seq_iter(&args[1])? {
+        let test = apply(pred, &[item?])?;
         if !test.is_truthy() {
             return Ok(KlujurVal::bool(true));
         }

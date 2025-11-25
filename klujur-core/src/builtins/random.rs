@@ -247,5 +247,20 @@ fn hash_val<H: std::hash::Hasher>(val: &KlujurVal, hasher: &mut H) {
             // Hash custom type using its type name
             c.type_name().hash(hasher);
         }
+        KlujurVal::Chunk(ch) => {
+            // Hash chunk elements
+            ch.len().hash(hasher);
+            for elem in ch.iter() {
+                hash_val(elem, hasher);
+            }
+        }
+        KlujurVal::ChunkBuffer(cb) => {
+            // Hash by pointer (mutable state)
+            std::ptr::hash(cb, hasher);
+        }
+        KlujurVal::ChunkedSeq(cs) => {
+            // Hash chunked seq by pointer (identity-based)
+            std::ptr::hash(cs, hasher);
+        }
     }
 }

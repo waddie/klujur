@@ -7,7 +7,7 @@ use std::path::Path;
 
 use klujur_core::{
     Env, Error, Namespace, Result, Symbol, eval, init_stdlib, make_native_fn, register_builtins,
-    set_max_eval_depth,
+    set_bytecode_mode, set_bytecode_registry, set_max_eval_depth,
 };
 use klujur_parser::{KlujurVal, Parser};
 
@@ -82,6 +82,39 @@ impl Engine {
     /// Returns the previous value.
     pub fn set_max_depth(&mut self, depth: usize) -> usize {
         set_max_eval_depth(depth)
+    }
+
+    /// Enable bytecode compilation mode.
+    ///
+    /// When enabled, functions are compiled to bytecode and executed by a
+    /// stack-based virtual machine instead of the AST-walking interpreter.
+    /// This can provide significant performance improvements for certain
+    /// workloads.
+    ///
+    /// Returns the previous bytecode mode state.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use klujur_embed::Engine;
+    ///
+    /// let mut engine = Engine::new().unwrap();
+    /// engine.enable_bytecode_mode();
+    ///
+    /// // Functions are now compiled to bytecode
+    /// let result = engine.eval("((fn [x] (* x x)) 5)").unwrap();
+    /// assert_eq!(result.to_string(), "25");
+    /// ```
+    pub fn enable_bytecode_mode(&mut self) -> bool {
+        set_bytecode_registry(self.env.registry());
+        set_bytecode_mode(true)
+    }
+
+    /// Disable bytecode compilation mode, returning to the AST interpreter.
+    ///
+    /// Returns the previous bytecode mode state.
+    pub fn disable_bytecode_mode(&mut self) -> bool {
+        set_bytecode_mode(false)
     }
 
     /// Evaluate a string of Klujur code.

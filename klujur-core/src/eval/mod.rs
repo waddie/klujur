@@ -292,7 +292,10 @@ pub fn eval(expr: &KlujurVal, env: &Env) -> Result<KlujurVal> {
         | KlujurVal::Reduced(_)
         | KlujurVal::Volatile(_)
         | KlujurVal::Protocol(_)
-        | KlujurVal::Record(_) => Ok(expr.clone()),
+        | KlujurVal::Record(_)
+        | KlujurVal::Chunk(_)
+        | KlujurVal::ChunkBuffer(_)
+        | KlujurVal::ChunkedSeq(_) => Ok(expr.clone()),
 
         // Symbol lookup - automatically dereferences Vars
         KlujurVal::Symbol(sym, _) => {
