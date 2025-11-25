@@ -9,13 +9,13 @@
 ;; =============================================================================
 
 (deftest transduce-test
-  (testing "transduce with map" (is (= 12 (transduce (map inc) + [1 2 3 4]))))
+  (testing "transduce with map" (is (= 14 (transduce (map inc) + [1 2 3 4]))))
   (testing "transduce with filter"
-    (is (= 6 (transduce (filter even?) + [1 2 3 4 5 6]))))
+    (is (= 12 (transduce (filter even?) + [1 2 3 4 5 6]))))
   (testing "transduce with init"
-    (is (= 20 (transduce (map inc) + 10 [1 2 3 4]))))
+    (is (= 24 (transduce (map inc) + 10 [1 2 3 4]))))
   (testing "transduce with composed xforms"
-    (is (= 8 (transduce (comp (map inc) (filter even?)) + [1 2 3 4 5])))))
+    (is (= 12 (transduce (comp (map inc) (filter even?)) + [1 2 3 4 5])))))
 
 ;; =============================================================================
 ;; Reduced
@@ -46,11 +46,11 @@
 
 (deftest transducer-composition-test
   (testing "comp of transducers"
-    (is (= [2 4] (into [] (comp (map inc) (filter even?)) [1 2 3 4 5]))))
+    (is (= [2 4 6] (into [] (comp (map inc) (filter even?)) [1 2 3 4 5]))))
   (testing "multiple transducers"
     (is (= [4 8] (into [] (comp (filter even?) (map #(* 2 %))) [1 2 3 4]))))
-  (testing "comp is right-to-left for xforms"
-    (is (= [3 5] (into [] (comp (filter odd?) (map inc)) [1 2 3 4])))))
+  (testing "comp is left-to-right for data flow"
+    (is (= [2 4] (into [] (comp (filter odd?) (map inc)) [1 2 3 4])))))
 
 ;; =============================================================================
 ;; Transducer-returning Functions
@@ -136,11 +136,7 @@
                        (map inc))
                  [[1 2] [3 4]]))))
   (testing "cat in different order with comp"
-    (is (= [[2 3] [4 5]]
-           (into []
-                 (comp (map #(map inc %))
-                       (cat))
-                 [[1 2] [3 4]])))))
+    (is (= [2 3 4 5] (into [] (comp (map #(map inc %)) cat) [[1 2] [3 4]])))))
 
 (deftest mapcat-xf-test
   (testing "mapcat as transducer"

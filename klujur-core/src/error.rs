@@ -250,6 +250,15 @@ impl Error {
         }
     }
 
+    /// Create an arity error for a range (min to max).
+    pub fn arity_range(name: impl Into<String>, min: usize, max: usize, got: usize) -> Self {
+        Error::ArityError {
+            expected: AritySpec::Range(min, max),
+            got,
+            name: Some(name.into()),
+        }
+    }
+
     /// Create a type error.
     pub fn type_error(expected: &'static str, got: &'static str) -> Self {
         Error::TypeError {

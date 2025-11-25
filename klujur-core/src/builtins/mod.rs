@@ -30,6 +30,7 @@ mod multimethods;
 mod predicates;
 mod random;
 mod sequences;
+mod set_ops;
 mod strings;
 mod transducers;
 mod type_checks;
@@ -73,8 +74,9 @@ use chunked::{
     builtin_chunk_p, builtin_chunk_rest, builtin_chunked_seq_p,
 };
 use collection_constructors::{
-    builtin_hash_map, builtin_hash_set, builtin_list_star, builtin_set, builtin_sorted_map,
-    builtin_sorted_map_by, builtin_sorted_set, builtin_sorted_set_by, builtin_vec, builtin_zipmap,
+    builtin_array_map, builtin_hash_map, builtin_hash_set, builtin_list_star, builtin_set,
+    builtin_sorted_map, builtin_sorted_map_by, builtin_sorted_set, builtin_sorted_set_by,
+    builtin_vec, builtin_zipmap,
 };
 use collection_utils::{
     builtin_assoc_in, builtin_contains_p, builtin_disj, builtin_empty, builtin_find,
@@ -142,18 +144,28 @@ use sequences::{
     builtin_butlast, builtin_concat, builtin_cons, builtin_count, builtin_drop, builtin_empty_p,
     builtin_first, builtin_into, builtin_last, builtin_mapcat, builtin_next, builtin_nth,
     builtin_partition, builtin_range, builtin_rest, builtin_reverse, builtin_second, builtin_seq,
-    builtin_take,
+    builtin_subvec, builtin_take,
 };
 // Note: repeat is implemented in stdlib (core.cljc) as a lazy sequence
-use strings::{builtin_keyword, builtin_name, builtin_namespace, builtin_subs, builtin_symbol};
+use set_ops::{
+    builtin_set_difference, builtin_set_intersection, builtin_set_union, builtin_subset_p,
+    builtin_superset_p,
+};
+use strings::{
+    builtin_blank_p, builtin_capitalize, builtin_ends_with_p, builtin_escape, builtin_includes_p,
+    builtin_index_of, builtin_join, builtin_keyword, builtin_lower_case, builtin_name,
+    builtin_namespace, builtin_replace, builtin_replace_first, builtin_split,
+    builtin_starts_with_p, builtin_subs, builtin_symbol, builtin_trim, builtin_triml,
+    builtin_trimr, builtin_upper_case,
+};
 use transducers::{
     builtin_ensure_reduced, builtin_reduced, builtin_reduced_p, builtin_transduce,
     builtin_unreduced, builtin_volatile, builtin_volatile_p, builtin_vreset, builtin_vswap,
 };
 use type_checks::{builtin_extends_p, builtin_satisfies_p, builtin_type};
 use vars::{
-    builtin_bound_p, builtin_deref, builtin_thread_bound_p, builtin_var_get, builtin_var_p,
-    builtin_var_set,
+    builtin_alter_var_root, builtin_bound_p, builtin_deref, builtin_thread_bound_p,
+    builtin_var_get, builtin_var_p, builtin_var_set,
 };
 
 /// Register all built-in functions in the klujur.core namespace.
@@ -230,6 +242,14 @@ pub fn register_builtins(env: &Env) {
     time_ns.define_native("now-micros", builtin_now_micros);
     time_ns.define_native("now-nanos", builtin_now_nanos);
     time_ns.define_native("now-secs", builtin_now_secs);
+
+    // Set operations registered in clojure.set namespace
+    let set_ns = registry.find_or_create("clojure.set");
+    set_ns.define_native("union", builtin_set_union);
+    set_ns.define_native("intersection", builtin_set_intersection);
+    set_ns.define_native("difference", builtin_set_difference);
+    set_ns.define_native("subset?", builtin_subset_p);
+    set_ns.define_native("superset?", builtin_superset_p);
 
     // Comparison
     core_ns.define_native("=", builtin_eq);
@@ -318,6 +338,7 @@ pub fn register_builtins(env: &Env) {
     core_ns.define_native("cons", builtin_cons);
     core_ns.define_native("count", builtin_count);
     core_ns.define_native("nth", builtin_nth);
+    core_ns.define_native("subvec", builtin_subvec);
     core_ns.define_native("empty?", builtin_empty_p);
     core_ns.define_native("take*", builtin_take);
     core_ns.define_native("drop*", builtin_drop);
@@ -402,6 +423,7 @@ pub fn register_builtins(env: &Env) {
     core_ns.define_native("thread-bound?", builtin_thread_bound_p);
     core_ns.define_native("var-get", builtin_var_get);
     core_ns.define_native("var-set", builtin_var_set);
+    core_ns.define_native("alter-var-root", builtin_alter_var_root);
 
     // String/Symbol/Keyword operations
     core_ns.define_native("name", builtin_name);
@@ -409,6 +431,34 @@ pub fn register_builtins(env: &Env) {
     core_ns.define_native("symbol", builtin_symbol);
     core_ns.define_native("keyword", builtin_keyword);
     core_ns.define_native("subs", builtin_subs);
+
+    // String case conversion
+    core_ns.define_native("upper-case", builtin_upper_case);
+    core_ns.define_native("lower-case", builtin_lower_case);
+    core_ns.define_native("capitalize", builtin_capitalize);
+
+    // String trimming
+    core_ns.define_native("trim", builtin_trim);
+    core_ns.define_native("triml", builtin_triml);
+    core_ns.define_native("trimr", builtin_trimr);
+
+    // String split/join
+    core_ns.define_native("split", builtin_split);
+    core_ns.define_native("join", builtin_join);
+
+    // String replace
+    core_ns.define_native("replace", builtin_replace);
+    core_ns.define_native("replace-first", builtin_replace_first);
+
+    // String predicates
+    core_ns.define_native("blank?", builtin_blank_p);
+    core_ns.define_native("starts-with?", builtin_starts_with_p);
+    core_ns.define_native("ends-with?", builtin_ends_with_p);
+    core_ns.define_native("includes?", builtin_includes_p);
+
+    // String search/escape
+    core_ns.define_native("index-of", builtin_index_of);
+    core_ns.define_native("escape", builtin_escape);
 
     // Additional predicates
     core_ns.define_native("true?", builtin_true_p);
@@ -441,6 +491,7 @@ pub fn register_builtins(env: &Env) {
     core_ns.define_native("vec", builtin_vec);
     core_ns.define_native("set", builtin_set);
     core_ns.define_native("hash-map", builtin_hash_map);
+    core_ns.define_native("array-map", builtin_array_map);
     core_ns.define_native("hash-set", builtin_hash_set);
     core_ns.define_native("sorted-map", builtin_sorted_map);
     core_ns.define_native("sorted-set", builtin_sorted_set);
@@ -709,12 +760,18 @@ use klujur_parser::{KlujurChunkedSeq, KlujurLazySeq, SeqResult};
 /// If already realized, returns the cached result.
 pub(crate) fn force_lazy_seq(ls: &KlujurLazySeq) -> Result<SeqResult> {
     // Use iterative approach to avoid stack overflow when lazy-seqs return lazy-seqs
-    let mut current_ls = ls.clone();
-    let original_ls = ls;
+    // Track all lazy seqs in the chain so we can cache the result in all of them
+    let mut lazy_seq_chain: Vec<KlujurLazySeq> = vec![ls.clone()];
 
     loop {
+        let current_ls = lazy_seq_chain.last().unwrap();
+
         // Check if already realized
         if let Some(result) = current_ls.get_cached() {
+            // Cache in all lazy seqs in the chain
+            for ls in &lazy_seq_chain {
+                ls.set_realized(result.clone());
+            }
             return Ok(result);
         }
 
@@ -722,47 +779,47 @@ pub(crate) fn force_lazy_seq(ls: &KlujurLazySeq) -> Result<SeqResult> {
         if let Some(thunk) = current_ls.get_thunk() {
             let val = apply(&KlujurVal::Fn(thunk), &[])?;
 
+            // Helper to cache result in all lazy seqs in the chain
+            let cache_result = |result: &SeqResult| {
+                for ls in &lazy_seq_chain {
+                    ls.set_realized(result.clone());
+                }
+            };
+
             // Convert the result to a SeqResult
             match val {
                 KlujurVal::Nil => {
                     let result = SeqResult::Empty;
-                    current_ls.set_realized(result.clone());
+                    cache_result(&result);
                     return Ok(result);
                 }
                 KlujurVal::List(items, _) if items.is_empty() => {
                     let result = SeqResult::Empty;
-                    current_ls.set_realized(result.clone());
+                    cache_result(&result);
                     return Ok(result);
                 }
                 KlujurVal::List(items, _) => {
                     let first = items.front().cloned().unwrap_or(KlujurVal::Nil);
                     let rest = KlujurVal::list(items.iter().skip(1).cloned().collect());
                     let result = SeqResult::Cons(first, rest);
-                    current_ls.set_realized(result.clone());
-                    // Also cache in the original if we delegated
-                    if !std::ptr::eq(&current_ls as *const _, original_ls as *const _) {
-                        original_ls.set_realized(result.clone());
-                    }
+                    cache_result(&result);
                     return Ok(result);
                 }
                 KlujurVal::Vector(items, _) if items.is_empty() => {
                     let result = SeqResult::Empty;
-                    current_ls.set_realized(result.clone());
+                    cache_result(&result);
                     return Ok(result);
                 }
                 KlujurVal::Vector(items, _) => {
                     let first = items.front().cloned().unwrap_or(KlujurVal::Nil);
                     let rest = KlujurVal::list(items.iter().skip(1).cloned().collect());
                     let result = SeqResult::Cons(first, rest);
-                    current_ls.set_realized(result.clone());
-                    if !std::ptr::eq(&current_ls as *const _, original_ls as *const _) {
-                        original_ls.set_realized(result.clone());
-                    }
+                    cache_result(&result);
                     return Ok(result);
                 }
-                // If the body returns another lazy seq, continue the loop (trampoline)
+                // If the body returns another lazy seq, add to chain and continue (trampoline)
                 KlujurVal::LazySeq(inner_ls) => {
-                    current_ls = inner_ls;
+                    lazy_seq_chain.push(inner_ls);
                     continue;
                 }
                 // If the body returns a chunked seq, convert to Cons
@@ -793,7 +850,7 @@ pub(crate) fn force_lazy_seq(ls: &KlujurLazySeq) -> Result<SeqResult> {
                         match next {
                             KlujurVal::Nil => {
                                 let result = SeqResult::Empty;
-                                current_ls.set_realized(result.clone());
+                                cache_result(&result);
                                 return Ok(result);
                             }
                             KlujurVal::ChunkedSeq(next_cs) => {
@@ -802,12 +859,12 @@ pub(crate) fn force_lazy_seq(ls: &KlujurLazySeq) -> Result<SeqResult> {
                                 let first = chunk.nth(0).cloned().unwrap_or(KlujurVal::Nil);
                                 let rest = get_chunked_rest(&next_cs)?;
                                 let result = SeqResult::Cons(first, rest);
-                                current_ls.set_realized(result.clone());
+                                cache_result(&result);
                                 return Ok(result);
                             }
                             // Rest is a lazy-seq - continue processing it
                             KlujurVal::LazySeq(next_ls) => {
-                                current_ls = next_ls;
+                                lazy_seq_chain.push(next_ls);
                                 continue;
                             }
                             // Other seqable types - this shouldn't normally happen
@@ -824,10 +881,7 @@ pub(crate) fn force_lazy_seq(ls: &KlujurLazySeq) -> Result<SeqResult> {
                         let first = chunk.nth(0).cloned().unwrap_or(KlujurVal::Nil);
                         let rest = get_chunked_rest(&cs)?;
                         let result = SeqResult::Cons(first, rest);
-                        current_ls.set_realized(result.clone());
-                        if !std::ptr::eq(&current_ls as *const _, original_ls as *const _) {
-                            original_ls.set_realized(result.clone());
-                        }
+                        cache_result(&result);
                         return Ok(result);
                     }
                 }

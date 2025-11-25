@@ -305,11 +305,19 @@ pub(crate) fn builtin_nth(args: &[KlujurVal]) -> Result<KlujurVal> {
         other => return Err(Error::type_error_in("nth", "integer", other.type_name())),
     };
 
+    // Negative indices always throw, even with a default value (Clojure semantics)
+    if idx < 0 {
+        return Err(Error::IndexOutOfBounds {
+            index: idx,
+            length: 0,
+        });
+    }
+
     let not_found = args.get(2);
 
     match &args[0] {
         KlujurVal::List(items, _) => {
-            if idx < 0 || idx as usize >= items.len() {
+            if idx as usize >= items.len() {
                 if let Some(default) = not_found {
                     Ok(default.clone())
                 } else {
@@ -323,7 +331,7 @@ pub(crate) fn builtin_nth(args: &[KlujurVal]) -> Result<KlujurVal> {
             }
         }
         KlujurVal::Vector(items, _) => {
-            if idx < 0 || idx as usize >= items.len() {
+            if idx as usize >= items.len() {
                 if let Some(default) = not_found {
                     Ok(default.clone())
                 } else {
@@ -336,43 +344,21 @@ pub(crate) fn builtin_nth(args: &[KlujurVal]) -> Result<KlujurVal> {
                 Ok(items[idx as usize].clone())
             }
         }
-        KlujurVal::String(s) => {
-            if idx < 0 {
+        KlujurVal::String(s) => match s.chars().nth(idx as usize) {
+            Some(c) => Ok(KlujurVal::char(c)),
+            None => {
                 if let Some(default) = not_found {
-                    return Ok(default.clone());
+                    Ok(default.clone())
                 } else {
-                    return Err(Error::IndexOutOfBounds {
+                    Err(Error::IndexOutOfBounds {
                         index: idx,
                         length: s.chars().count(),
-                    });
+                    })
                 }
             }
-            match s.chars().nth(idx as usize) {
-                Some(c) => Ok(KlujurVal::char(c)),
-                None => {
-                    if let Some(default) = not_found {
-                        Ok(default.clone())
-                    } else {
-                        Err(Error::IndexOutOfBounds {
-                            index: idx,
-                            length: s.chars().count(),
-                        })
-                    }
-                }
-            }
-        }
+        },
         KlujurVal::LazySeq(_) => {
             // Walk through lazy seq one element at a time to support infinite seqs
-            if idx < 0 {
-                if let Some(default) = not_found {
-                    return Ok(default.clone());
-                } else {
-                    return Err(Error::IndexOutOfBounds {
-                        index: idx,
-                        length: 0,
-                    });
-                }
-            }
             let mut current = args[0].clone();
             for _ in 0..idx {
                 match builtin_next(&[current.clone()])? {
@@ -392,19 +378,7 @@ pub(crate) fn builtin_nth(args: &[KlujurVal]) -> Result<KlujurVal> {
             // Get the first element of current position
             builtin_first(&[current])
         }
-        KlujurVal::ChunkedSeq(cs) => {
-            if idx < 0 {
-                if let Some(default) = not_found {
-                    return Ok(default.clone());
-                } else {
-                    return Err(Error::IndexOutOfBounds {
-                        index: idx,
-                        length: 0,
-                    });
-                }
-            }
-            nth_from_chunked_seq(cs, idx as usize, not_found)
-        }
+        KlujurVal::ChunkedSeq(cs) => nth_from_chunked_seq(cs, idx as usize, not_found),
         other => Err(Error::type_error_in("nth", "indexed", other.type_name())),
     }
 }
@@ -1337,4 +1311,70 @@ pub(crate) fn builtin_seq(args: &[KlujurVal]) -> Result<KlujurVal> {
         }
         other => Err(Error::type_error_in("seq", "seqable", other.type_name())),
     }
+}
+
+/// (subvec v start) or (subvec v start end) - returns a subvector
+pub(crate) fn builtin_subvec(args: &[KlujurVal]) -> Result<KlujurVal> {
+    if args.len() < 2 || args.len() > 3 {
+        return Err(Error::ArityError {
+            expected: crate::error::AritySpec::Range(2, 3),
+            got: args.len(),
+            name: Some("subvec".into()),
+        });
+    }
+
+    let vec = match &args[0] {
+        KlujurVal::Vector(items, _) => items,
+        other => return Err(Error::type_error_in("subvec", "vector", other.type_name())),
+    };
+
+    let start = match &args[1] {
+        KlujurVal::Int(n) if *n >= 0 => *n as usize,
+        KlujurVal::Int(n) => {
+            return Err(Error::EvalError(format!(
+                "subvec: start index {} cannot be negative",
+                n
+            )));
+        }
+        other => return Err(Error::type_error_in("subvec", "integer", other.type_name())),
+    };
+
+    let end = if args.len() == 3 {
+        match &args[2] {
+            KlujurVal::Int(n) if *n >= 0 => *n as usize,
+            KlujurVal::Int(n) => {
+                return Err(Error::EvalError(format!(
+                    "subvec: end index {} cannot be negative",
+                    n
+                )));
+            }
+            other => return Err(Error::type_error_in("subvec", "integer", other.type_name())),
+        }
+    } else {
+        vec.len()
+    };
+
+    // Validate bounds
+    if start > vec.len() {
+        return Err(Error::IndexOutOfBounds {
+            index: start as i64,
+            length: vec.len(),
+        });
+    }
+    if end > vec.len() {
+        return Err(Error::IndexOutOfBounds {
+            index: end as i64,
+            length: vec.len(),
+        });
+    }
+    if start > end {
+        return Err(Error::EvalError(format!(
+            "subvec: start index {} is greater than end index {}",
+            start, end
+        )));
+    }
+
+    // Extract subvector
+    let result: Vec<KlujurVal> = vec.iter().skip(start).take(end - start).cloned().collect();
+    Ok(KlujurVal::vector(result))
 }

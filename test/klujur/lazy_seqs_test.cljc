@@ -70,7 +70,7 @@
   (testing "doall forces entire sequence"
     (is (= '(1 2 3) (doall (map identity '(1 2 3))))))
   (testing "doall returns the seq" (is (= '(2 3 4) (doall (map inc '(1 2 3))))))
-  (testing "doall with n" (is (= '(1 2 3 4 5) (take 5 (doall 5 (range)))))))
+  (testing "doall with n" (is (= '(0 1 2 3 4) (take 5 (doall 5 (range)))))))
 
 (deftest dorun-test
   (testing "dorun returns nil" (is (nil? (dorun (map identity '(1 2 3))))))

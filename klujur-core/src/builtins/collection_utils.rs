@@ -19,7 +19,13 @@ pub(crate) fn builtin_keys(args: &[KlujurVal]) -> Result<KlujurVal> {
     }
     match &args[0] {
         KlujurVal::Nil => Ok(KlujurVal::Nil),
-        KlujurVal::Map(map, _) => Ok(KlujurVal::list(map.keys().cloned().collect())),
+        KlujurVal::Map(map, _) => {
+            if map.is_empty() {
+                Ok(KlujurVal::Nil)
+            } else {
+                Ok(KlujurVal::list(map.keys().cloned().collect()))
+            }
+        }
         KlujurVal::Record(r) => {
             // Return keywords for all fields in the record
             let keys: Vec<KlujurVal> = r
@@ -45,7 +51,13 @@ pub(crate) fn builtin_vals(args: &[KlujurVal]) -> Result<KlujurVal> {
     }
     match &args[0] {
         KlujurVal::Nil => Ok(KlujurVal::Nil),
-        KlujurVal::Map(map, _) => Ok(KlujurVal::list(map.values().cloned().collect())),
+        KlujurVal::Map(map, _) => {
+            if map.is_empty() {
+                Ok(KlujurVal::Nil)
+            } else {
+                Ok(KlujurVal::list(map.values().cloned().collect()))
+            }
+        }
         KlujurVal::Record(r) => {
             // Return values for all fields in the record
             let vals: Vec<KlujurVal> = r.values.values().cloned().collect();

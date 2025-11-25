@@ -62,6 +62,23 @@ pub(crate) fn builtin_hash_map(args: &[KlujurVal]) -> Result<KlujurVal> {
     Ok(KlujurVal::map(pairs))
 }
 
+/// (array-map & kvs) - create array map from key-value pairs
+/// In Klujur, array-map is identical to hash-map since we use OrdMap which
+/// maintains insertion order.
+pub(crate) fn builtin_array_map(args: &[KlujurVal]) -> Result<KlujurVal> {
+    if !args.len().is_multiple_of(2) {
+        return Err(Error::syntax(
+            "array-map",
+            "requires an even number of arguments",
+        ));
+    }
+    let pairs: Vec<_> = args
+        .chunks(2)
+        .map(|pair| (pair[0].clone(), pair[1].clone()))
+        .collect();
+    Ok(KlujurVal::map(pairs))
+}
+
 /// (hash-set & keys) - create hash set from elements
 pub(crate) fn builtin_hash_set(args: &[KlujurVal]) -> Result<KlujurVal> {
     Ok(KlujurVal::set(args.to_vec()))

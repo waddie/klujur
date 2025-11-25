@@ -223,9 +223,9 @@ pub(crate) fn builtin_conj(args: &[KlujurVal]) -> Result<KlujurVal> {
 
     match &args[0] {
         KlujurVal::List(items, _) => {
-            // conj adds to front of list
+            // conj adds to front of list (each item in order, so last arg ends up first)
             let mut result = items.clone();
-            for item in args[1..].iter().rev() {
+            for item in &args[1..] {
                 result.push_front(item.clone());
             }
             Ok(KlujurVal::List(result, None))

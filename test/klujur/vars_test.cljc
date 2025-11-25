@@ -187,7 +187,9 @@
 
 (deftest in-ns-test
   (testing "in-ns changes namespace"
-    (is (= 'test.ns (do (in-ns 'test.ns) (ns-name *ns*))))))
+    (let [original-ns (ns-name *ns*)]
+      (is (= 'test.ns (do (in-ns 'test.ns) (ns-name *ns*))))
+      (in-ns original-ns))))
 
 (deftest resolve-test
   (testing "resolve finds var by symbol"

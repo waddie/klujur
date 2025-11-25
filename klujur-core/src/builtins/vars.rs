@@ -1,13 +1,14 @@
 // klujur-core - Var and dynamic binding built-in functions
 // Copyright (c) 2025 Tom Waddington. MIT licensed.
 
-//! Var operations: var?, deref
+//! Var operations: var?, deref, alter-var-root
 //! Dynamic binding operations: bound?, thread-bound?, var-get, var-set
 
 use klujur_parser::KlujurVal;
 
 use crate::bindings::{deref_var, has_thread_binding, set_thread_binding};
 use crate::error::{Error, Result};
+use crate::eval::apply;
 
 // ============================================================================
 // Vars
@@ -111,6 +112,35 @@ pub(crate) fn builtin_var_set(args: &[KlujurVal]) -> Result<KlujurVal> {
                     v.qualified_name()
                 )))
             }
+        }
+        other => Err(Error::type_error("Var", other.type_name())),
+    }
+}
+
+/// (alter-var-root var f & args) - atomically alter the root binding of a var
+/// Applies f to the current root value and any optional args, then sets the result
+/// as the new root value. Returns the new value.
+pub(crate) fn builtin_alter_var_root(args: &[KlujurVal]) -> Result<KlujurVal> {
+    if args.len() < 2 {
+        return Err(Error::arity_at_least(2, args.len()));
+    }
+
+    match &args[0] {
+        KlujurVal::Var(v) => {
+            let f = &args[1];
+            let current = v.deref();
+
+            // Build args: current value + any additional args
+            let mut call_args = vec![current];
+            call_args.extend(args[2..].iter().cloned());
+
+            // Apply the function
+            let new_val = apply(f, &call_args)?;
+
+            // Set the new root value
+            v.set_root(new_val.clone());
+
+            Ok(new_val)
         }
         other => Err(Error::type_error("Var", other.type_name())),
     }

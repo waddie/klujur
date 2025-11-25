@@ -48,17 +48,38 @@ pub(crate) fn builtin_lazy_seq_p(args: &[KlujurVal]) -> Result<KlujurVal> {
     Ok(KlujurVal::bool(matches!(args[0], KlujurVal::LazySeq(_))))
 }
 
-/// (doall coll) - Force the entire lazy sequence and return it
+/// (doall coll) or (doall n coll) - Force the lazy sequence and return it
+/// With n, forces only the first n elements.
 pub(crate) fn builtin_doall(args: &[KlujurVal]) -> Result<KlujurVal> {
-    if args.len() != 1 {
-        return Err(Error::arity_named("doall", 1, args.len()));
-    }
+    let (limit, coll) = match args.len() {
+        1 => (None, args[0].clone()),
+        2 => {
+            let n = match &args[0] {
+                KlujurVal::Int(n) if *n >= 0 => *n as usize,
+                KlujurVal::Int(_) => {
+                    return Err(Error::EvalError(
+                        "doall: n must be non-negative".to_string(),
+                    ));
+                }
+                other => return Err(Error::type_error_in("doall", "integer", other.type_name())),
+            };
+            (Some(n), args[1].clone())
+        }
+        _ => return Err(Error::arity_range("doall", 1, 2, args.len())),
+    };
 
-    let coll = args[0].clone();
     let mut current = coll.clone();
+    let mut count = 0usize;
 
     // Walk through the sequence, forcing each element
     loop {
+        // Check limit
+        if let Some(max) = limit
+            && count >= max
+        {
+            break;
+        }
+
         match current {
             KlujurVal::Nil => break,
             KlujurVal::List(ref items, _) if items.is_empty() => break,
@@ -67,11 +88,13 @@ pub(crate) fn builtin_doall(args: &[KlujurVal]) -> Result<KlujurVal> {
                     break;
                 }
                 current = KlujurVal::list(items.iter().skip(1).cloned().collect());
+                count += 1;
             }
             KlujurVal::LazySeq(ref ls) => match force_lazy_seq(ls)? {
                 SeqResult::Empty => break,
                 SeqResult::Cons(_, rest) => {
                     current = rest;
+                    count += 1;
                 }
             },
             _ => break,
@@ -81,15 +104,17 @@ pub(crate) fn builtin_doall(args: &[KlujurVal]) -> Result<KlujurVal> {
     Ok(coll)
 }
 
-/// (dorun coll) - Force the entire lazy sequence, return nil (for side effects)
+/// (dorun coll) or (dorun n coll) - Force the lazy sequence, return nil (for side effects)
+/// With n, forces only the first n elements.
 pub(crate) fn builtin_dorun(args: &[KlujurVal]) -> Result<KlujurVal> {
-    if args.len() != 1 {
-        return Err(Error::arity_named("dorun", 1, args.len()));
+    match args.len() {
+        1 | 2 => {
+            // Reuse doall logic but return nil
+            builtin_doall(args)?;
+            Ok(KlujurVal::Nil)
+        }
+        _ => Err(Error::arity_range("dorun", 1, 2, args.len())),
     }
-
-    // Reuse doall logic but return nil
-    builtin_doall(args)?;
-    Ok(KlujurVal::Nil)
 }
 
 // Note: force is implemented as a special form in eval/dynamic.rs

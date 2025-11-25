@@ -3308,6 +3308,74 @@ fn hash_numeric<H: Hasher>(state: &mut H, int_val: Option<i64>, float_val: f64) 
     }
 }
 
+/// Compare two sequential values (List, Vector, or realized LazySeq) element by element.
+/// Returns None if either value is not sequential or if a LazySeq is not realized.
+fn seqs_equal(a: &KlujurVal, b: &KlujurVal) -> Option<bool> {
+    fn get_seq_iter(val: &KlujurVal) -> Option<(Vec<KlujurVal>, bool)> {
+        // Returns (elements, is_complete) where is_complete indicates we have all elements
+        match val {
+            KlujurVal::Nil => Some((vec![], true)),
+            KlujurVal::List(items, _) => Some((items.iter().cloned().collect(), true)),
+            KlujurVal::Vector(items, _) => Some((items.iter().cloned().collect(), true)),
+            KlujurVal::LazySeq(_) => {
+                // Only compare realized lazy sequences
+                let mut elements = vec![];
+                let mut current = val.clone();
+                loop {
+                    match &current {
+                        KlujurVal::Nil => return Some((elements, true)),
+                        KlujurVal::List(items, _) if items.is_empty() => {
+                            return Some((elements, true));
+                        }
+                        KlujurVal::List(items, _) => {
+                            elements.extend(items.iter().cloned());
+                            return Some((elements, true));
+                        }
+                        KlujurVal::Vector(items, _) if items.is_empty() => {
+                            return Some((elements, true));
+                        }
+                        KlujurVal::Vector(items, _) => {
+                            elements.extend(items.iter().cloned());
+                            return Some((elements, true));
+                        }
+                        KlujurVal::LazySeq(inner_ls) => {
+                            if let Some(result) = inner_ls.get_cached() {
+                                match result {
+                                    SeqResult::Empty => return Some((elements, true)),
+                                    SeqResult::Cons(first, rest) => {
+                                        elements.push(first);
+                                        current = rest;
+                                    }
+                                }
+                            } else {
+                                // Not realized - can't compare
+                                return None;
+                            }
+                        }
+                        _ => return Some((elements, true)),
+                    }
+                }
+            }
+            _ => None,
+        }
+    }
+
+    let (a_elems, _) = get_seq_iter(a)?;
+    let (b_elems, _) = get_seq_iter(b)?;
+
+    if a_elems.len() != b_elems.len() {
+        return Some(false);
+    }
+
+    for (x, y) in a_elems.iter().zip(b_elems.iter()) {
+        if x != y {
+            return Some(false);
+        }
+    }
+
+    Some(true)
+}
+
 impl PartialEq for KlujurVal {
     fn eq(&self, other: &Self) -> bool {
         // Note: Metadata is intentionally ignored in equality comparisons.
@@ -3391,15 +3459,33 @@ impl PartialEq for KlujurVal {
             (KlujurVal::Keyword(a), KlujurVal::Keyword(b)) => a == b,
             (KlujurVal::List(a, _), KlujurVal::List(b, _)) => a == b, // ignore metadata
             (KlujurVal::Vector(a, _), KlujurVal::Vector(b, _)) => a == b, // ignore metadata
-            (KlujurVal::Map(a, _), KlujurVal::Map(b, _)) => a == b,   // ignore metadata
-            (KlujurVal::Set(a, _), KlujurVal::Set(b, _)) => a == b,   // ignore metadata
+            // Cross-type sequential equality (Clojure: (= '(1 2) [1 2]) => true)
+            (KlujurVal::List(a, _), KlujurVal::Vector(b, _)) => a == b,
+            (KlujurVal::Vector(a, _), KlujurVal::List(b, _)) => a == b,
+            // LazySeq cross-type equality (only for realized lazy seqs)
+            (KlujurVal::LazySeq(_), KlujurVal::List(_, _))
+            | (KlujurVal::List(_, _), KlujurVal::LazySeq(_))
+            | (KlujurVal::LazySeq(_), KlujurVal::Vector(_, _))
+            | (KlujurVal::Vector(_, _), KlujurVal::LazySeq(_)) => {
+                seqs_equal(self, other).unwrap_or(false)
+            }
+            (KlujurVal::Map(a, _), KlujurVal::Map(b, _)) => a == b, // ignore metadata
+            (KlujurVal::Set(a, _), KlujurVal::Set(b, _)) => a == b, // ignore metadata
             (KlujurVal::Fn(a), KlujurVal::Fn(b)) => a == b,
             (KlujurVal::NativeFn(a), KlujurVal::NativeFn(b)) => a == b,
             (KlujurVal::Macro(a), KlujurVal::Macro(b)) => a == b,
             (KlujurVal::Var(a), KlujurVal::Var(b)) => a == b,
             (KlujurVal::Atom(a), KlujurVal::Atom(b)) => a == b,
             (KlujurVal::Delay(a), KlujurVal::Delay(b)) => a == b,
-            (KlujurVal::LazySeq(a), KlujurVal::LazySeq(b)) => a == b,
+            // LazySeq: use seqs_equal for value-based comparison
+            (KlujurVal::LazySeq(a), KlujurVal::LazySeq(b)) => {
+                // Fast path: same reference
+                if Rc::ptr_eq(a.state(), b.state()) {
+                    return true;
+                }
+                // Compare by elements (only works for realized seqs)
+                seqs_equal(self, other).unwrap_or(false)
+            }
             (KlujurVal::Multimethod(a), KlujurVal::Multimethod(b)) => a == b,
             (KlujurVal::Hierarchy(a), KlujurVal::Hierarchy(b)) => Rc::ptr_eq(a, b),
             (KlujurVal::Reduced(a), KlujurVal::Reduced(b)) => a == b,

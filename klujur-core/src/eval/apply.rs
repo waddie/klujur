@@ -248,7 +248,11 @@ pub(crate) fn apply_fn(func: &KlujurFn, args: &[KlujurVal]) -> Result<KlujurVal>
             // Bind rest parameter with destructuring if present
             if let Some(rest) = &arity.rest_param {
                 let rest_args: Vec<KlujurVal> = current_args[arity.params.len()..].to_vec();
-                let rest_val = KlujurVal::list(rest_args);
+                let rest_val = if rest_args.is_empty() {
+                    KlujurVal::Nil
+                } else {
+                    KlujurVal::list(rest_args)
+                };
                 fn_env.define(rest.clone(), rest_val.clone());
 
                 // Destructure rest pattern if present
@@ -268,7 +272,12 @@ pub(crate) fn apply_fn(func: &KlujurFn, args: &[KlujurVal]) -> Result<KlujurVal>
             // Bind rest parameter if present
             if let Some(rest) = &arity.rest_param {
                 let rest_args: Vec<KlujurVal> = current_args[arity.params.len()..].to_vec();
-                fn_env.define(rest.clone(), KlujurVal::list(rest_args));
+                let rest_val = if rest_args.is_empty() {
+                    KlujurVal::Nil
+                } else {
+                    KlujurVal::list(rest_args)
+                };
+                fn_env.define(rest.clone(), rest_val);
             }
         }
 
