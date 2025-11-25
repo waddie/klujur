@@ -394,7 +394,63 @@ pub(crate) fn builtin_nth(args: &[KlujurVal]) -> Result<KlujurVal> {
             // Get the first element of current position
             builtin_first(&[current])
         }
+        KlujurVal::ChunkedSeq(cs) => {
+            if idx < 0 {
+                if let Some(default) = not_found {
+                    return Ok(default.clone());
+                } else {
+                    return Err(Error::IndexOutOfBounds {
+                        index: idx,
+                        length: 0,
+                    });
+                }
+            }
+            nth_from_chunked_seq(cs, idx as usize, not_found)
+        }
         other => Err(Error::type_error_in("nth", "indexed", other.type_name())),
+    }
+}
+
+fn nth_from_chunked_seq(
+    cs: &KlujurChunkedSeq,
+    idx: usize,
+    not_found: Option<&KlujurVal>,
+) -> Result<KlujurVal> {
+    let mut current: KlujurVal = KlujurVal::ChunkedSeq(cs.clone());
+    let mut remaining = idx;
+
+    loop {
+        match &current {
+            KlujurVal::Nil => {
+                if let Some(default) = not_found {
+                    return Ok(default.clone());
+                } else {
+                    return Err(Error::IndexOutOfBounds {
+                        index: idx as i64,
+                        length: 0,
+                    });
+                }
+            }
+            KlujurVal::ChunkedSeq(cs) => {
+                let chunk_len = cs.chunk().len();
+                if remaining < chunk_len {
+                    // Index is within current chunk - O(1) access
+                    return Ok(cs.chunk().nth(remaining).unwrap().clone());
+                } else {
+                    // Skip this chunk, continue to rest
+                    remaining -= chunk_len;
+                    current = force_chunked_rest(cs)?;
+                }
+            }
+            // Rest is a lazy-seq or other seqable - delegate to builtin_nth
+            other => {
+                let mut args = vec![other.clone(), KlujurVal::int(remaining as i64)];
+                if let Some(default) = not_found {
+                    args.push(default.clone());
+                }
+                return builtin_nth(&args);
+            }
+        }
     }
 }
 
@@ -412,6 +468,8 @@ pub(crate) fn builtin_empty_p(args: &[KlujurVal]) -> Result<KlujurVal> {
         KlujurVal::String(s) => s.is_empty(),
         KlujurVal::SortedMapBy(sm) => sm.is_empty(),
         KlujurVal::SortedSetBy(ss) => ss.is_empty(),
+        KlujurVal::ChunkedSeq(cs) => cs.chunk().is_empty(),
+        KlujurVal::LazySeq(ls) => matches!(force_lazy_seq(ls)?, SeqResult::Empty),
         other => return Err(Error::type_error_in("empty?", "seqable", other.type_name())),
     };
 
@@ -438,6 +496,19 @@ pub(crate) fn builtin_second(args: &[KlujurVal]) -> Result<KlujurVal> {
             .nth(1)
             .map(KlujurVal::char)
             .unwrap_or(KlujurVal::Nil)),
+        KlujurVal::ChunkedSeq(cs) => {
+            if cs.chunk().len() > 1 {
+                Ok(cs.chunk().nth(1).unwrap().clone())
+            } else {
+                // Second element is in rest
+                let rest = force_chunked_rest(cs)?;
+                builtin_first(&[rest])
+            }
+        }
+        KlujurVal::LazySeq(ls) => match force_lazy_seq(ls)? {
+            SeqResult::Empty => Ok(KlujurVal::Nil),
+            SeqResult::Cons(_, rest) => builtin_first(&[rest]),
+        },
         other => Err(Error::type_error_in("second", "seqable", other.type_name())),
     }
 }
@@ -455,6 +526,10 @@ pub(crate) fn builtin_last(args: &[KlujurVal]) -> Result<KlujurVal> {
             .last()
             .map(KlujurVal::char)
             .unwrap_or(KlujurVal::Nil)),
+        KlujurVal::ChunkedSeq(_) | KlujurVal::LazySeq(_) => {
+            let items = to_seq(&args[0])?;
+            Ok(items.last().cloned().unwrap_or(KlujurVal::Nil))
+        }
         other => Err(Error::type_error_in("last", "seqable", other.type_name())),
     }
 }
@@ -483,6 +558,14 @@ pub(crate) fn builtin_butlast(args: &[KlujurVal]) -> Result<KlujurVal> {
                     .map(|c| KlujurVal::char(*c))
                     .collect(),
             ))
+        }
+        KlujurVal::ChunkedSeq(_) | KlujurVal::LazySeq(_) => {
+            let items = to_seq(&args[0])?;
+            if items.is_empty() {
+                Ok(KlujurVal::Nil)
+            } else {
+                Ok(KlujurVal::list(items[..items.len() - 1].to_vec()))
+            }
         }
         other => Err(Error::type_error_in(
             "butlast",
@@ -812,6 +895,10 @@ pub(crate) fn builtin_reverse(args: &[KlujurVal]) -> Result<KlujurVal> {
                 s.chars().rev().map(KlujurVal::char).collect(),
             ))
         }
+        KlujurVal::ChunkedSeq(_) | KlujurVal::LazySeq(_) => {
+            let items = to_seq(&args[0])?;
+            Ok(KlujurVal::list(items.into_iter().rev().collect()))
+        }
         other => Err(Error::type_error_in(
             "reverse",
             "seqable",
@@ -1026,6 +1113,7 @@ fn builtin_into_2(args: &[KlujurVal]) -> Result<KlujurVal> {
         KlujurVal::List(items, _) => items.iter().cloned().collect(),
         KlujurVal::Vector(items, _) => items.iter().cloned().collect(),
         KlujurVal::String(s) => s.chars().map(KlujurVal::char).collect(),
+        KlujurVal::ChunkedSeq(_) | KlujurVal::LazySeq(_) => to_seq(&args[1])?,
         other => return Err(Error::type_error_in("into", "seqable", other.type_name())),
     };
 
