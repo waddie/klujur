@@ -9,6 +9,11 @@
 
 pub mod analysis;
 pub mod codegen;
+pub mod emit;
+pub mod types;
+pub mod visitor;
 
 pub use analysis::{Analyser, AnalysisResult, VarKind, VariableInfo};
 pub use codegen::Compiler;
+pub use types::{CompileError, EnclosingScope, Local, LoopContext, Result, Upvalue};
+pub use visitor::{BoxedLocalCollector, ExprVisitor, FreeVarCollector, SetTargetCollector};

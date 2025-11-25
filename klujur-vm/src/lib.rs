@@ -9,6 +9,7 @@
 pub mod chunk;
 pub mod compiler;
 pub mod opcode;
+pub mod utils;
 pub mod vm;
 
 pub use chunk::{BytecodeFn, BytecodeFnWrapper, Chunk, FunctionPrototype, LineInfo};

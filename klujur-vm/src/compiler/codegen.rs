@@ -4,7 +4,7 @@
 //! Code generation: transforms analysed AST to bytecode.
 
 use std::any::Any;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use klujur_parser::Symbol;
@@ -14,81 +14,8 @@ use crate::chunk::{Chunk, FunctionPrototype, LineInfo};
 use crate::opcode::OpCode;
 
 use super::analysis::AnalysisResult;
-
-/// Error during compilation.
-#[derive(Debug, Clone)]
-pub enum CompileError {
-    /// Constant pool overflow.
-    TooManyConstants,
-    /// Too many local variables.
-    TooManyLocals,
-    /// Invalid syntax.
-    Syntax(String),
-    /// Recur outside loop.
-    RecurOutsideLoop,
-}
-
-impl std::fmt::Display for CompileError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            CompileError::TooManyConstants => write!(f, "Too many constants in function"),
-            CompileError::TooManyLocals => write!(f, "Too many local variables"),
-            CompileError::Syntax(msg) => write!(f, "Syntax error: {}", msg),
-            CompileError::RecurOutsideLoop => write!(f, "recur used outside loop/fn"),
-        }
-    }
-}
-
-impl std::error::Error for CompileError {}
-
-/// Result type for compilation.
-pub type Result<T> = std::result::Result<T, CompileError>;
-
-/// Local variable during compilation.
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-struct Local {
-    name: Symbol,
-    depth: usize,
-    is_captured: bool,
-    is_mutable: bool,
-}
-
-/// Information about an upvalue (captured variable).
-#[derive(Debug, Clone, Copy)]
-struct Upvalue {
-    /// Index in parent's locals (is_local=true) or parent's upvalues (is_local=false)
-    index: u16,
-    /// True if capturing from parent's locals, false if from parent's upvalues
-    is_local: bool,
-    /// True if this captured variable is mutated via set!
-    is_mutable: bool,
-}
-
-/// Loop context for compiling loop/recur.
-#[derive(Debug, Clone)]
-struct LoopContext {
-    /// Jump target for recur.
-    start_offset: usize,
-    /// Stack offsets of loop bindings.
-    binding_slots: Vec<u16>,
-}
-
-/// Enclosing scope information for closure compilation.
-struct EnclosingScope<'a> {
-    /// Parent's locals (for capturing) - reserved for future use
-    #[allow(dead_code)]
-    locals: &'a [Local],
-    /// Parent's local name map
-    local_map: &'a HashMap<Symbol, u16>,
-    /// Parent's upvalues (for transitive capturing)
-    #[allow(dead_code)]
-    upvalues: &'a [Upvalue],
-    /// Parent's upvalue name map (for transitive capturing)
-    upvalue_names: &'a HashMap<Symbol, u16>,
-    /// Parent's boxed locals (for mutable captures)
-    boxed_locals: &'a std::collections::HashSet<Symbol>,
-}
+use super::emit::BytecodeEmitter;
+use super::types::{CompileError, EnclosingScope, Local, LoopContext, Result, Upvalue};
 
 /// Result of compiling a function, includes upvalue info for closure creation.
 struct FunctionCompileResult {
@@ -142,10 +69,10 @@ struct FunctionCompiler<'a> {
 
     /// Set of variables that are targets of set! in this function.
     /// Used to determine which captures need heap cells.
-    mutated_vars: std::collections::HashSet<Symbol>,
+    mutated_vars: HashSet<Symbol>,
 
     /// Set of locals that need heap cells (are captured and mutated by nested functions).
-    boxed_locals: std::collections::HashSet<Symbol>,
+    boxed_locals: HashSet<Symbol>,
 }
 
 impl<'a> FunctionCompiler<'a> {
@@ -170,8 +97,8 @@ impl<'a> FunctionCompiler<'a> {
             enclosing,
             loop_context: None,
             current_line: LineInfo::default(),
-            mutated_vars: std::collections::HashSet::new(),
-            boxed_locals: std::collections::HashSet::new(),
+            mutated_vars: HashSet::new(),
+            boxed_locals: HashSet::new(),
         }
     }
 
@@ -194,8 +121,8 @@ impl<'a> FunctionCompiler<'a> {
             enclosing,
             loop_context: None,
             current_line: LineInfo::default(),
-            mutated_vars: std::collections::HashSet::new(),
-            boxed_locals: std::collections::HashSet::new(),
+            mutated_vars: HashSet::new(),
+            boxed_locals: HashSet::new(),
         }
     }
 
@@ -204,7 +131,7 @@ impl<'a> FunctionCompiler<'a> {
         arity: u8,
         has_rest: bool,
         enclosing: Option<EnclosingScope<'a>>,
-        mutated_vars: std::collections::HashSet<Symbol>,
+        mutated_vars: HashSet<Symbol>,
     ) -> Self {
         Self {
             chunk: Chunk::new(),
@@ -221,7 +148,7 @@ impl<'a> FunctionCompiler<'a> {
             loop_context: None,
             current_line: LineInfo::default(),
             mutated_vars,
-            boxed_locals: std::collections::HashSet::new(),
+            boxed_locals: HashSet::new(),
         }
     }
 
@@ -430,11 +357,7 @@ impl<'a> FunctionCompiler<'a> {
 
     /// Recursively collect all free variables in an expression.
     /// `bound` contains variables bound in outer scopes (params, let bindings).
-    fn collect_free_vars(
-        expr: &KlujurVal,
-        bound: &std::collections::HashSet<Symbol>,
-        free_vars: &mut Vec<Symbol>,
-    ) {
+    fn collect_free_vars(expr: &KlujurVal, bound: &HashSet<Symbol>, free_vars: &mut Vec<Symbol>) {
         match expr {
             KlujurVal::Symbol(sym, _) => {
                 if !bound.contains(sym) && !free_vars.contains(sym) {
@@ -571,8 +494,8 @@ impl<'a> FunctionCompiler<'a> {
     /// `mutated` collects ALL variables that are targets of set!.
     fn collect_set_targets(
         expr: &KlujurVal,
-        bound: &std::collections::HashSet<Symbol>,
-        mutated: &mut std::collections::HashSet<Symbol>,
+        bound: &HashSet<Symbol>,
+        mutated: &mut HashSet<Symbol>,
     ) {
         match expr {
             KlujurVal::List(items, _) => {
@@ -676,11 +599,8 @@ impl<'a> FunctionCompiler<'a> {
     /// Find which of my locals are captured and mutated by nested functions.
     /// `my_locals` - the locals defined in the current scope (that could be boxed)
     /// Returns the set of my locals that need heap cells.
-    fn collect_boxed_locals(
-        exprs: &[KlujurVal],
-        my_locals: &std::collections::HashSet<Symbol>,
-    ) -> std::collections::HashSet<Symbol> {
-        let mut boxed = std::collections::HashSet::new();
+    fn collect_boxed_locals(exprs: &[KlujurVal], my_locals: &HashSet<Symbol>) -> HashSet<Symbol> {
+        let mut boxed = HashSet::new();
         for expr in exprs {
             Self::collect_boxed_locals_expr(expr, my_locals, &mut boxed);
         }
@@ -690,8 +610,8 @@ impl<'a> FunctionCompiler<'a> {
     /// Helper for collect_boxed_locals that recursively scans expressions.
     fn collect_boxed_locals_expr(
         expr: &KlujurVal,
-        my_locals: &std::collections::HashSet<Symbol>,
-        boxed: &mut std::collections::HashSet<Symbol>,
+        my_locals: &HashSet<Symbol>,
+        boxed: &mut HashSet<Symbol>,
     ) {
         match expr {
             KlujurVal::List(items, _) => {
@@ -815,8 +735,8 @@ impl<'a> FunctionCompiler<'a> {
     /// Scan a nested function for set! calls that target variables from an outer scope.
     fn scan_nested_fn_for_set(
         expr: &KlujurVal,
-        outer_locals: &std::collections::HashSet<Symbol>,
-        boxed: &mut std::collections::HashSet<Symbol>,
+        outer_locals: &HashSet<Symbol>,
+        boxed: &mut HashSet<Symbol>,
     ) {
         match expr {
             KlujurVal::List(items, _) => {
@@ -1137,7 +1057,7 @@ impl<'a> FunctionCompiler<'a> {
         // Pre-scan to find which locals need to be boxed
         // (are captured and mutated by nested functions)
         // We need to scan BOTH the binding values AND the body
-        let mut let_locals = std::collections::HashSet::new();
+        let mut let_locals = HashSet::new();
         let mut all_exprs_to_scan = Vec::new();
 
         if let KlujurVal::Vector(bindings, _) = &args[0] {
@@ -1321,7 +1241,7 @@ impl<'a> FunctionCompiler<'a> {
         });
 
         // Pre-scan all bodies to collect free variables
-        let mut all_bound: std::collections::HashSet<Symbol> = std::collections::HashSet::new();
+        let mut all_bound: HashSet<Symbol> = HashSet::new();
         if let Some(ref n) = name {
             all_bound.insert(n.clone());
         }
@@ -1554,7 +1474,7 @@ impl<'a> FunctionCompiler<'a> {
         // Pre-scan the nested function body to find all free variables.
         // This ensures transitive captures are set up in the parent first.
         let mut free_vars = Vec::new();
-        let bound_vars: std::collections::HashSet<Symbol> = param_names
+        let bound_vars: HashSet<Symbol> = param_names
             .iter()
             .chain(rest_param.iter())
             .chain(name.iter())
@@ -1565,7 +1485,7 @@ impl<'a> FunctionCompiler<'a> {
         }
 
         // Pre-scan for set! targets to know which captures need heap cells
-        let mut mutated_vars = std::collections::HashSet::new();
+        let mut mutated_vars = HashSet::new();
         for expr in body {
             Self::collect_set_targets(expr, &bound_vars, &mut mutated_vars);
         }
@@ -1952,6 +1872,28 @@ impl<'a> FunctionCompiler<'a> {
     }
 }
 
+impl<'a> BytecodeEmitter for FunctionCompiler<'a> {
+    fn emit(&mut self, op: OpCode) {
+        self.emit(op);
+    }
+
+    fn emit_constant(&mut self, value: KlujurVal) -> Result<()> {
+        self.emit_constant(value)
+    }
+
+    fn emit_jump(&mut self, op: OpCode) -> usize {
+        self.emit_jump(op)
+    }
+
+    fn patch_jump(&mut self, offset: usize) {
+        self.patch_jump(offset);
+    }
+
+    fn compile_expr(&mut self, expr: &KlujurVal) -> Result<()> {
+        self.compile_expr(expr)
+    }
+}
+
 /// The bytecode compiler.
 pub struct Compiler {
     /// The chunk being built.
@@ -1977,7 +1919,7 @@ pub struct Compiler {
     current_line: LineInfo,
 
     /// Set of locals that need heap cells (are captured and mutated by nested functions).
-    boxed_locals: std::collections::HashSet<Symbol>,
+    boxed_locals: HashSet<Symbol>,
 }
 
 impl Compiler {
@@ -1991,7 +1933,7 @@ impl Compiler {
             analysis,
             local_map: HashMap::new(),
             current_line: LineInfo::default(),
-            boxed_locals: std::collections::HashSet::new(),
+            boxed_locals: HashSet::new(),
         }
     }
 
@@ -2338,7 +2280,7 @@ impl Compiler {
         // Pre-scan to find which locals need to be boxed
         // (are captured and mutated by nested functions)
         // We need to scan BOTH the binding values AND the body
-        let mut let_locals = std::collections::HashSet::new();
+        let mut let_locals = HashSet::new();
         let mut all_exprs_to_scan = Vec::new();
 
         if let KlujurVal::Vector(bindings, _) = &args[0] {
@@ -2713,13 +2655,13 @@ impl Compiler {
         let has_rest = rest_param.is_some();
 
         // Pre-scan for set! targets to know which captures need heap cells
-        let bound_vars: std::collections::HashSet<Symbol> = param_names
+        let bound_vars: HashSet<Symbol> = param_names
             .iter()
             .chain(rest_param.iter())
             .chain(name.iter())
             .cloned()
             .collect();
-        let mut mutated_vars = std::collections::HashSet::new();
+        let mut mutated_vars = HashSet::new();
         for expr in body {
             FunctionCompiler::collect_set_targets(expr, &bound_vars, &mut mutated_vars);
         }
@@ -3172,6 +3114,28 @@ impl Compiler {
             is_mutable: false,
         });
         slot
+    }
+}
+
+impl BytecodeEmitter for Compiler {
+    fn emit(&mut self, op: OpCode) {
+        self.emit(op);
+    }
+
+    fn emit_constant(&mut self, value: KlujurVal) -> Result<()> {
+        self.emit_constant(value)
+    }
+
+    fn emit_jump(&mut self, op: OpCode) -> usize {
+        self.emit_jump(op)
+    }
+
+    fn patch_jump(&mut self, offset: usize) {
+        self.patch_jump(offset);
+    }
+
+    fn compile_expr(&mut self, expr: &KlujurVal) -> Result<()> {
+        self.compile_expr(expr)
     }
 }
 

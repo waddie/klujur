@@ -275,6 +275,7 @@ fn test(args: &[String]) {
         }
 
         let output = Command::new(&binary)
+            .arg("-b")
             .arg(test_file)
             .current_dir(&root)
             .stdout(Stdio::piped())
