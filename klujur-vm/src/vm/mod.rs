@@ -11,7 +11,7 @@ use std::rc::Rc;
 
 use klujur_parser::value::KlujurVal;
 
-use crate::chunk::{BytecodeFn, BytecodeFnWrapper, Chunk};
+use crate::chunk::{BytecodeFn, BytecodeFnWrapper, Chunk, HeapCell, HeapCellWrapper};
 use crate::compiler::codegen::FunctionPrototypeWrapper;
 use crate::opcode::OpCode;
 
@@ -158,21 +158,25 @@ impl VM {
     ///
     /// This is the main entry point for calling bytecode functions from the interpreter.
     pub fn call_fn(&mut self, bytecode_fn: &BytecodeFn, args: &[KlujurVal]) -> Result<KlujurVal> {
-        // Check arity
+        // Check arity (skip for multi-arity functions)
         let arity = bytecode_fn.arity() as usize;
         let has_rest = bytecode_fn.has_rest();
-        if has_rest {
-            if args.len() < arity {
+        let is_multi_arity = bytecode_fn.is_multi_arity();
+
+        if !is_multi_arity {
+            if has_rest {
+                if args.len() < arity {
+                    return Err(RuntimeError::ArityError {
+                        expected: arity,
+                        got: args.len(),
+                    });
+                }
+            } else if args.len() != arity {
                 return Err(RuntimeError::ArityError {
                     expected: arity,
                     got: args.len(),
                 });
             }
-        } else if args.len() != arity {
-            return Err(RuntimeError::ArityError {
-                expected: arity,
-                got: args.len(),
-            });
         }
 
         // Push the function onto the stack (for cleanup purposes)
@@ -185,19 +189,21 @@ impl VM {
             self.stack.push(arg.clone());
         }
 
-        // Handle rest parameter if present
-        if has_rest && args.len() > arity {
-            let extra_start = fn_index + 1 + arity;
-            let extra_count = args.len() - arity;
-            let mut rest_items = Vec::new();
-            for i in 0..extra_count {
-                rest_items.push(self.stack.get(extra_start + i)?);
+        // Handle rest parameter if present (only for non-multi-arity functions)
+        if !is_multi_arity {
+            if has_rest && args.len() > arity {
+                let extra_start = fn_index + 1 + arity;
+                let extra_count = args.len() - arity;
+                let mut rest_items = Vec::new();
+                for i in 0..extra_count {
+                    rest_items.push(self.stack.get(extra_start + i)?);
+                }
+                let rest_list = KlujurVal::list(rest_items);
+                self.stack.truncate(extra_start);
+                self.stack.push(rest_list);
+            } else if has_rest {
+                self.stack.push(KlujurVal::list(vec![]));
             }
-            let rest_list = KlujurVal::list(rest_items);
-            self.stack.truncate(extra_start);
-            self.stack.push(rest_list);
-        } else if has_rest {
-            self.stack.push(KlujurVal::list(vec![]));
         }
 
         // Add the function's chunk to our chunks list
@@ -209,13 +215,14 @@ impl VM {
         let has_name = bytecode_fn.name().is_some();
         let frame_base = if has_name { fn_index } else { fn_index + 1 };
 
-        // Push the frame directly (no dummy frame needed)
+        // Push the frame with argc for multi-arity dispatch
         let captures = bytecode_fn.captures.clone();
-        self.frames.push(CallFrame::new_with_cleanup(
+        self.frames.push(CallFrame::new_with_argc(
             frame_base,
             fn_index,
             chunk_index,
             captures,
+            args.len() as u8,
         ));
 
         // Run the function
@@ -299,12 +306,112 @@ impl VM {
                     }
                 }
 
-                // Heap cells
-                OpCode::Alloc | OpCode::LoadHeap(_) | OpCode::StoreHeap(_) => {
-                    // TODO: Implement heap cells
-                    return Err(RuntimeError::Internal(
-                        "Heap cells not yet implemented".into(),
-                    ));
+                // Heap cells for mutable captures
+                OpCode::Alloc => {
+                    // Allocate a new heap cell containing top of stack
+                    let val = self.stack.pop()?;
+                    let cell = HeapCell::new(val);
+                    self.stack.push(KlujurVal::custom(HeapCellWrapper(cell)));
+                }
+                OpCode::LoadHeap(idx) => {
+                    // Load value from heap cell in captures[idx]
+                    let captures = &self.frame().captures;
+                    if (idx as usize) < captures.len() {
+                        let cell_val = &captures[idx as usize];
+                        if let KlujurVal::Custom(custom) = cell_val {
+                            if let Some(wrapper) = custom.downcast_ref::<HeapCellWrapper>() {
+                                let val = wrapper.0.get();
+                                self.stack.push(val);
+                            } else {
+                                return Err(RuntimeError::Internal(format!(
+                                    "LoadHeap: captures[{}] is not a HeapCell",
+                                    idx
+                                )));
+                            }
+                        } else {
+                            return Err(RuntimeError::Internal(format!(
+                                "LoadHeap: captures[{}] is not a Custom value",
+                                idx
+                            )));
+                        }
+                    } else {
+                        return Err(RuntimeError::Internal(format!(
+                            "LoadHeap: capture index {} out of bounds (have {})",
+                            idx,
+                            captures.len()
+                        )));
+                    }
+                }
+                OpCode::StoreHeap(idx) => {
+                    // Store value to heap cell in captures[idx]
+                    let val = self.stack.pop()?;
+                    let captures = &self.frame().captures;
+                    if (idx as usize) < captures.len() {
+                        let cell_val = &captures[idx as usize];
+                        if let KlujurVal::Custom(custom) = cell_val {
+                            if let Some(wrapper) = custom.downcast_ref::<HeapCellWrapper>() {
+                                wrapper.0.set(val);
+                            } else {
+                                return Err(RuntimeError::Internal(format!(
+                                    "StoreHeap: captures[{}] is not a HeapCell",
+                                    idx
+                                )));
+                            }
+                        } else {
+                            return Err(RuntimeError::Internal(format!(
+                                "StoreHeap: captures[{}] is not a Custom value",
+                                idx
+                            )));
+                        }
+                    } else {
+                        return Err(RuntimeError::Internal(format!(
+                            "StoreHeap: capture index {} out of bounds (have {})",
+                            idx,
+                            captures.len()
+                        )));
+                    }
+                }
+                OpCode::LoadLocalHeap(slot) => {
+                    // Load value from heap cell in local slot
+                    let base = self.frame().base;
+                    let cell_val = self.stack.get(base + slot as usize)?;
+                    if let KlujurVal::Custom(custom) = &cell_val {
+                        if let Some(wrapper) = custom.downcast_ref::<HeapCellWrapper>() {
+                            let val = wrapper.0.get();
+                            self.stack.push(val);
+                        } else {
+                            return Err(RuntimeError::Internal(format!(
+                                "LoadLocalHeap: local {} is not a HeapCell",
+                                slot
+                            )));
+                        }
+                    } else {
+                        return Err(RuntimeError::Internal(format!(
+                            "LoadLocalHeap: local {} is not a Custom value",
+                            slot
+                        )));
+                    }
+                }
+                OpCode::StoreLocalHeap(slot) => {
+                    // Store value to heap cell in local slot
+                    let val = self.stack.pop()?;
+                    let base = self.frame().base;
+                    let cell_val = self.stack.get(base + slot as usize)?;
+                    if let KlujurVal::Custom(custom) = &cell_val {
+                        if let Some(wrapper) = custom.downcast_ref::<HeapCellWrapper>() {
+                            wrapper.0.set(val);
+                        } else {
+                            return Err(RuntimeError::Internal(format!(
+                                "StoreLocalHeap: local {} is not a HeapCell",
+                                slot
+                            )));
+                        }
+                    } else {
+                        return Err(RuntimeError::Internal(format!(
+                            "StoreLocalHeap: local {} is not a Custom value",
+                            slot
+                        )));
+                    }
                 }
 
                 // Control Flow
@@ -359,6 +466,77 @@ impl VM {
                     self.stack.push(result);
                 }
 
+                // Arity checking for multi-arity functions
+                OpCode::CheckArity(expected) => {
+                    let argc = self.frame().argc;
+                    if argc != expected {
+                        return Err(RuntimeError::ArityError {
+                            expected: expected as usize,
+                            got: argc as usize,
+                        });
+                    }
+                }
+                OpCode::CheckArityAtLeast(min) => {
+                    let argc = self.frame().argc;
+                    if argc < min {
+                        return Err(RuntimeError::ArityError {
+                            expected: min as usize,
+                            got: argc as usize,
+                        });
+                    }
+                }
+                OpCode::ArityDispatch(entry_count) => {
+                    let argc = self.frame().argc;
+
+                    // Read all dispatch table entries into a vec first
+                    // (since jump will modify IP, we can't mix reading and jumping)
+                    let mut entries = Vec::with_capacity(entry_count as usize);
+                    for _ in 0..entry_count {
+                        let entry_op = self.read_op()?;
+                        if let OpCode::ArityEntry {
+                            arity,
+                            has_rest,
+                            offset,
+                        } = entry_op
+                        {
+                            entries.push((arity, has_rest, offset));
+                        } else {
+                            return Err(RuntimeError::Internal(format!(
+                                "Expected ArityEntry in dispatch table, got {:?}",
+                                entry_op
+                            )));
+                        }
+                    }
+
+                    // Find a matching arity and jump
+                    let mut found = false;
+                    for (arity, has_rest, offset) in entries {
+                        let matches = if has_rest {
+                            argc >= arity
+                        } else {
+                            argc == arity
+                        };
+                        if matches {
+                            self.jump(offset);
+                            found = true;
+                            break;
+                        }
+                    }
+
+                    if !found {
+                        return Err(RuntimeError::ArityError {
+                            expected: 0, // Could improve error message
+                            got: argc as usize,
+                        });
+                    }
+                }
+                OpCode::ArityEntry { .. } => {
+                    // ArityEntry should only be read within ArityDispatch
+                    return Err(RuntimeError::Internal(
+                        "ArityEntry outside ArityDispatch context".into(),
+                    ));
+                }
+
                 // Closures
                 OpCode::Closure(idx) => {
                     let proto_val = self.get_constant(idx)?;
@@ -380,18 +558,64 @@ impl VM {
                                         captures.push(val);
                                     }
                                     OpCode::CaptureUpvalue(idx) => {
-                                        // Capture from current closure's captures
-                                        // This requires access to the current function's captures
-                                        // For now, we don't support transitive captures
-                                        return Err(RuntimeError::Internal(format!(
-                                            "CaptureUpvalue({}) not yet supported",
-                                            idx
-                                        )));
+                                        // Capture from current closure's captures (transitive capture)
+                                        let current_captures = &self.frame().captures;
+                                        if (idx as usize) < current_captures.len() {
+                                            let val = current_captures[idx as usize].clone();
+                                            captures.push(val);
+                                        } else {
+                                            return Err(RuntimeError::Internal(format!(
+                                                "Upvalue index {} out of bounds (have {})",
+                                                idx,
+                                                current_captures.len()
+                                            )));
+                                        }
                                     }
-                                    OpCode::CaptureHeapLocal(_) | OpCode::CaptureHeapUpvalue(_) => {
-                                        return Err(RuntimeError::Internal(
-                                            "Heap captures not yet implemented".into(),
-                                        ));
+                                    OpCode::CaptureHeapLocal(slot) => {
+                                        // Capture a mutable local as a heap cell
+                                        let base = self.frame().base;
+                                        let val = self.stack.get(base + slot as usize)?;
+                                        // Check if it's already a heap cell (from a previous capture)
+                                        if let KlujurVal::Custom(custom) = &val {
+                                            if custom.downcast_ref::<HeapCellWrapper>().is_some() {
+                                                // Already a heap cell, just capture it
+                                                captures.push(val);
+                                            } else {
+                                                // Wrap in a new heap cell
+                                                let cell = HeapCell::new(val);
+                                                let cell_val = KlujurVal::custom(HeapCellWrapper(
+                                                    cell.clone(),
+                                                ));
+                                                // Store the cell back to the local slot so other closures share it
+                                                self.stack
+                                                    .set(base + slot as usize, cell_val.clone())?;
+                                                captures.push(cell_val);
+                                            }
+                                        } else {
+                                            // Wrap in a new heap cell
+                                            let cell = HeapCell::new(val);
+                                            let cell_val =
+                                                KlujurVal::custom(HeapCellWrapper(cell.clone()));
+                                            // Store the cell back to the local slot so other closures share it
+                                            self.stack
+                                                .set(base + slot as usize, cell_val.clone())?;
+                                            captures.push(cell_val);
+                                        }
+                                    }
+                                    OpCode::CaptureHeapUpvalue(idx) => {
+                                        // Capture heap cell from parent's captures (transitive)
+                                        let current_captures = &self.frame().captures;
+                                        if (idx as usize) < current_captures.len() {
+                                            let cell_val = current_captures[idx as usize].clone();
+                                            // Should already be a HeapCell from parent
+                                            captures.push(cell_val);
+                                        } else {
+                                            return Err(RuntimeError::Internal(format!(
+                                                "Heap upvalue index {} out of bounds (have {})",
+                                                idx,
+                                                current_captures.len()
+                                            )));
+                                        }
                                     }
                                     _ => {
                                         return Err(RuntimeError::Internal(format!(
@@ -895,20 +1119,25 @@ impl VM {
             let bytecode_fn: Rc<BytecodeFn> = Rc::clone(&wrapper.0);
             let arity = bytecode_fn.arity() as usize;
             let has_rest = bytecode_fn.has_rest();
+            let is_multi_arity = bytecode_fn.is_multi_arity();
 
-            // Check arity
-            if has_rest {
-                if argc < arity {
+            // Multi-arity functions handle their own arity dispatch via ArityDispatch opcode
+            // Skip arity checking and rest handling for them
+            if !is_multi_arity {
+                // Check arity
+                if has_rest {
+                    if argc < arity {
+                        return Err(RuntimeError::ArityError {
+                            expected: arity,
+                            got: argc,
+                        });
+                    }
+                } else if argc != arity {
                     return Err(RuntimeError::ArityError {
                         expected: arity,
                         got: argc,
                     });
                 }
-            } else if argc != arity {
-                return Err(RuntimeError::ArityError {
-                    expected: arity,
-                    got: argc,
-                });
             }
 
             // Add the function's chunk to our chunks list
@@ -922,24 +1151,26 @@ impl VM {
             let has_name = bytecode_fn.name().is_some();
             let frame_base = if has_name { fn_index } else { fn_index + 1 };
 
-            // Handle rest parameter if present
-            if has_rest && argc > arity {
-                // Collect extra args into a list
-                let extra_start = fn_index + 1 + arity;
-                let extra_count = argc - arity;
-                let mut rest_items = Vec::new();
-                for i in 0..extra_count {
-                    rest_items.push(self.stack.get(extra_start + i)?);
-                }
-                let rest_list = KlujurVal::list(rest_items);
+            // Handle rest parameter if present (only for non-multi-arity functions)
+            if !is_multi_arity {
+                if has_rest && argc > arity {
+                    // Collect extra args into a list
+                    let extra_start = fn_index + 1 + arity;
+                    let extra_count = argc - arity;
+                    let mut rest_items = Vec::new();
+                    for i in 0..extra_count {
+                        rest_items.push(self.stack.get(extra_start + i)?);
+                    }
+                    let rest_list = KlujurVal::list(rest_items);
 
-                // Remove extra args and push the rest list
-                // First truncate to remove extra args
-                self.stack.truncate(extra_start);
-                self.stack.push(rest_list);
-            } else if has_rest {
-                // No extra args, push empty list for rest parameter
-                self.stack.push(KlujurVal::list(vec![]));
+                    // Remove extra args and push the rest list
+                    // First truncate to remove extra args
+                    self.stack.truncate(extra_start);
+                    self.stack.push(rest_list);
+                } else if has_rest {
+                    // No extra args, push empty list for rest parameter
+                    self.stack.push(KlujurVal::list(vec![]));
+                }
             }
 
             // If the function has a name, we need to make it available at slot 0
@@ -953,11 +1184,12 @@ impl VM {
             // Push new frame with captures from the closure
             // cleanup_base = fn_index ensures the function slot is cleaned up on return
             let captures = bytecode_fn.captures.clone();
-            self.frames.push(CallFrame::new_with_cleanup(
+            self.frames.push(CallFrame::new_with_argc(
                 frame_base,
                 fn_index,
                 chunk_index,
                 captures,
+                argc as u8,
             ));
 
             return Ok(());
@@ -991,20 +1223,24 @@ impl VM {
             let arity = bytecode_fn.arity() as usize;
             let has_rest = bytecode_fn.has_rest();
             let has_name = bytecode_fn.name().is_some();
+            let is_multi_arity = bytecode_fn.is_multi_arity();
 
-            // Check arity
-            if has_rest {
-                if argc < arity {
+            // Multi-arity functions handle their own arity dispatch via ArityDispatch opcode
+            if !is_multi_arity {
+                // Check arity
+                if has_rest {
+                    if argc < arity {
+                        return Err(RuntimeError::ArityError {
+                            expected: arity,
+                            got: argc,
+                        });
+                    }
+                } else if argc != arity {
                     return Err(RuntimeError::ArityError {
                         expected: arity,
                         got: argc,
                     });
                 }
-            } else if argc != arity {
-                return Err(RuntimeError::ArityError {
-                    expected: arity,
-                    got: argc,
-                });
             }
 
             // Get current frame's cleanup_base - this stays the same
@@ -1017,17 +1253,21 @@ impl VM {
                 cleanup_base + 1
             };
 
-            // Handle rest parameter
-            let rest_list = if has_rest && argc > arity {
-                let extra_start = fn_index + 1 + arity;
-                let extra_count = argc - arity;
-                let mut rest_items = Vec::new();
-                for i in 0..extra_count {
-                    rest_items.push(self.stack.get(extra_start + i)?);
+            // Handle rest parameter (only for non-multi-arity functions)
+            let rest_list = if !is_multi_arity {
+                if has_rest && argc > arity {
+                    let extra_start = fn_index + 1 + arity;
+                    let extra_count = argc - arity;
+                    let mut rest_items = Vec::new();
+                    for i in 0..extra_count {
+                        rest_items.push(self.stack.get(extra_start + i)?);
+                    }
+                    Some(KlujurVal::list(rest_items))
+                } else if has_rest {
+                    Some(KlujurVal::list(vec![]))
+                } else {
+                    None
                 }
-                Some(KlujurVal::list(rest_items))
-            } else if has_rest {
-                Some(KlujurVal::list(vec![]))
             } else {
                 None
             };
@@ -1036,8 +1276,9 @@ impl VM {
             let fn_val = self.stack.get(fn_index)?;
             self.stack.set(cleanup_base, fn_val)?;
 
-            // Copy regular args
-            for i in 0..arity {
+            // Copy regular args (for multi-arity, copy all argc args)
+            let args_to_copy = if is_multi_arity { argc } else { arity };
+            for i in 0..args_to_copy {
                 let arg = self.stack.get(fn_index + 1 + i)?;
                 self.stack.set(new_base + i, arg)?;
             }
@@ -1064,6 +1305,7 @@ impl VM {
             frame.chunk_index = chunk_index;
             frame.ip = 0;
             frame.captures = captures;
+            frame.argc = argc as u8;
             // cleanup_base stays the same
 
             return Ok(());

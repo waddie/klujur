@@ -173,3 +173,165 @@ fn test_higher_order_function() {
     // Apply a function to a value
     assert_eq!(compile_and_run("((fn [f x] (f x)) (fn [n] n) 99)"), "99");
 }
+
+// =============================================================================
+// Transitive Closure Captures (grandparent+ scope)
+// =============================================================================
+
+#[test]
+fn test_transitive_capture_two_levels() {
+    // Capture from grandparent scope
+    assert_eq!(compile_and_run("(let [x 42] ((fn [] ((fn [] x)))))"), "42");
+}
+
+#[test]
+fn test_transitive_capture_three_levels() {
+    // Capture from great-grandparent scope
+    assert_eq!(
+        compile_and_run("((((fn [a] (fn [b] (fn [c] a))) 1) 2) 3)"),
+        "1"
+    );
+}
+
+#[test]
+fn test_transitive_capture_mixed_levels() {
+    // Mix of direct and transitive captures
+    assert_eq!(
+        compile_and_run("(let [x 1] ((fn [y] ((fn [z] x) 3)) 2))"),
+        "1"
+    );
+}
+
+#[test]
+fn test_transitive_capture_inner_shadows() {
+    // Inner function shadows, should use nearest binding
+    assert_eq!(
+        compile_and_run("(let [x 1] ((fn [x] ((fn [] x))) 42))"),
+        "42"
+    );
+}
+
+// =============================================================================
+// Multi-Arity Functions
+// =============================================================================
+
+#[test]
+fn test_multi_arity_two_arities() {
+    // Two fixed arities
+    assert_eq!(compile_and_run("((fn ([x] x) ([x y] y)) 42)"), "42");
+    assert_eq!(compile_and_run("((fn ([x] x) ([x y] y)) 1 2)"), "2");
+}
+
+#[test]
+fn test_multi_arity_three_arities() {
+    assert_eq!(compile_and_run("((fn ([] 0) ([x] 1) ([x y] 2)))"), "0");
+    assert_eq!(compile_and_run("((fn ([] 0) ([x] 1) ([x y] 2)) :a)"), "1");
+    assert_eq!(
+        compile_and_run("((fn ([] 0) ([x] 1) ([x y] 2)) :a :b)"),
+        "2"
+    );
+}
+
+#[test]
+fn test_multi_arity_with_body() {
+    // Multi-arity with expressions in body
+    assert_eq!(
+        compile_and_run("((fn ([x] (+ x 1)) ([x y] (+ x y))) 10)"),
+        "11"
+    );
+    assert_eq!(
+        compile_and_run("((fn ([x] (+ x 1)) ([x y] (+ x y))) 10 20)"),
+        "30"
+    );
+}
+
+#[test]
+fn test_multi_arity_with_variadic() {
+    // Mix of fixed and variadic
+    assert_eq!(compile_and_run("((fn ([x] x) ([x & more] more)) 42)"), "42");
+    // Note: Variadic with extra args returns the rest list
+    // This test would need list comparison which we don't have yet
+}
+
+#[test]
+fn test_multi_arity_named() {
+    // Named multi-arity function
+    assert_eq!(
+        compile_and_run("((fn foo ([x] x) ([x y] (+ x y))) 10)"),
+        "10"
+    );
+    assert_eq!(
+        compile_and_run("((fn foo ([x] x) ([x y] (+ x y))) 10 20)"),
+        "30"
+    );
+}
+
+// =============================================================================
+// Mutable Captures (set! on captured variables)
+// =============================================================================
+
+#[test]
+fn test_mutable_capture_simple() {
+    // Closure that captures and mutates a variable
+    assert_eq!(compile_and_run("(let [x 0] ((fn [] (set! x 42))) x)"), "42");
+}
+
+#[test]
+fn test_mutable_capture_increment() {
+    // Closure that increments a captured variable
+    assert_eq!(
+        compile_and_run("(let [x 0] ((fn [] (set! x (+ x 1)))) x)"),
+        "1"
+    );
+}
+
+#[test]
+fn test_mutable_capture_multiple_calls() {
+    // Call the same closure multiple times, mutating the captured variable
+    assert_eq!(
+        compile_and_run("(let [x 0 inc (fn [] (set! x (+ x 1)))] (inc) (inc) (inc) x)"),
+        "3"
+    );
+}
+
+#[test]
+fn test_mutable_capture_read_and_write() {
+    // Closure that both reads and writes to a captured variable
+    assert_eq!(
+        compile_and_run("(let [x 10] ((fn [] (let [old x] (set! x 20) old))))"),
+        "10"
+    );
+}
+
+#[test]
+fn test_mutable_capture_two_closures() {
+    // Two closures sharing the same mutable variable
+    assert_eq!(
+        compile_and_run("(let [x 0 inc (fn [] (set! x (+ x 1))) get (fn [] x)] (inc) (inc) (get))"),
+        "2"
+    );
+}
+
+#[test]
+fn test_mutable_capture_nested() {
+    // Nested function that mutates grandparent's variable
+    assert_eq!(
+        compile_and_run("(let [x 0] ((fn [] ((fn [] (set! x 99))))) x)"),
+        "99"
+    );
+}
+
+#[test]
+fn test_mutable_capture_counter() {
+    // Classic counter closure pattern
+    assert_eq!(
+        compile_and_run(
+            "(let [count 0]
+               (let [counter (fn [] (set! count (+ count 1)) count)]
+                 (counter)
+                 (counter)
+                 (counter)))"
+        ),
+        "3"
+    );
+}

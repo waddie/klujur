@@ -51,6 +51,12 @@ pub enum OpCode {
     /// Store to heap cell: set value in heap cell in captures[n] to pop().
     StoreHeap(u16),
 
+    /// Load from boxed local: read heap cell from local slot n, push its value.
+    LoadLocalHeap(u16),
+
+    /// Store to boxed local: read heap cell from local slot n, store popped value into it.
+    StoreLocalHeap(u16),
+
     // =========================================================================
     // Control Flow
     // =========================================================================
@@ -70,7 +76,7 @@ pub enum OpCode {
     PopJumpIfTrue(i16),
 
     // =========================================================================
-    // Function Calls
+    // Function Calls & Arity
     // =========================================================================
     /// Call function with n arguments. Function is at stack[sp - n - 1].
     Call(u8),
@@ -80,6 +86,27 @@ pub enum OpCode {
 
     /// Return from function: pop return value and restore caller's frame.
     Return,
+
+    /// Check that argc equals expected arity, error otherwise.
+    /// argc is read from the call site info stored in the frame.
+    CheckArity(u8),
+
+    /// Check that argc >= minimum arity (for variadic functions).
+    CheckArityAtLeast(u8),
+
+    /// Multi-arity dispatch: jump to the correct arity handler.
+    /// The u8 is the number of arity entries in the dispatch table.
+    /// Each entry is encoded as: (arity: u8, has_rest: bool, offset: i16).
+    /// Entries are read as following opcodes: ArityEntry(u8, bool, i16).
+    ArityDispatch(u8),
+
+    /// Arity dispatch table entry: (fixed_arity, has_rest, jump_offset).
+    /// Used only within ArityDispatch block.
+    ArityEntry {
+        arity: u8,
+        has_rest: bool,
+        offset: i16,
+    },
 
     // =========================================================================
     // Closure Construction
@@ -202,6 +229,8 @@ impl OpCode {
                 | OpCode::Call(_)
                 | OpCode::TailCall(_)
                 | OpCode::Return
+                | OpCode::ArityDispatch(_)
+                | OpCode::ArityEntry { .. }
         )
     }
 
@@ -217,12 +246,17 @@ impl OpCode {
             | OpCode::LoadCapture(_)
             | OpCode::LoadGlobal(_)
             | OpCode::LoadHeap(_)
+            | OpCode::LoadLocalHeap(_)
             | OpCode::Nil
             | OpCode::True
             | OpCode::False => 1,
 
             // Pop 1
-            OpCode::Pop | OpCode::DefGlobal(_) | OpCode::StoreLocal(_) | OpCode::StoreHeap(_) => -1,
+            OpCode::Pop
+            | OpCode::DefGlobal(_)
+            | OpCode::StoreLocal(_)
+            | OpCode::StoreHeap(_)
+            | OpCode::StoreLocalHeap(_) => -1,
 
             // Neutral (pop 1, push 1)
             OpCode::Alloc
@@ -254,7 +288,13 @@ impl OpCode {
             OpCode::GetDefault | OpCode::Assoc | OpCode::Conj => -2,
 
             // Control flow (no stack effect on their own)
-            OpCode::Jump(_) | OpCode::JumpIfFalse(_) | OpCode::JumpIfTrue(_) => 0,
+            OpCode::Jump(_)
+            | OpCode::JumpIfFalse(_)
+            | OpCode::JumpIfTrue(_)
+            | OpCode::CheckArity(_)
+            | OpCode::CheckArityAtLeast(_)
+            | OpCode::ArityDispatch(_)
+            | OpCode::ArityEntry { .. } => 0,
 
             // Pop and jump
             OpCode::PopJumpIfFalse(_) | OpCode::PopJumpIfTrue(_) => -1,

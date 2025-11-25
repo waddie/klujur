@@ -60,6 +60,8 @@ struct Upvalue {
     index: u16,
     /// True if capturing from parent's locals, false if from parent's upvalues
     is_local: bool,
+    /// True if this captured variable is mutated via set!
+    is_mutable: bool,
 }
 
 /// Loop context for compiling loop/recur.
@@ -79,7 +81,12 @@ struct EnclosingScope<'a> {
     /// Parent's local name map
     local_map: &'a HashMap<Symbol, u16>,
     /// Parent's upvalues (for transitive capturing)
+    #[allow(dead_code)]
     upvalues: &'a [Upvalue],
+    /// Parent's upvalue name map (for transitive capturing)
+    upvalue_names: &'a HashMap<Symbol, u16>,
+    /// Parent's boxed locals (for mutable captures)
+    boxed_locals: &'a std::collections::HashSet<Symbol>,
 }
 
 /// Result of compiling a function, includes upvalue info for closure creation.
@@ -105,6 +112,9 @@ struct FunctionCompiler<'a> {
     /// Whether this function has a rest parameter.
     has_rest: bool,
 
+    /// Whether this is a multi-arity function (handles its own arity dispatch).
+    is_multi_arity: bool,
+
     /// Local variables in this function.
     locals: Vec<Local>,
 
@@ -128,9 +138,17 @@ struct FunctionCompiler<'a> {
 
     /// Current source location for debug info.
     current_line: LineInfo,
+
+    /// Set of variables that are targets of set! in this function.
+    /// Used to determine which captures need heap cells.
+    mutated_vars: std::collections::HashSet<Symbol>,
+
+    /// Set of locals that need heap cells (are captured and mutated by nested functions).
+    boxed_locals: std::collections::HashSet<Symbol>,
 }
 
 impl<'a> FunctionCompiler<'a> {
+    #[allow(dead_code)]
     fn new(
         name: Option<Symbol>,
         arity: u8,
@@ -142,6 +160,7 @@ impl<'a> FunctionCompiler<'a> {
             name,
             arity,
             has_rest,
+            is_multi_arity: false,
             locals: Vec::new(),
             scope_depth: 0,
             local_map: HashMap::new(),
@@ -150,6 +169,58 @@ impl<'a> FunctionCompiler<'a> {
             enclosing,
             loop_context: None,
             current_line: LineInfo::default(),
+            mutated_vars: std::collections::HashSet::new(),
+            boxed_locals: std::collections::HashSet::new(),
+        }
+    }
+
+    fn new_multi_arity(
+        name: Option<Symbol>,
+        min_arity: u8,
+        enclosing: Option<EnclosingScope<'a>>,
+    ) -> Self {
+        Self {
+            chunk: Chunk::new(),
+            name,
+            arity: min_arity,
+            has_rest: false,
+            is_multi_arity: true,
+            locals: Vec::new(),
+            scope_depth: 0,
+            local_map: HashMap::new(),
+            upvalues: Vec::new(),
+            upvalue_map: HashMap::new(),
+            enclosing,
+            loop_context: None,
+            current_line: LineInfo::default(),
+            mutated_vars: std::collections::HashSet::new(),
+            boxed_locals: std::collections::HashSet::new(),
+        }
+    }
+
+    fn with_mutated_vars(
+        name: Option<Symbol>,
+        arity: u8,
+        has_rest: bool,
+        enclosing: Option<EnclosingScope<'a>>,
+        mutated_vars: std::collections::HashSet<Symbol>,
+    ) -> Self {
+        Self {
+            chunk: Chunk::new(),
+            name,
+            arity,
+            has_rest,
+            is_multi_arity: false,
+            locals: Vec::new(),
+            scope_depth: 0,
+            local_map: HashMap::new(),
+            upvalues: Vec::new(),
+            upvalue_map: HashMap::new(),
+            enclosing,
+            loop_context: None,
+            current_line: LineInfo::default(),
+            mutated_vars,
+            boxed_locals: std::collections::HashSet::new(),
         }
     }
 
@@ -161,6 +232,7 @@ impl<'a> FunctionCompiler<'a> {
                 name: self.name,
                 arity: self.arity,
                 has_rest: self.has_rest,
+                is_multi_arity: self.is_multi_arity,
                 chunk: self.chunk,
                 upvalue_count,
                 local_count,
@@ -271,13 +343,22 @@ impl<'a> FunctionCompiler<'a> {
     fn compile_symbol(&mut self, sym: &Symbol) -> Result<()> {
         // 1. Check local variables
         if let Some(&slot) = self.local_map.get(sym) {
-            self.emit(OpCode::LoadLocal(slot));
+            // Check if this local is boxed (needs heap cell access)
+            if self.boxed_locals.contains(sym) {
+                self.emit(OpCode::LoadLocalHeap(slot));
+            } else {
+                self.emit(OpCode::LoadLocal(slot));
+            }
             return Ok(());
         }
 
         // 2. Check/add upvalue
-        if let Some(upvalue_idx) = self.resolve_upvalue(sym) {
-            self.emit(OpCode::LoadCapture(upvalue_idx));
+        if let Some((upvalue_idx, is_mutable)) = self.resolve_upvalue(sym) {
+            if is_mutable {
+                self.emit(OpCode::LoadHeap(upvalue_idx));
+            } else {
+                self.emit(OpCode::LoadCapture(upvalue_idx));
+            }
             return Ok(());
         }
 
@@ -287,37 +368,523 @@ impl<'a> FunctionCompiler<'a> {
         Ok(())
     }
 
-    /// Try to resolve a symbol as an upvalue. Returns the upvalue index if found.
-    fn resolve_upvalue(&mut self, sym: &Symbol) -> Option<u16> {
+    /// Try to resolve a symbol as an upvalue. Returns (upvalue_index, is_mutable) if found.
+    fn resolve_upvalue(&mut self, sym: &Symbol) -> Option<(u16, bool)> {
         // Already have this upvalue?
         if let Some(&idx) = self.upvalue_map.get(sym) {
-            return Some(idx);
+            let is_mutable = self
+                .upvalues
+                .get(idx as usize)
+                .map(|uv| uv.is_mutable)
+                .unwrap_or(false);
+            return Some((idx, is_mutable));
         }
 
         // Check enclosing scope
         let enclosing = self.enclosing.as_ref()?;
 
+        // Check if this variable is mutated in the current function
+        let is_mutated_here = self.mutated_vars.contains(sym);
+
         // First, check if it's in the enclosing scope's locals
         if let Some(&local_slot) = enclosing.local_map.get(sym) {
-            return Some(self.add_upvalue(sym.clone(), local_slot, true));
+            // Variable is mutable if either:
+            // 1. It's boxed in the parent scope (another closure mutates it)
+            // 2. This function mutates it
+            let is_boxed_in_parent = enclosing.boxed_locals.contains(sym);
+            let is_mutable = is_boxed_in_parent || is_mutated_here;
+            let idx = self.add_upvalue(sym.clone(), local_slot, true, is_mutable);
+            return Some((idx, is_mutable));
         }
 
-        // Then, check if it's in the enclosing scope's upvalues
-        // TODO: For transitive captures, we'd need to track names in upvalues
-        // For now, we only support one level of capture
-        let _ = enclosing.upvalues; // silence unused warning
+        // Then, check if it's in the enclosing scope's upvalues (transitive capture)
+        if let Some(&upvalue_idx) = enclosing.upvalue_names.get(sym) {
+            // For transitive captures, check if parent's upvalue is mutable
+            let parent_is_mutable = enclosing
+                .upvalues
+                .get(upvalue_idx as usize)
+                .map(|uv| uv.is_mutable)
+                .unwrap_or(false);
+            // Mutable if either parent says it's mutable OR we mutate it here
+            let is_mutable = parent_is_mutable || is_mutated_here;
+            let idx = self.add_upvalue(sym.clone(), upvalue_idx, false, is_mutable);
+            return Some((idx, is_mutable));
+        }
 
-        // For transitive upvalues, we'd need to track names in the enclosing upvalues
-        // For now, just support one level of capture
         None
     }
 
     /// Add a new upvalue and return its index.
-    fn add_upvalue(&mut self, name: Symbol, index: u16, is_local: bool) -> u16 {
+    fn add_upvalue(&mut self, name: Symbol, index: u16, is_local: bool, is_mutable: bool) -> u16 {
         let upvalue_idx = self.upvalues.len() as u16;
-        self.upvalues.push(Upvalue { index, is_local });
-        self.upvalue_map.insert(name, upvalue_idx);
+        self.upvalues.push(Upvalue {
+            index,
+            is_local,
+            is_mutable,
+        });
+        self.upvalue_map.insert(name.clone(), upvalue_idx);
+        // Track mutability info in upvalue_names for transitive captures
         upvalue_idx
+    }
+
+    /// Recursively collect all free variables in an expression.
+    /// `bound` contains variables bound in outer scopes (params, let bindings).
+    fn collect_free_vars(
+        expr: &KlujurVal,
+        bound: &std::collections::HashSet<Symbol>,
+        free_vars: &mut Vec<Symbol>,
+    ) {
+        match expr {
+            KlujurVal::Symbol(sym, _) => {
+                if !bound.contains(sym) && !free_vars.contains(sym) {
+                    free_vars.push(sym.clone());
+                }
+            }
+            KlujurVal::List(items, _) => {
+                if items.is_empty() {
+                    return;
+                }
+                let items_vec: Vec<_> = items.iter().collect();
+
+                // Check for special forms that introduce bindings
+                if let KlujurVal::Symbol(sym, _) = &items_vec[0] {
+                    match sym.name() {
+                        "quote" => return, // Don't descend into quoted forms
+                        "fn" | "fn*" => {
+                            // fn introduces new binding scope
+                            // Skip the name if present, parse params, scan body
+                            let (params_idx, body_start) = if items_vec.len() > 1 {
+                                if let KlujurVal::Symbol(_, _) = &items_vec[1] {
+                                    (2, 3) // Named fn
+                                } else {
+                                    (1, 2) // Anonymous fn
+                                }
+                            } else {
+                                return;
+                            };
+
+                            let mut fn_bound = bound.clone();
+
+                            // Add fn name if present
+                            if params_idx == 2
+                                && let KlujurVal::Symbol(name, _) = &items_vec[1]
+                            {
+                                fn_bound.insert(name.clone());
+                            }
+
+                            // Add parameters to bound
+                            if params_idx < items_vec.len()
+                                && let KlujurVal::Vector(params, _) = &items_vec[params_idx]
+                            {
+                                for p in params.iter() {
+                                    if let KlujurVal::Symbol(s, _) = p
+                                        && s.name() != "&"
+                                    {
+                                        fn_bound.insert(s.clone());
+                                    }
+                                }
+                            }
+
+                            // Scan body
+                            for item in items_vec.iter().skip(body_start) {
+                                Self::collect_free_vars(item, &fn_bound, free_vars);
+                            }
+                            return;
+                        }
+                        "let" | "let*" => {
+                            // let introduces bindings
+                            let mut let_bound = bound.clone();
+                            if items_vec.len() > 1
+                                && let KlujurVal::Vector(bindings, _) = &items_vec[1]
+                            {
+                                let pairs: Vec<_> = bindings.iter().collect();
+                                for chunk in pairs.chunks(2) {
+                                    if chunk.len() == 2 {
+                                        // Scan value expression first
+                                        Self::collect_free_vars(chunk[1], &let_bound, free_vars);
+                                        // Then add binding
+                                        if let KlujurVal::Symbol(s, _) = chunk[0] {
+                                            let_bound.insert(s.clone());
+                                        }
+                                    }
+                                }
+                            }
+                            // Scan body
+                            for item in items_vec.iter().skip(2) {
+                                Self::collect_free_vars(item, &let_bound, free_vars);
+                            }
+                            return;
+                        }
+                        "loop" => {
+                            // loop introduces bindings similar to let
+                            let mut loop_bound = bound.clone();
+                            if items_vec.len() > 1
+                                && let KlujurVal::Vector(bindings, _) = &items_vec[1]
+                            {
+                                let pairs: Vec<_> = bindings.iter().collect();
+                                for chunk in pairs.chunks(2) {
+                                    if chunk.len() == 2 {
+                                        Self::collect_free_vars(chunk[1], &loop_bound, free_vars);
+                                        if let KlujurVal::Symbol(s, _) = chunk[0] {
+                                            loop_bound.insert(s.clone());
+                                        }
+                                    }
+                                }
+                            }
+                            for item in items_vec.iter().skip(2) {
+                                Self::collect_free_vars(item, &loop_bound, free_vars);
+                            }
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
+
+                // Generic list: scan all elements
+                for item in items_vec {
+                    Self::collect_free_vars(item, bound, free_vars);
+                }
+            }
+            KlujurVal::Vector(items, _) => {
+                for item in items.iter() {
+                    Self::collect_free_vars(item, bound, free_vars);
+                }
+            }
+            KlujurVal::Map(map, _) => {
+                for (k, v) in map.iter() {
+                    Self::collect_free_vars(k, bound, free_vars);
+                    Self::collect_free_vars(v, bound, free_vars);
+                }
+            }
+            KlujurVal::Set(set, _) => {
+                for item in set.iter() {
+                    Self::collect_free_vars(item, bound, free_vars);
+                }
+            }
+            _ => {} // Literals, etc. - no free variables
+        }
+    }
+
+    /// Recursively collect all set! targets in an expression.
+    /// `bound` contains variables bound in the current scope (not used for filtering).
+    /// `mutated` collects ALL variables that are targets of set!.
+    fn collect_set_targets(
+        expr: &KlujurVal,
+        bound: &std::collections::HashSet<Symbol>,
+        mutated: &mut std::collections::HashSet<Symbol>,
+    ) {
+        match expr {
+            KlujurVal::List(items, _) => {
+                if items.is_empty() {
+                    return;
+                }
+                let items_vec: Vec<_> = items.iter().collect();
+
+                // Check for set!
+                if let KlujurVal::Symbol(sym, _) = &items_vec[0] {
+                    if sym.name() == "set!" && items_vec.len() >= 2 {
+                        // Found a set! - record the target (all targets, not just bound ones)
+                        // This allows us to know which captures are mutated
+                        if let KlujurVal::Symbol(target, _) = &items_vec[1] {
+                            mutated.insert(target.clone());
+                        }
+                        // Also scan the value expression
+                        if items_vec.len() > 2 {
+                            Self::collect_set_targets(items_vec[2], bound, mutated);
+                        }
+                        return;
+                    }
+
+                    // Handle special forms that introduce bindings
+                    match sym.name() {
+                        "quote" => return,
+                        "fn" | "fn*" => {
+                            // fn introduces new binding scope - don't scan into nested fns
+                            // (they have their own set of mutable captures)
+                            return;
+                        }
+                        "let" | "let*" => {
+                            let mut let_bound = bound.clone();
+                            if items_vec.len() > 1
+                                && let KlujurVal::Vector(bindings, _) = &items_vec[1]
+                            {
+                                let pairs: Vec<_> = bindings.iter().collect();
+                                for chunk in pairs.chunks(2) {
+                                    if chunk.len() == 2 {
+                                        Self::collect_set_targets(chunk[1], &let_bound, mutated);
+                                        if let KlujurVal::Symbol(s, _) = chunk[0] {
+                                            let_bound.insert(s.clone());
+                                        }
+                                    }
+                                }
+                            }
+                            for item in items_vec.iter().skip(2) {
+                                Self::collect_set_targets(item, &let_bound, mutated);
+                            }
+                            return;
+                        }
+                        "loop" => {
+                            let mut loop_bound = bound.clone();
+                            if items_vec.len() > 1
+                                && let KlujurVal::Vector(bindings, _) = &items_vec[1]
+                            {
+                                let pairs: Vec<_> = bindings.iter().collect();
+                                for chunk in pairs.chunks(2) {
+                                    if chunk.len() == 2 {
+                                        Self::collect_set_targets(chunk[1], &loop_bound, mutated);
+                                        if let KlujurVal::Symbol(s, _) = chunk[0] {
+                                            loop_bound.insert(s.clone());
+                                        }
+                                    }
+                                }
+                            }
+                            for item in items_vec.iter().skip(2) {
+                                Self::collect_set_targets(item, &loop_bound, mutated);
+                            }
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
+
+                // Generic list: scan all elements
+                for item in items_vec {
+                    Self::collect_set_targets(item, bound, mutated);
+                }
+            }
+            KlujurVal::Vector(items, _) => {
+                for item in items.iter() {
+                    Self::collect_set_targets(item, bound, mutated);
+                }
+            }
+            KlujurVal::Map(map, _) => {
+                for (k, v) in map.iter() {
+                    Self::collect_set_targets(k, bound, mutated);
+                    Self::collect_set_targets(v, bound, mutated);
+                }
+            }
+            KlujurVal::Set(set, _) => {
+                for item in set.iter() {
+                    Self::collect_set_targets(item, bound, mutated);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Find which of my locals are captured and mutated by nested functions.
+    /// `my_locals` - the locals defined in the current scope (that could be boxed)
+    /// Returns the set of my locals that need heap cells.
+    fn collect_boxed_locals(
+        exprs: &[KlujurVal],
+        my_locals: &std::collections::HashSet<Symbol>,
+    ) -> std::collections::HashSet<Symbol> {
+        let mut boxed = std::collections::HashSet::new();
+        for expr in exprs {
+            Self::collect_boxed_locals_expr(expr, my_locals, &mut boxed);
+        }
+        boxed
+    }
+
+    /// Helper for collect_boxed_locals that recursively scans expressions.
+    fn collect_boxed_locals_expr(
+        expr: &KlujurVal,
+        my_locals: &std::collections::HashSet<Symbol>,
+        boxed: &mut std::collections::HashSet<Symbol>,
+    ) {
+        match expr {
+            KlujurVal::List(items, _) => {
+                if items.is_empty() {
+                    return;
+                }
+                let items_vec: Vec<_> = items.iter().collect();
+
+                if let KlujurVal::Symbol(sym, _) = &items_vec[0] {
+                    match sym.name() {
+                        "quote" => return,
+                        "fn" | "fn*" => {
+                            // Found a nested function - scan its body for set! targeting my_locals
+                            // Parse the fn form to find the body
+                            let (body_start, fn_params) = if items_vec.len() > 1 {
+                                // Check for name or params
+                                let mut idx = 1;
+                                // Skip optional name
+                                if let KlujurVal::Symbol(_, _) = &items_vec[idx] {
+                                    idx += 1;
+                                }
+                                // Check for multi-arity
+                                if idx < items_vec.len() {
+                                    if let KlujurVal::List(_, _) = &items_vec[idx] {
+                                        // Multi-arity - scan each arity form
+                                        for arity_form in items_vec.iter().skip(idx) {
+                                            if let KlujurVal::List(arity_items, _) = arity_form {
+                                                let arity_vec: Vec<_> =
+                                                    arity_items.iter().collect();
+                                                if !arity_vec.is_empty() {
+                                                    // Skip params, scan body
+                                                    for body_item in arity_vec.iter().skip(1) {
+                                                        Self::scan_nested_fn_for_set(
+                                                            body_item, my_locals, boxed,
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        return;
+                                    } else if let KlujurVal::Vector(params, _) = &items_vec[idx] {
+                                        (idx + 1, Some(params))
+                                    } else {
+                                        return;
+                                    }
+                                } else {
+                                    return;
+                                }
+                            } else {
+                                return;
+                            };
+                            // Single arity - scan body
+                            let _ = fn_params; // params define local scope, but we're looking for my_locals
+                            for body_item in items_vec.iter().skip(body_start) {
+                                Self::scan_nested_fn_for_set(body_item, my_locals, boxed);
+                            }
+                            return;
+                        }
+                        "let" | "let*" => {
+                            // Scan binding values and body
+                            if items_vec.len() > 1
+                                && let KlujurVal::Vector(bindings, _) = &items_vec[1]
+                            {
+                                let pairs: Vec<_> = bindings.iter().collect();
+                                for chunk in pairs.chunks(2) {
+                                    if chunk.len() == 2 {
+                                        Self::collect_boxed_locals_expr(chunk[1], my_locals, boxed);
+                                    }
+                                }
+                            }
+                            for item in items_vec.iter().skip(2) {
+                                Self::collect_boxed_locals_expr(item, my_locals, boxed);
+                            }
+                            return;
+                        }
+                        "loop" => {
+                            if items_vec.len() > 1
+                                && let KlujurVal::Vector(bindings, _) = &items_vec[1]
+                            {
+                                let pairs: Vec<_> = bindings.iter().collect();
+                                for chunk in pairs.chunks(2) {
+                                    if chunk.len() == 2 {
+                                        Self::collect_boxed_locals_expr(chunk[1], my_locals, boxed);
+                                    }
+                                }
+                            }
+                            for item in items_vec.iter().skip(2) {
+                                Self::collect_boxed_locals_expr(item, my_locals, boxed);
+                            }
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
+
+                // Scan all items
+                for item in items_vec {
+                    Self::collect_boxed_locals_expr(item, my_locals, boxed);
+                }
+            }
+            KlujurVal::Vector(items, _) => {
+                for item in items.iter() {
+                    Self::collect_boxed_locals_expr(item, my_locals, boxed);
+                }
+            }
+            KlujurVal::Map(map, _) => {
+                for (k, v) in map.iter() {
+                    Self::collect_boxed_locals_expr(k, my_locals, boxed);
+                    Self::collect_boxed_locals_expr(v, my_locals, boxed);
+                }
+            }
+            KlujurVal::Set(set, _) => {
+                for item in set.iter() {
+                    Self::collect_boxed_locals_expr(item, my_locals, boxed);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Scan a nested function for set! calls that target variables from an outer scope.
+    fn scan_nested_fn_for_set(
+        expr: &KlujurVal,
+        outer_locals: &std::collections::HashSet<Symbol>,
+        boxed: &mut std::collections::HashSet<Symbol>,
+    ) {
+        match expr {
+            KlujurVal::List(items, _) => {
+                if items.is_empty() {
+                    return;
+                }
+                let items_vec: Vec<_> = items.iter().collect();
+
+                if let KlujurVal::Symbol(sym, _) = &items_vec[0] {
+                    match sym.name() {
+                        "quote" => return,
+                        "set!" => {
+                            // Found set! - check if target is from outer scope
+                            if items_vec.len() >= 2
+                                && let KlujurVal::Symbol(target, _) = &items_vec[1]
+                                && outer_locals.contains(target)
+                            {
+                                boxed.insert(target.clone());
+                            }
+                            // Also scan the value expression
+                            if items_vec.len() > 2 {
+                                Self::scan_nested_fn_for_set(items_vec[2], outer_locals, boxed);
+                            }
+                            return;
+                        }
+                        "fn" | "fn*" => {
+                            // Nested fn inside nested fn - continue scanning
+                            // (outer_locals are still from the outermost scope we care about)
+                            let start = if items_vec.len() > 1 {
+                                if let KlujurVal::Symbol(_, _) = &items_vec[1] {
+                                    2
+                                } else {
+                                    1
+                                }
+                            } else {
+                                return;
+                            };
+                            for item in items_vec.iter().skip(start) {
+                                Self::scan_nested_fn_for_set(item, outer_locals, boxed);
+                            }
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
+
+                // Scan all items
+                for item in items_vec {
+                    Self::scan_nested_fn_for_set(item, outer_locals, boxed);
+                }
+            }
+            KlujurVal::Vector(items, _) => {
+                for item in items.iter() {
+                    Self::scan_nested_fn_for_set(item, outer_locals, boxed);
+                }
+            }
+            KlujurVal::Map(map, _) => {
+                for (k, v) in map.iter() {
+                    Self::scan_nested_fn_for_set(k, outer_locals, boxed);
+                    Self::scan_nested_fn_for_set(v, outer_locals, boxed);
+                }
+            }
+            KlujurVal::Set(set, _) => {
+                for item in set.iter() {
+                    Self::scan_nested_fn_for_set(item, outer_locals, boxed);
+                }
+            }
+            _ => {}
+        }
     }
 
     fn compile_list(&mut self, items: &[KlujurVal]) -> Result<()> {
@@ -564,6 +1131,36 @@ impl<'a> FunctionCompiler<'a> {
             return Ok(());
         }
 
+        // Pre-scan to find which locals need to be boxed
+        // (are captured and mutated by nested functions)
+        // We need to scan BOTH the binding values AND the body
+        let mut let_locals = std::collections::HashSet::new();
+        let mut all_exprs_to_scan = Vec::new();
+
+        if let KlujurVal::Vector(bindings, _) = &args[0] {
+            let pairs: Vec<_> = bindings.iter().collect();
+            for chunk in pairs.chunks(2) {
+                if chunk.len() == 2 {
+                    if let KlujurVal::Symbol(name, _) = chunk[0] {
+                        let_locals.insert(name.clone());
+                    }
+                    // Include binding value in scan
+                    all_exprs_to_scan.push(chunk[1].clone());
+                }
+            }
+        }
+        // Include body in scan
+        if args.len() > 1 {
+            for expr in &args[1..] {
+                all_exprs_to_scan.push(expr.clone());
+            }
+        }
+        let new_boxed = Self::collect_boxed_locals(&all_exprs_to_scan, &let_locals);
+        // Add new boxed locals to our tracking set
+        for sym in &new_boxed {
+            self.boxed_locals.insert(sym.clone());
+        }
+
         self.begin_scope();
 
         let binding_count = if let KlujurVal::Vector(bindings, _) = &args[0] {
@@ -573,6 +1170,11 @@ impl<'a> FunctionCompiler<'a> {
                 if chunk.len() == 2 {
                     self.compile_expr(chunk[1])?;
                     if let KlujurVal::Symbol(name, _) = chunk[0] {
+                        let is_boxed = new_boxed.contains(name);
+                        // If this local needs to be boxed, wrap it in a heap cell
+                        if is_boxed {
+                            self.emit(OpCode::Alloc);
+                        }
                         self.define_local(name.clone());
                         count += 1;
                     }
@@ -599,6 +1201,12 @@ impl<'a> FunctionCompiler<'a> {
         }
 
         self.end_scope();
+
+        // Remove boxed locals that are going out of scope
+        for sym in &new_boxed {
+            self.boxed_locals.remove(sym);
+        }
+
         Ok(())
     }
 
@@ -607,30 +1215,306 @@ impl<'a> FunctionCompiler<'a> {
             return Err(CompileError::Syntax("fn requires parameters".into()));
         }
 
-        let (name, params, body_start) = if let KlujurVal::Symbol(n, _) = &args[0] {
-            if args.len() < 2 {
-                return Err(CompileError::Syntax("fn requires parameters".into()));
-            }
-            (Some(n.clone()), &args[1], 2)
+        // Check for multi-arity pattern: (fn name? ([x] ...) ([x y] ...) ...)
+        // vs single-arity: (fn name? [x y] body...)
+        let (name, arity_start) = if let KlujurVal::Symbol(n, _) = &args[0] {
+            (Some(n.clone()), 1)
         } else {
-            (None, &args[0], 1)
+            (None, 0)
         };
 
-        let result = self.compile_nested_fn(name, params, &args[body_start..])?;
+        // Check if all items from arity_start are lists (multi-arity pattern)
+        let is_multi_arity = args.len() > arity_start
+            && args[arity_start..]
+                .iter()
+                .all(|a| matches!(a, KlujurVal::List(..)));
+
+        if is_multi_arity {
+            // Multi-arity: (fn name? ([params1] body1...) ([params2] body2...) ...)
+            return self.compile_multi_arity_fn(name, &args[arity_start..]);
+        }
+
+        // Single-arity: (fn name? [params] body...)
+        if args.len() <= arity_start {
+            return Err(CompileError::Syntax("fn requires parameters".into()));
+        }
+
+        let params = &args[arity_start];
+        let body = &args[arity_start + 1..];
+
+        let result = self.compile_nested_fn(name, params, body)?;
         let proto_val = KlujurVal::custom(FunctionPrototypeWrapper(result.prototype));
         let idx = self.add_constant(proto_val)?;
         self.emit(OpCode::Closure(idx));
 
         // Emit capture instructions for each upvalue
         for upvalue in &result.upvalues {
-            if upvalue.is_local {
-                self.emit(OpCode::CaptureLocal(upvalue.index));
+            if upvalue.is_mutable {
+                // Mutable capture - use heap cell variants
+                if upvalue.is_local {
+                    self.emit(OpCode::CaptureHeapLocal(upvalue.index));
+                } else {
+                    self.emit(OpCode::CaptureHeapUpvalue(upvalue.index));
+                }
             } else {
-                self.emit(OpCode::CaptureUpvalue(upvalue.index));
+                // Immutable capture - use regular variants
+                if upvalue.is_local {
+                    self.emit(OpCode::CaptureLocal(upvalue.index));
+                } else {
+                    self.emit(OpCode::CaptureUpvalue(upvalue.index));
+                }
             }
         }
 
         Ok(())
+    }
+
+    /// Compile a multi-arity function: (fn name? ([x] body1) ([x y] body2) ...)
+    fn compile_multi_arity_fn(
+        &mut self,
+        name: Option<Symbol>,
+        arity_forms: &[KlujurVal],
+    ) -> Result<()> {
+        if arity_forms.is_empty() {
+            return Err(CompileError::Syntax(
+                "fn requires at least one arity".into(),
+            ));
+        }
+
+        // Parse all arity forms
+        let mut arities: Vec<(Vec<Symbol>, Option<Symbol>, Vec<&KlujurVal>)> = Vec::new();
+
+        for form in arity_forms {
+            if let KlujurVal::List(items, _) = form {
+                if items.is_empty() {
+                    return Err(CompileError::Syntax(
+                        "arity form requires parameters".into(),
+                    ));
+                }
+                let items_vec: Vec<_> = items.iter().collect();
+
+                // First item should be params vector
+                let params = items_vec[0];
+                let body: Vec<&KlujurVal> = items_vec[1..].to_vec();
+
+                let (param_names, rest_param) = self.parse_params(params)?;
+                arities.push((param_names, rest_param, body));
+            } else {
+                return Err(CompileError::Syntax(
+                    "multi-arity fn requires list forms".into(),
+                ));
+            }
+        }
+
+        // Sort by arity: fixed-arity first (by count), variadic last
+        arities.sort_by(|a, b| {
+            let a_variadic = a.1.is_some();
+            let b_variadic = b.1.is_some();
+            if a_variadic != b_variadic {
+                a_variadic.cmp(&b_variadic) // Non-variadic before variadic
+            } else {
+                a.0.len().cmp(&b.0.len()) // Sort by param count
+            }
+        });
+
+        // Pre-scan all bodies to collect free variables
+        let mut all_bound: std::collections::HashSet<Symbol> = std::collections::HashSet::new();
+        if let Some(ref n) = name {
+            all_bound.insert(n.clone());
+        }
+        for (params, rest, _) in &arities {
+            for p in params {
+                all_bound.insert(p.clone());
+            }
+            if let Some(r) = rest {
+                all_bound.insert(r.clone());
+            }
+        }
+
+        let mut free_vars = Vec::new();
+        for (params, rest, body) in &arities {
+            let mut bound = all_bound.clone();
+            for p in params {
+                bound.insert(p.clone());
+            }
+            if let Some(r) = rest {
+                bound.insert(r.clone());
+            }
+            for expr in body {
+                Self::collect_free_vars(expr, &bound, &mut free_vars);
+            }
+        }
+
+        // Ensure all free vars are captured in this scope
+        for sym in &free_vars {
+            if !self.local_map.contains_key(sym) && !self.upvalue_map.contains_key(sym) {
+                let _ = self.resolve_upvalue(sym);
+            }
+        }
+
+        // Now compile the multi-arity function into a single chunk with dispatch table
+        let result = self.compile_multi_arity_body(name, &arities)?;
+
+        let proto_val = KlujurVal::custom(FunctionPrototypeWrapper(result.prototype));
+        let idx = self.add_constant(proto_val)?;
+        self.emit(OpCode::Closure(idx));
+
+        // Emit capture instructions
+        for upvalue in &result.upvalues {
+            if upvalue.is_mutable {
+                // Mutable capture - use heap cell variants
+                if upvalue.is_local {
+                    self.emit(OpCode::CaptureHeapLocal(upvalue.index));
+                } else {
+                    self.emit(OpCode::CaptureHeapUpvalue(upvalue.index));
+                }
+            } else {
+                // Immutable capture - use regular variants
+                if upvalue.is_local {
+                    self.emit(OpCode::CaptureLocal(upvalue.index));
+                } else {
+                    self.emit(OpCode::CaptureUpvalue(upvalue.index));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Parse parameters from a vector, returning (fixed_params, rest_param)
+    fn parse_params(&self, params: &KlujurVal) -> Result<(Vec<Symbol>, Option<Symbol>)> {
+        let mut param_names = Vec::new();
+        let mut rest_param = None;
+        let mut seen_rest = false;
+
+        if let KlujurVal::Vector(param_vec, _) = params {
+            for param in param_vec.iter() {
+                match param {
+                    KlujurVal::Symbol(s, _) if s.name() == "&" => {
+                        seen_rest = true;
+                    }
+                    KlujurVal::Symbol(s, _) => {
+                        if seen_rest {
+                            rest_param = Some(s.clone());
+                        } else {
+                            param_names.push(s.clone());
+                        }
+                    }
+                    _ => {
+                        return Err(CompileError::Syntax("fn parameters must be symbols".into()));
+                    }
+                }
+            }
+        } else {
+            return Err(CompileError::Syntax(
+                "fn parameters must be a vector".into(),
+            ));
+        }
+
+        Ok((param_names, rest_param))
+    }
+
+    /// Compile a multi-arity function body with dispatch table
+    fn compile_multi_arity_body(
+        &mut self,
+        name: Option<Symbol>,
+        arities: &[(Vec<Symbol>, Option<Symbol>, Vec<&KlujurVal>)],
+    ) -> Result<FunctionCompileResult> {
+        // Create enclosing scope
+        let empty_upvalue_map = HashMap::new();
+        let enclosing = if self.enclosing.is_some() {
+            EnclosingScope {
+                locals: &self.locals,
+                local_map: &self.local_map,
+                upvalues: &self.upvalues,
+                upvalue_names: &self.upvalue_map,
+                boxed_locals: &self.boxed_locals,
+            }
+        } else {
+            EnclosingScope {
+                locals: &self.locals,
+                local_map: &self.local_map,
+                upvalues: &[],
+                upvalue_names: &empty_upvalue_map,
+                boxed_locals: &self.boxed_locals,
+            }
+        };
+
+        // For multi-arity functions, store minimum arity for informational purposes.
+        // The VM skips arity checking for multi-arity functions; ArityDispatch handles it.
+        let min_arity = arities.iter().map(|(p, _, _)| p.len()).min().unwrap_or(0) as u8;
+
+        // Create a new compiler for the multi-arity function
+        // Use new_multi_arity() so VM skips arity check and rest handling
+        let mut fn_compiler =
+            FunctionCompiler::new_multi_arity(name.clone(), min_arity, Some(enclosing));
+
+        // If named, reserve slot 0 for the function itself
+        if let Some(ref fn_name) = name {
+            fn_compiler.define_local(fn_name.clone());
+        }
+
+        // Emit the arity dispatch table at the start
+        let entry_count = arities.len() as u8;
+        fn_compiler.emit(OpCode::ArityDispatch(entry_count));
+
+        // Reserve space for ArityEntry opcodes (we'll patch the offsets later)
+        let mut entry_positions = Vec::new();
+        for _ in 0..entry_count {
+            entry_positions.push(fn_compiler.chunk.code.len());
+            fn_compiler.emit(OpCode::ArityEntry {
+                arity: 0,
+                has_rest: false,
+                offset: 0,
+            });
+        }
+
+        // Compile each arity body and patch the dispatch table
+        let mut body_positions = Vec::new();
+        for (i, (params, rest, body)) in arities.iter().enumerate() {
+            let body_start = fn_compiler.chunk.code.len();
+            body_positions.push(body_start);
+
+            // Start a new scope for this arity's parameters
+            fn_compiler.begin_scope();
+
+            // Define parameters as locals
+            for param in params {
+                fn_compiler.define_local(param.clone());
+            }
+            if let Some(rest_param) = rest {
+                fn_compiler.define_local(rest_param.clone());
+            }
+
+            // Compile body
+            if body.is_empty() {
+                fn_compiler.emit(OpCode::Nil);
+            } else {
+                for expr in &body[..body.len() - 1] {
+                    fn_compiler.compile_expr(expr)?;
+                    fn_compiler.emit(OpCode::Pop);
+                }
+                fn_compiler.compile_expr(body[body.len() - 1])?;
+            }
+
+            fn_compiler.emit(OpCode::Return);
+            fn_compiler.end_scope();
+
+            // Patch the dispatch entry
+            // Offset is relative to IP after reading ALL entries (position = 1 + entry_count)
+            let ip_after_entries = 1 + entry_count as i32;
+            let offset = (body_start as i32 - ip_after_entries) as i16;
+            fn_compiler.chunk.code[entry_positions[i]] = OpCode::ArityEntry {
+                arity: params.len() as u8,
+                has_rest: rest.is_some(),
+                offset,
+            };
+        }
+
+        // Add error case at the end (unreachable if dispatch works correctly)
+        // This is handled by ArityDispatch returning error
+
+        Ok(fn_compiler.finish())
     }
 
     fn compile_nested_fn(
@@ -664,14 +1548,51 @@ impl<'a> FunctionCompiler<'a> {
         let arity = param_names.len() as u8;
         let has_rest = rest_param.is_some();
 
-        // Create enclosing scope from this compiler's state
+        // Pre-scan the nested function body to find all free variables.
+        // This ensures transitive captures are set up in the parent first.
+        let mut free_vars = Vec::new();
+        let bound_vars: std::collections::HashSet<Symbol> = param_names
+            .iter()
+            .chain(rest_param.iter())
+            .chain(name.iter())
+            .cloned()
+            .collect();
+        for expr in body {
+            Self::collect_free_vars(expr, &bound_vars, &mut free_vars);
+        }
+
+        // Pre-scan for set! targets to know which captures need heap cells
+        let mut mutated_vars = std::collections::HashSet::new();
+        for expr in body {
+            Self::collect_set_targets(expr, &bound_vars, &mut mutated_vars);
+        }
+
+        // Ensure all free vars are resolvable in this scope (triggers upvalue capture if needed)
+        for sym in &free_vars {
+            // Check if it's already a local or upvalue in this compiler
+            if self.local_map.contains_key(sym) || self.upvalue_map.contains_key(sym) {
+                continue;
+            }
+            // Try to resolve as upvalue (this may add to our upvalue_map)
+            let _ = self.resolve_upvalue(sym);
+        }
+
+        // Create enclosing scope from this compiler's state (now with any newly added upvalues)
         let enclosing = EnclosingScope {
             locals: &self.locals,
             local_map: &self.local_map,
             upvalues: &self.upvalues,
+            upvalue_names: &self.upvalue_map,
+            boxed_locals: &self.boxed_locals,
         };
 
-        let mut fn_compiler = FunctionCompiler::new(name.clone(), arity, has_rest, Some(enclosing));
+        let mut fn_compiler = FunctionCompiler::with_mutated_vars(
+            name.clone(),
+            arity,
+            has_rest,
+            Some(enclosing),
+            mutated_vars,
+        );
 
         if let Some(ref fn_name) = name {
             fn_compiler.define_local(fn_name.clone());
@@ -736,7 +1657,24 @@ impl<'a> FunctionCompiler<'a> {
 
         if let Some(&slot) = self.local_map.get(name) {
             self.emit(OpCode::Dup);
-            self.emit(OpCode::StoreLocal(slot));
+            // Check if this local is boxed (needs heap cell access)
+            if self.boxed_locals.contains(name) {
+                self.emit(OpCode::StoreLocalHeap(slot));
+            } else {
+                self.emit(OpCode::StoreLocal(slot));
+            }
+        } else if let Some((upvalue_idx, is_mutable)) = self.resolve_upvalue(name) {
+            // Setting a captured variable - must use heap cell
+            if is_mutable {
+                self.emit(OpCode::Dup);
+                self.emit(OpCode::StoreHeap(upvalue_idx));
+            } else {
+                // This shouldn't happen if collect_set_targets worked correctly,
+                // but fall back to treating as global for safety
+                self.emit(OpCode::Dup);
+                let idx = self.add_constant(KlujurVal::symbol(name.clone()))?;
+                self.emit(OpCode::DefGlobal(idx));
+            }
         } else {
             self.emit(OpCode::Dup);
             let idx = self.add_constant(KlujurVal::symbol(name.clone()))?;
@@ -1034,6 +1972,9 @@ pub struct Compiler {
 
     /// Current source location for debug info.
     current_line: LineInfo,
+
+    /// Set of locals that need heap cells (are captured and mutated by nested functions).
+    boxed_locals: std::collections::HashSet<Symbol>,
 }
 
 impl Compiler {
@@ -1047,6 +1988,7 @@ impl Compiler {
             analysis,
             local_map: HashMap::new(),
             current_line: LineInfo::default(),
+            boxed_locals: std::collections::HashSet::new(),
         }
     }
 
@@ -1114,7 +2056,12 @@ impl Compiler {
     fn compile_symbol(&mut self, sym: &Symbol) -> Result<()> {
         // Check if it's a local
         if let Some(&slot) = self.local_map.get(sym) {
-            self.emit(OpCode::LoadLocal(slot));
+            // Check if this local is boxed (needs heap cell access)
+            if self.boxed_locals.contains(sym) {
+                self.emit(OpCode::LoadLocalHeap(slot));
+            } else {
+                self.emit(OpCode::LoadLocal(slot));
+            }
             return Ok(());
         }
 
@@ -1383,6 +2330,36 @@ impl Compiler {
             return Ok(());
         }
 
+        // Pre-scan to find which locals need to be boxed
+        // (are captured and mutated by nested functions)
+        // We need to scan BOTH the binding values AND the body
+        let mut let_locals = std::collections::HashSet::new();
+        let mut all_exprs_to_scan = Vec::new();
+
+        if let KlujurVal::Vector(bindings, _) = &args[0] {
+            let pairs: Vec<_> = bindings.iter().collect();
+            for chunk in pairs.chunks(2) {
+                if chunk.len() == 2 {
+                    if let KlujurVal::Symbol(name, _) = chunk[0] {
+                        let_locals.insert(name.clone());
+                    }
+                    // Include binding value in scan
+                    all_exprs_to_scan.push(chunk[1].clone());
+                }
+            }
+        }
+        // Include body in scan
+        if args.len() > 1 {
+            for expr in &args[1..] {
+                all_exprs_to_scan.push(expr.clone());
+            }
+        }
+        let new_boxed = FunctionCompiler::collect_boxed_locals(&all_exprs_to_scan, &let_locals);
+        // Add new boxed locals to our tracking set
+        for sym in &new_boxed {
+            self.boxed_locals.insert(sym.clone());
+        }
+
         self.begin_scope();
 
         // Parse bindings
@@ -1396,6 +2373,11 @@ impl Compiler {
 
                     // Define the local
                     if let KlujurVal::Symbol(name, _) = &chunk[0] {
+                        let is_boxed = new_boxed.contains(name);
+                        // If this local needs to be boxed, wrap it in a heap cell
+                        if is_boxed {
+                            self.emit(OpCode::Alloc);
+                        }
                         self.define_local(name.clone());
                         count += 1;
                     }
@@ -1436,6 +2418,11 @@ impl Compiler {
 
         self.end_scope();
 
+        // Remove boxed locals that are going out of scope
+        for sym in &new_boxed {
+            self.boxed_locals.remove(sym);
+        }
+
         Ok(())
     }
 
@@ -1444,16 +2431,31 @@ impl Compiler {
             return Err(CompileError::Syntax("fn requires parameters".into()));
         }
 
-        // Parse name and params
-        let (name, params, body_start) = if let KlujurVal::Symbol(n, _) = &args[0] {
-            // Named function
-            if args.len() < 2 {
-                return Err(CompileError::Syntax("fn requires parameters".into()));
-            }
-            (Some(n.clone()), &args[1], 2)
+        // Check for optional name
+        let (name, arity_start) = if let KlujurVal::Symbol(n, _) = &args[0] {
+            (Some(n.clone()), 1)
         } else {
-            (None, &args[0], 1)
+            (None, 0)
         };
+
+        // Detect multi-arity: (fn name? ([params1] body1...) ([params2] body2...) ...)
+        let is_multi_arity = args.len() > arity_start
+            && args[arity_start..]
+                .iter()
+                .all(|a| matches!(a, KlujurVal::List(..)));
+
+        if is_multi_arity {
+            // Multi-arity: compile via FunctionCompiler which has full support
+            return self.compile_multi_arity_fn(name, &args[arity_start..]);
+        }
+
+        // Single-arity: (fn name? [params] body...)
+        if args.len() <= arity_start {
+            return Err(CompileError::Syntax("fn requires parameters".into()));
+        }
+
+        let params = &args[arity_start];
+        let body_start = arity_start + 1;
 
         // Compile function body to a separate chunk
         let result = self.compile_function_body(name, params, &args[body_start..])?;
@@ -1465,14 +2467,212 @@ impl Compiler {
 
         // Emit capture instructions for each upvalue
         for upvalue in &result.upvalues {
-            if upvalue.is_local {
-                self.emit(OpCode::CaptureLocal(upvalue.index));
+            if upvalue.is_mutable {
+                // Mutable capture - use heap cell variants
+                if upvalue.is_local {
+                    self.emit(OpCode::CaptureHeapLocal(upvalue.index));
+                } else {
+                    self.emit(OpCode::CaptureHeapUpvalue(upvalue.index));
+                }
             } else {
-                self.emit(OpCode::CaptureUpvalue(upvalue.index));
+                // Immutable capture - use regular variants
+                if upvalue.is_local {
+                    self.emit(OpCode::CaptureLocal(upvalue.index));
+                } else {
+                    self.emit(OpCode::CaptureUpvalue(upvalue.index));
+                }
             }
         }
 
         Ok(())
+    }
+
+    /// Compile a multi-arity function: (fn name? ([x] body1) ([x y] body2) ...)
+    fn compile_multi_arity_fn(
+        &mut self,
+        name: Option<Symbol>,
+        arity_forms: &[KlujurVal],
+    ) -> Result<()> {
+        if arity_forms.is_empty() {
+            return Err(CompileError::Syntax(
+                "fn requires at least one arity".into(),
+            ));
+        }
+
+        // Parse each arity form
+        let mut arities: Vec<(Vec<Symbol>, Option<Symbol>, Vec<&KlujurVal>)> = Vec::new();
+
+        for form in arity_forms {
+            if let KlujurVal::List(items, _) = form {
+                if items.is_empty() {
+                    return Err(CompileError::Syntax(
+                        "arity form requires parameters".into(),
+                    ));
+                }
+                let items_vec: Vec<_> = items.iter().collect();
+                let (params, rest, body) = Self::parse_arity_params(&items_vec)?;
+                arities.push((params, rest, body));
+            } else {
+                return Err(CompileError::Syntax("expected arity form (list)".into()));
+            }
+        }
+
+        // Sort arities by param count (descending) for proper dispatch
+        arities.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+
+        // Compile the multi-arity function using FunctionCompiler
+        let result = self.compile_multi_arity_body(name, &arities)?;
+        let proto_val = KlujurVal::custom(FunctionPrototypeWrapper(result.prototype));
+        let idx = self.add_constant(proto_val)?;
+
+        self.emit(OpCode::Closure(idx));
+
+        // Emit capture instructions for each upvalue
+        for upvalue in &result.upvalues {
+            if upvalue.is_mutable {
+                // Mutable capture - use heap cell variants
+                if upvalue.is_local {
+                    self.emit(OpCode::CaptureHeapLocal(upvalue.index));
+                } else {
+                    self.emit(OpCode::CaptureHeapUpvalue(upvalue.index));
+                }
+            } else {
+                // Immutable capture - use regular variants
+                if upvalue.is_local {
+                    self.emit(OpCode::CaptureLocal(upvalue.index));
+                } else {
+                    self.emit(OpCode::CaptureUpvalue(upvalue.index));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Parse parameters from an arity form
+    fn parse_arity_params<'b>(
+        items: &[&'b KlujurVal],
+    ) -> Result<(Vec<Symbol>, Option<Symbol>, Vec<&'b KlujurVal>)> {
+        if items.is_empty() {
+            return Err(CompileError::Syntax(
+                "arity form requires parameters".into(),
+            ));
+        }
+
+        let mut param_names = Vec::new();
+        let mut rest_param = None;
+        let mut seen_rest = false;
+
+        if let KlujurVal::Vector(params, _) = items[0] {
+            for param in params.iter() {
+                match param {
+                    KlujurVal::Symbol(s, _) if s.name() == "&" => {
+                        seen_rest = true;
+                    }
+                    KlujurVal::Symbol(s, _) => {
+                        if seen_rest {
+                            rest_param = Some(s.clone());
+                        } else {
+                            param_names.push(s.clone());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        } else {
+            return Err(CompileError::Syntax("expected parameters vector".into()));
+        }
+
+        let body = items[1..].to_vec();
+        Ok((param_names, rest_param, body))
+    }
+
+    /// Compile a multi-arity function body with dispatch table
+    fn compile_multi_arity_body(
+        &mut self,
+        name: Option<Symbol>,
+        arities: &[(Vec<Symbol>, Option<Symbol>, Vec<&KlujurVal>)],
+    ) -> Result<FunctionCompileResult> {
+        // Create enclosing scope from this compiler's state
+        let empty_upvalue_map = HashMap::new();
+        let enclosing = EnclosingScope {
+            locals: &self.locals,
+            local_map: &self.local_map,
+            upvalues: &[],
+            upvalue_names: &empty_upvalue_map,
+            boxed_locals: &self.boxed_locals,
+        };
+
+        // For multi-arity functions, store minimum arity for informational purposes.
+        // The VM skips arity checking for multi-arity functions; ArityDispatch handles it.
+        let min_arity = arities.iter().map(|(p, _, _)| p.len()).min().unwrap_or(0) as u8;
+
+        // Create a new compiler for the multi-arity function
+        // Use new_multi_arity() so VM skips arity check and rest handling
+        let mut fn_compiler =
+            FunctionCompiler::new_multi_arity(name.clone(), min_arity, Some(enclosing));
+
+        // If named, reserve slot 0 for the function itself
+        if let Some(ref fn_name) = name {
+            fn_compiler.define_local(fn_name.clone());
+        }
+
+        // Emit the arity dispatch table at the start
+        let entry_count = arities.len() as u8;
+        fn_compiler.emit(OpCode::ArityDispatch(entry_count));
+
+        // Reserve space for ArityEntry opcodes (we'll patch the offsets later)
+        let mut entry_positions = Vec::new();
+        for _ in 0..entry_count {
+            entry_positions.push(fn_compiler.chunk.code.len());
+            fn_compiler.emit(OpCode::ArityEntry {
+                arity: 0,
+                has_rest: false,
+                offset: 0,
+            });
+        }
+
+        // Compile each arity body and patch the dispatch table
+        for (i, (params, rest, body)) in arities.iter().enumerate() {
+            let body_start = fn_compiler.chunk.code.len();
+
+            // Start a new scope for this arity's parameters
+            fn_compiler.begin_scope();
+
+            // Define parameters as locals
+            for param in params {
+                fn_compiler.define_local(param.clone());
+            }
+            if let Some(rest_param) = rest {
+                fn_compiler.define_local(rest_param.clone());
+            }
+
+            // Compile body
+            if body.is_empty() {
+                fn_compiler.emit(OpCode::Nil);
+            } else {
+                for expr in &body[..body.len() - 1] {
+                    fn_compiler.compile_expr(expr)?;
+                    fn_compiler.emit(OpCode::Pop);
+                }
+                fn_compiler.compile_expr(body[body.len() - 1])?;
+            }
+
+            fn_compiler.emit(OpCode::Return);
+            fn_compiler.end_scope();
+
+            // Patch the dispatch entry
+            // Offset is relative to IP after reading ALL entries (position = 1 + entry_count)
+            let ip_after_entries = 1 + entry_count as i32;
+            let offset = (body_start as i32 - ip_after_entries) as i16;
+            fn_compiler.chunk.code[entry_positions[i]] = OpCode::ArityEntry {
+                arity: params.len() as u8,
+                has_rest: rest.is_some(),
+                offset,
+            };
+        }
+
+        Ok(fn_compiler.finish())
     }
 
     fn compile_function_body(
@@ -1507,15 +2707,37 @@ impl Compiler {
         let arity = param_names.len() as u8;
         let has_rest = rest_param.is_some();
 
+        // Pre-scan for set! targets to know which captures need heap cells
+        let bound_vars: std::collections::HashSet<Symbol> = param_names
+            .iter()
+            .chain(rest_param.iter())
+            .chain(name.iter())
+            .cloned()
+            .collect();
+        let mut mutated_vars = std::collections::HashSet::new();
+        for expr in body {
+            FunctionCompiler::collect_set_targets(expr, &bound_vars, &mut mutated_vars);
+        }
+
         // Create enclosing scope from this compiler's state
+        // Main compiler doesn't have upvalues (it's the top-level)
+        let empty_upvalue_map = HashMap::new();
         let enclosing = EnclosingScope {
             locals: &self.locals,
             local_map: &self.local_map,
-            upvalues: &[], // Main compiler doesn't have upvalues
+            upvalues: &[],
+            upvalue_names: &empty_upvalue_map,
+            boxed_locals: &self.boxed_locals,
         };
 
         // Create a new compiler for the function body
-        let mut fn_compiler = FunctionCompiler::new(name.clone(), arity, has_rest, Some(enclosing));
+        let mut fn_compiler = FunctionCompiler::with_mutated_vars(
+            name.clone(),
+            arity,
+            has_rest,
+            Some(enclosing),
+            mutated_vars,
+        );
 
         // Define the function name as local slot 0 (for self-recursion)
         if let Some(ref fn_name) = name {
@@ -1591,7 +2813,12 @@ impl Compiler {
         // Store to local or global
         if let Some(&slot) = self.local_map.get(name) {
             self.emit(OpCode::Dup); // Keep value on stack as result
-            self.emit(OpCode::StoreLocal(slot));
+            // Check if this local is boxed (needs heap cell access)
+            if self.boxed_locals.contains(name) {
+                self.emit(OpCode::StoreLocalHeap(slot));
+            } else {
+                self.emit(OpCode::StoreLocal(slot));
+            }
         } else {
             // Global set - for now just define it
             self.emit(OpCode::Dup);

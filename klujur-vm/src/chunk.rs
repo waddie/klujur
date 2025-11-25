@@ -133,11 +133,14 @@ pub struct FunctionPrototype {
     /// Function name (for debugging and self-recursion).
     pub name: Option<Symbol>,
 
-    /// Number of required parameters.
+    /// Number of required parameters (minimum for multi-arity).
     pub arity: u8,
 
     /// Whether this function has a rest parameter.
     pub has_rest: bool,
+
+    /// Whether this is a multi-arity function (handles its own arity dispatch).
+    pub is_multi_arity: bool,
 
     /// The compiled bytecode for this function's body.
     pub chunk: Chunk,
@@ -156,6 +159,20 @@ impl FunctionPrototype {
             name,
             arity,
             has_rest,
+            is_multi_arity: false,
+            chunk: Chunk::new(),
+            upvalue_count: 0,
+            local_count: 0,
+        }
+    }
+
+    /// Create a new multi-arity function prototype.
+    pub fn new_multi_arity(name: Option<Symbol>, min_arity: u8) -> Self {
+        Self {
+            name,
+            arity: min_arity,
+            has_rest: false,
+            is_multi_arity: true,
             chunk: Chunk::new(),
             upvalue_count: 0,
             local_count: 0,
@@ -244,6 +261,11 @@ impl BytecodeFn {
         self.prototype.has_rest
     }
 
+    /// Check if this is a multi-arity function.
+    pub fn is_multi_arity(&self) -> bool {
+        self.prototype.is_multi_arity
+    }
+
     /// Get the bytecode chunk.
     pub fn chunk(&self) -> &Chunk {
         &self.prototype.chunk
@@ -269,5 +291,48 @@ impl klujur_parser::value::CustomType for BytecodeFnWrapper {
             "#<fn {}>",
             self.0.name().map(|s| s.name()).unwrap_or("anonymous")
         )
+    }
+}
+
+/// A heap cell for mutable captured variables.
+///
+/// When a variable is both captured by a closure AND mutated via `set!`,
+/// it must be allocated on the heap so changes are visible across all
+/// closures that captured it.
+#[derive(Debug, Clone)]
+pub struct HeapCell(pub Rc<std::cell::RefCell<KlujurVal>>);
+
+impl HeapCell {
+    /// Create a new heap cell containing the given value.
+    pub fn new(val: KlujurVal) -> Self {
+        Self(Rc::new(std::cell::RefCell::new(val)))
+    }
+
+    /// Get the value from the heap cell.
+    pub fn get(&self) -> KlujurVal {
+        self.0.borrow().clone()
+    }
+
+    /// Set the value in the heap cell.
+    pub fn set(&self, val: KlujurVal) {
+        *self.0.borrow_mut() = val;
+    }
+}
+
+/// Wrapper for HeapCell to store in KlujurVal::Custom.
+#[derive(Debug, Clone)]
+pub struct HeapCellWrapper(pub HeapCell);
+
+impl klujur_parser::value::CustomType for HeapCellWrapper {
+    fn type_name(&self) -> &'static str {
+        "HeapCell"
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "#<heap-cell {:?}>", self.0.get())
     }
 }

@@ -22,10 +22,14 @@ pub struct CallFrame {
 
     /// Captures for the current closure (empty for non-closures).
     pub captures: Vec<KlujurVal>,
+
+    /// Number of arguments passed to this function call.
+    /// Used for arity dispatch in multi-arity functions.
+    pub argc: u8,
 }
 
 impl CallFrame {
-    /// Create a new call frame.
+    /// Create a new call frame (for top-level/main chunk).
     pub fn new(base: usize, chunk_index: usize) -> Self {
         Self {
             ip: 0,
@@ -33,10 +37,11 @@ impl CallFrame {
             cleanup_base: base,
             chunk_index,
             captures: Vec::new(),
+            argc: 0,
         }
     }
 
-    /// Create a new call frame with separate cleanup base.
+    /// Create a new call frame with separate cleanup base and argc.
     pub fn new_with_cleanup(
         base: usize,
         cleanup_base: usize,
@@ -49,6 +54,25 @@ impl CallFrame {
             cleanup_base,
             chunk_index,
             captures,
+            argc: 0,
+        }
+    }
+
+    /// Create a new call frame with argc tracking for multi-arity dispatch.
+    pub fn new_with_argc(
+        base: usize,
+        cleanup_base: usize,
+        chunk_index: usize,
+        captures: Vec<KlujurVal>,
+        argc: u8,
+    ) -> Self {
+        Self {
+            ip: 0,
+            base,
+            cleanup_base,
+            chunk_index,
+            captures,
+            argc,
         }
     }
 }
