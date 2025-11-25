@@ -390,4 +390,168 @@ mod engine_additional {
         let user_x = engine.eval("x").unwrap();
         assert_eq!(user_x.to_string(), "1");
     }
+
+    #[test]
+    fn call_defined_function() {
+        let engine = Engine::new().unwrap();
+        engine.eval("(defn add-one [x] (+ x 1))").unwrap();
+        let result = engine.call("add-one", &[KlujurVal::int(41)]).unwrap();
+        assert_eq!(result.to_string(), "42");
+    }
+
+    #[test]
+    fn engine_state_persists() {
+        let engine = Engine::new().unwrap();
+
+        // Define values across multiple eval calls
+        engine.eval("(def a 10)").unwrap();
+        engine.eval("(def b 20)").unwrap();
+        engine.eval("(def c (+ a b))").unwrap();
+
+        let result = engine.eval("c").unwrap();
+        assert_eq!(result.to_string(), "30");
+    }
+
+    #[test]
+    fn bytecode_mode_toggle() {
+        let mut engine = Engine::new().unwrap();
+
+        // Test toggling bytecode mode
+        let prev = engine.enable_bytecode_mode();
+        assert!(!prev); // Was off
+
+        let result = engine.eval("((fn [x] (* x 2)) 21)").unwrap();
+        assert_eq!(result.to_string(), "42");
+
+        let prev = engine.disable_bytecode_mode();
+        assert!(prev); // Was on
+
+        // Should still work in interpreter mode
+        let result = engine.eval("((fn [x] (* x 2)) 21)").unwrap();
+        assert_eq!(result.to_string(), "42");
+    }
+}
+
+// =============================================================================
+// Error handling and edge cases
+// =============================================================================
+
+mod error_handling {
+    use super::*;
+
+    #[test]
+    fn eval_syntax_error() {
+        let engine = Engine::new().unwrap();
+        let result = engine.eval("(+ 1 2");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn eval_runtime_error() {
+        let engine = Engine::new().unwrap();
+        // Division by zero
+        let result = engine.eval("(/ 1 0)");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn native_function_error_propagation() {
+        let engine = Engine::new().unwrap();
+        engine.register_native("always-fail", |_args: &[KlujurVal]| -> Result<KlujurVal> {
+            Err(Error::type_error("expected", "got"))
+        });
+
+        let result = engine.eval("(always-fail)");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn try_get_as_distinguishes_errors() {
+        let engine = Engine::new().unwrap();
+        engine.eval("(def my-str \"hello\")").unwrap();
+
+        // Symbol not found: Ok(None)
+        let not_found: std::result::Result<Option<i64>, _> = engine.try_get_as("nonexistent");
+        assert!(not_found.unwrap().is_none());
+
+        // Wrong type: Err
+        let wrong_type: std::result::Result<Option<i64>, _> = engine.try_get_as("my-str");
+        assert!(wrong_type.is_err());
+    }
+}
+
+// =============================================================================
+// HashMap conversion tests
+// =============================================================================
+
+mod hashmap_conversion {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn hashmap_string_int() {
+        let engine = Engine::new().unwrap();
+
+        let mut map: HashMap<String, i64> = HashMap::new();
+        map.insert("a".into(), 1);
+        map.insert("b".into(), 2);
+        engine.set("my-map", map);
+
+        // Verify structure
+        let result = engine.eval("(get my-map \"a\")").unwrap();
+        assert_eq!(result.to_string(), "1");
+
+        let result = engine.eval("(get my-map \"b\")").unwrap();
+        assert_eq!(result.to_string(), "2");
+    }
+
+    #[test]
+    fn hashmap_roundtrip() {
+        let engine = Engine::new().unwrap();
+
+        engine
+            .eval(r#"(def config {"host" "localhost" "port" "8080"})"#)
+            .unwrap();
+        let config: Option<HashMap<String, String>> = engine.get_as("config");
+        assert!(config.is_some());
+
+        let config = config.unwrap();
+        assert_eq!(config.get("host"), Some(&"localhost".to_string()));
+        assert_eq!(config.get("port"), Some(&"8080".to_string()));
+    }
+}
+
+// =============================================================================
+// HashSet conversion tests
+// =============================================================================
+
+mod hashset_conversion {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn hashset_roundtrip() {
+        let engine = Engine::new().unwrap();
+
+        let mut set: HashSet<i64> = HashSet::new();
+        set.insert(1);
+        set.insert(2);
+        set.insert(3);
+        engine.set("my-set", set);
+
+        // Verify it's a set
+        let result = engine.eval("(set? my-set)").unwrap();
+        assert_eq!(result.to_string(), "true");
+
+        // Verify contents
+        let result = engine.eval("(contains? my-set 2)").unwrap();
+        assert_eq!(result.to_string(), "true");
+
+        // Convert back
+        let back: HashSet<i64> = engine.get_as("my-set").unwrap();
+        assert!(back.contains(&1));
+        assert!(back.contains(&2));
+        assert!(back.contains(&3));
+        assert_eq!(back.len(), 3);
+    }
 }

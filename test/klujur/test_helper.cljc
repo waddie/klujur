@@ -86,14 +86,30 @@
 ;; Test Data Generators
 ;; =============================================================================
 
-;; Sample values for testing truthiness and type behaviour.
-(def sample-values
+(defn sample-values
+  "Returns sample values for testing truthiness and type behaviour.
+   Returns a map with :truthy and :falsy keys.
+
+   Usage:
+     (:truthy (sample-values))  ; => [true 1 0 -1 ...]
+     (:falsy (sample-values))   ; => [nil false]
+
+   Note: Returns fresh data each call to avoid mutation issues."
+  []
   {:truthy [true 1 0 -1 0.0 "" "hello" 'symbol :keyword [] [1 2] {} {:a 1} #{}
             #{1}]
    :falsy  [nil false]})
 
-;; Sample collections for testing collection operations.
-(def sample-collections
+(defn sample-collections
+  "Returns sample collections for testing collection operations.
+   Returns a map with :lists, :vectors, :maps, and :sets keys.
+
+   Usage:
+     (:lists (sample-collections))   ; => ['() '(1) '(1 2 3)]
+     (:vectors (sample-collections)) ; => [[] [1] [1 2 3]]
+
+   Note: Returns fresh data each call to avoid mutation issues."
+  []
   {:lists   ['() '(1) '(1 2 3)]
    :vectors [[] [1] [1 2 3]]
    :maps    [{} {:a 1} {:a 1 :b 2}]
