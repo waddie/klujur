@@ -124,7 +124,8 @@ pub struct VM {
     frames: Vec<CallFrame>,
 
     /// Chunks being executed (index 0 is the main chunk).
-    chunks: Vec<Chunk>,
+    /// Uses Rc<Chunk> to avoid cloning chunks on every function call.
+    chunks: Vec<Rc<Chunk>>,
 
     /// Global variables (for standalone execution).
     globals: std::collections::HashMap<String, KlujurVal>,
@@ -143,8 +144,8 @@ impl VM {
 
     /// Execute a chunk of bytecode.
     pub fn run(&mut self, chunk: Chunk) -> Result<KlujurVal> {
-        // Store the chunk
-        self.chunks.push(chunk);
+        // Store the chunk (wrap in Rc for sharing)
+        self.chunks.push(Rc::new(chunk));
         let chunk_index = self.chunks.len() - 1;
 
         // Create initial frame
@@ -206,8 +207,8 @@ impl VM {
             }
         }
 
-        // Add the function's chunk to our chunks list
-        let chunk = bytecode_fn.chunk().clone();
+        // Add the function's chunk to our chunks list (Rc::clone is cheap)
+        let chunk = bytecode_fn.chunk();
         self.chunks.push(chunk);
         let chunk_index = self.chunks.len() - 1;
 
@@ -416,30 +417,30 @@ impl VM {
 
                 // Control Flow
                 OpCode::Jump(offset) => {
-                    self.jump(offset);
+                    self.jump(offset)?;
                 }
                 OpCode::JumpIfFalse(offset) => {
                     let val = self.stack.peek(0)?;
                     if is_falsy(&val) {
-                        self.jump(offset);
+                        self.jump(offset)?;
                     }
                 }
                 OpCode::JumpIfTrue(offset) => {
                     let val = self.stack.peek(0)?;
                     if !is_falsy(&val) {
-                        self.jump(offset);
+                        self.jump(offset)?;
                     }
                 }
                 OpCode::PopJumpIfFalse(offset) => {
                     let val = self.stack.pop()?;
                     if is_falsy(&val) {
-                        self.jump(offset);
+                        self.jump(offset)?;
                     }
                 }
                 OpCode::PopJumpIfTrue(offset) => {
                     let val = self.stack.pop()?;
                     if !is_falsy(&val) {
-                        self.jump(offset);
+                        self.jump(offset)?;
                     }
                 }
 
@@ -517,7 +518,7 @@ impl VM {
                             argc == arity
                         };
                         if matches {
-                            self.jump(offset);
+                            self.jump(offset)?;
                             found = true;
                             break;
                         }
@@ -1101,9 +1102,16 @@ impl VM {
             ))
     }
 
-    fn jump(&mut self, offset: i16) {
+    fn jump(&mut self, offset: i16) -> Result<()> {
         let frame = self.frame_mut();
-        frame.ip = (frame.ip as i32 + offset as i32) as usize;
+        let new_ip = frame.ip as i64 + offset as i64;
+        if new_ip < 0 {
+            return Err(RuntimeError::Internal(
+                "Jump instruction resulted in negative instruction pointer".into(),
+            ));
+        }
+        frame.ip = new_ip as usize;
+        Ok(())
     }
 
     fn call(&mut self, argc: usize) -> Result<()> {
@@ -1140,8 +1148,8 @@ impl VM {
                 }
             }
 
-            // Add the function's chunk to our chunks list
-            let chunk = bytecode_fn.chunk().clone();
+            // Add the function's chunk to our chunks list (Rc::clone is cheap)
+            let chunk = bytecode_fn.chunk();
             self.chunks.push(chunk);
             let chunk_index = self.chunks.len() - 1;
 
@@ -1293,8 +1301,8 @@ impl VM {
 
             self.stack.truncate(truncate_to);
 
-            // Update chunk and reset IP
-            let chunk = bytecode_fn.chunk().clone();
+            // Update chunk and reset IP (Rc::clone is cheap)
+            let chunk = bytecode_fn.chunk();
             self.chunks.push(chunk);
             let chunk_index = self.chunks.len() - 1;
 
@@ -1326,6 +1334,10 @@ impl VM {
         Ok(())
     }
 
+    /// Perform a binary numeric operation.
+    /// NOTE: Currently only supports Int and Float types. BigInt and Ratio types
+    /// will cause the VM to fall back to native function calls via the resolver.
+    /// This is a known limitation of the experimental VM.
     fn binary_num_op<FI, FF>(&mut self, int_op: FI, float_op: FF, name: &str) -> Result<()>
     where
         FI: Fn(i64, i64) -> i64,
@@ -1339,6 +1351,18 @@ impl VM {
             (KlujurVal::Float(x), KlujurVal::Float(y)) => KlujurVal::Float(float_op(*x, *y)),
             (KlujurVal::Int(x), KlujurVal::Float(y)) => KlujurVal::Float(float_op(*x as f64, *y)),
             (KlujurVal::Float(x), KlujurVal::Int(y)) => KlujurVal::Float(float_op(*x, *y as f64)),
+            // For BigInt, Ratio, and BigRatio, fall back to native function calls
+            (KlujurVal::BigInt(_), _)
+            | (_, KlujurVal::BigInt(_))
+            | (KlujurVal::Ratio(_, _), _)
+            | (_, KlujurVal::Ratio(_, _))
+            | (KlujurVal::BigRatio(_, _), _)
+            | (_, KlujurVal::BigRatio(_, _)) => {
+                return Err(RuntimeError::TypeError {
+                    expected: "Int or Float (BigInt/Ratio not yet supported in VM)".into(),
+                    got: format!("{} {} {}", type_name(&a), name, type_name(&b)),
+                });
+            }
             _ => {
                 return Err(RuntimeError::TypeError {
                     expected: "number".into(),

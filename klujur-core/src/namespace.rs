@@ -145,12 +145,6 @@ impl Namespace {
         self.inner.borrow_mut().refers.insert(name.into(), var);
     }
 
-    /// Get all Vars in this namespace (same as interns).
-    #[must_use]
-    pub fn vars(&self) -> HashMap<String, KlujurVar> {
-        self.inner.borrow().vars.clone()
-    }
-
     /// Get all interned Vars in this namespace.
     /// This includes both public and private vars.
     #[must_use]

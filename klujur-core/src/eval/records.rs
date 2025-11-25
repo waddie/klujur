@@ -4,11 +4,10 @@
 //! Record special forms: defrecord
 
 use std::any::Any;
-use std::collections::HashMap;
 use std::rc::Rc;
 
 use klujur_parser::{
-    FnArity, Keyword, KlujurFn, KlujurVal, RecordDef, RecordInstance, Symbol, TypeKey,
+    FnArity, Keyword, KlujurFn, KlujurVal, OrdMap, RecordDef, RecordInstance, Symbol, TypeKey,
 };
 
 use crate::env::Env;
@@ -215,7 +214,7 @@ fn create_positional_record_constructor(
             return Err(Error::arity(arity, args.len()));
         }
 
-        let mut values = HashMap::new();
+        let mut values = OrdMap::new();
         for (field, value) in fields.iter().zip(args.iter()) {
             let key = Keyword::new(field.name());
             values.insert(key, value.clone());
@@ -252,7 +251,7 @@ fn create_map_record_constructor(
             }
         };
 
-        let mut values = HashMap::new();
+        let mut values = OrdMap::new();
 
         // Extract required fields
         for field in &fields {

@@ -72,7 +72,8 @@
    Examples:
      (is true)
      (is (= 4 (+ 2 2)))
-     (is (thrown? Exception (throw \"error\")))
+     (is (thrown? Exception (throw \"error\")))     ; catches any exception
+     (is (thrown? :my-type (throw (ex-info \"msg\" {:type :my-type})))) ; checks :type
      (is (thrown-with-msg? \"pattern\" (throw \"pattern in message\")))"
   ([form] `(klujur.test/is ~form nil))
   ([form msg]
@@ -89,7 +90,10 @@
                                          :message  ~msg
                                          :form     '~form})
           pass?#))
-     ;; (is (thrown? ExType body...))
+     ;; (is (thrown? ExType body...)) - checks exception type if keyword,
+     ;; otherwise catches any ExType can be: a keyword (checks :type in
+     ;; ex-data), 'Exception
+     ;; (catches any), or :any
      (and (seq? form) (= 'thrown? (first form)))
      (let [[_ ex-type & body] form]
        `(try (do ~@body)
@@ -99,9 +103,27 @@
                                             :form     '~form})
              false
              (catch :default e#
-               (klujur.test/report-assertion
-                {:type :pass :expected '~ex-type :actual e# :form '~form})
-               true)))
+               (let [ex-type#  '~ex-type
+                     matches?# (or (= ex-type# 'Exception) ; Compatibility:
+                                                           ; Exception
+                                                           ; matches any
+                                   (= ex-type# :any)       ; Explicit any
+                                   (keyword? ex-type#)     ; Keyword checks
+                                                           ; ex-data :type
+                                   true)                   ; Default: catch
+                                                           ; any
+                     type-ok?# (if (keyword? ex-type#)
+                                 (= ex-type# (get (ex-data e#) :type))
+                                 matches?#)]
+                 (klujur.test/report-assertion
+                  {:type     (if type-ok?# :pass :fail)
+                   :expected '~ex-type
+                   :actual   (if type-ok?#
+                               e#
+                               (str "Exception with type "
+                                    (get (ex-data e#) :type)))
+                   :form     '~form})
+                 type-ok?#))))
      ;; (is (thrown-with-msg? "pattern" body...))
      (and (seq? form) (= 'thrown-with-msg? (first form)))
      (let [[_ pattern & body] form]

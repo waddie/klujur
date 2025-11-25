@@ -84,8 +84,9 @@
   "defs name to have the root value of the expr iff the named var has no root value,
    else expr is unevaluated"
   [name expr]
-  ;; Check if var exists and is bound (has non-nil root value)
-  ;; In Klujur, nil is treated as unbound for defonce purposes
+  ;; Check if var exists and is bound (has a root value, even if nil)
+  ;; This matches Clojure semantics where (defonce x nil) prevents
+  ;; redefinition
   (let [v (gensym "v")]
     `(let [~v (resolve '~name)]
        (when (or (nil? ~v) (not (bound? ~v))) (def ~name ~expr)))))
@@ -427,11 +428,11 @@
 ;; CONCLUSION: These must remain public as part of klujur.core's API.
 (defn for-step
   "Helper for the for macro - iterates over seq, applying f to each element.
-   Stops early if f returns a result containing [:for-while-stop]."
+   Stops early if f returns a result containing [::for-while-stop]."
   [f s]
   (lazy-seq (when s
               (let [result (f (first s))]
-                (if (and (vector? result) (= (first result) :for-while-stop))
+                (if (and (vector? result) (= (first result) ::for-while-stop))
                   nil ;; :while terminated - stop iteration
                   (concat result (for-step f (next s))))))))
 
@@ -449,10 +450,11 @@
               (= b :let) `(let ~(first bs)
                                ~(for-emit (rest bs) body-expr))
               ;; :while terminates iteration when false (uses
-              ;; :for-while-stop sentinel)
+              ;; ::for-while-stop sentinel - namespace-qualified for
+              ;; safety)
               (= b :while) `(if ~(first bs)
                               ~(for-emit (rest bs) body-expr)
-                              [:for-while-stop])
+                              [::for-while-stop])
               :else (for-emit (rest bs) body-expr))
         ;; Sequence binding - use for-step to handle :while termination
         (let [sym  (first bindings)
@@ -1368,13 +1370,8 @@
   [obj f & args]
   (with-meta obj (apply f (meta obj) args)))
 
-(defmacro alter-meta!
-  "Atomically sets the metadata for a reference (atom, var) to be
-   (apply f (meta ref) args). Returns the new metadata."
-  [ref f & args]
-  ;; Note: We cannot use let to capture ref because let derefs vars.
-  ;; Instead, we emit code that uses ref directly in each position.
-  `(do (reset-meta! ~ref (apply ~f (meta ~ref) (list ~@args))) (meta ~ref)))
+;; alter-meta! is now a special form in the evaluator, allowing it to be
+;; used as a higher-order function (unlike the previous macro implementation)
 
 (defprotocol ICounted
   "Protocol for types with O(1) count."

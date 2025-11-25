@@ -63,8 +63,9 @@ pub(crate) fn builtin_with_meta(args: &[KlujurVal]) -> Result<KlujurVal> {
     }
 }
 
-// Note: vary-meta and alter-meta! are implemented in stdlib (core.cljc)
-// because they require calling a user function (f) with apply.
+// Note: vary-meta is implemented in stdlib (core.cljc) because it operates
+// on immutable values. alter-meta! is a special form (in eval/dynamic.rs)
+// so it can call user functions while also being usable as a higher-order function.
 
 // ============================================================================
 // Metadata Mutation (for references)

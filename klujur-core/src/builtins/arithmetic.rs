@@ -772,26 +772,28 @@ pub(crate) fn builtin_max(args: &[KlujurVal]) -> Result<KlujurVal> {
     if args.is_empty() {
         return Err(Error::arity_at_least(1, 0));
     }
-    let mut max = args[0].clone();
-    for arg in &args[1..] {
-        if compare_numbers(arg, &max)? == std::cmp::Ordering::Greater {
-            max = arg.clone();
+    // Track index instead of cloning on every comparison
+    let mut max_idx = 0;
+    for (i, arg) in args.iter().enumerate().skip(1) {
+        if compare_numbers(arg, &args[max_idx])? == std::cmp::Ordering::Greater {
+            max_idx = i;
         }
     }
-    Ok(max)
+    Ok(args[max_idx].clone())
 }
 
 pub(crate) fn builtin_min(args: &[KlujurVal]) -> Result<KlujurVal> {
     if args.is_empty() {
         return Err(Error::arity_at_least(1, 0));
     }
-    let mut min = args[0].clone();
-    for arg in &args[1..] {
-        if compare_numbers(arg, &min)? == std::cmp::Ordering::Less {
-            min = arg.clone();
+    // Track index instead of cloning on every comparison
+    let mut min_idx = 0;
+    for (i, arg) in args.iter().enumerate().skip(1) {
+        if compare_numbers(arg, &args[min_idx])? == std::cmp::Ordering::Less {
+            min_idx = i;
         }
     }
-    Ok(min)
+    Ok(args[min_idx].clone())
 }
 
 pub(crate) fn builtin_abs(args: &[KlujurVal]) -> Result<KlujurVal> {

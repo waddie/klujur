@@ -206,8 +206,8 @@ fn safe_deref_var(var: &KlujurVar) -> Result<KlujurVal> {
 // Import from submodules for internal use
 use apply::apply_fn;
 use dynamic::{
-    eval_binding, eval_delay, eval_force, eval_lazy_seq, eval_reset, eval_reset_vals,
-    eval_set_bang, eval_swap, eval_swap_vals,
+    eval_alter_meta, eval_binding, eval_delay, eval_force, eval_lazy_seq, eval_reset,
+    eval_reset_vals, eval_set_bang, eval_swap, eval_swap_vals,
 };
 use exceptions::{eval_throw, eval_try};
 use multimethods::{
@@ -485,6 +485,7 @@ fn eval_list(items: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
             "swap-vals!" => return eval_swap_vals(&items[1..], env),
             "reset!" => return eval_reset(&items[1..], env),
             "reset-vals!" => return eval_reset_vals(&items[1..], env),
+            "alter-meta!" => return eval_alter_meta(&items[1..], env),
             "delay" => return eval_delay(&items[1..], env),
             "force" => return eval_force(&items[1..], env),
             "lazy-seq" => return eval_lazy_seq(&items[1..], env),
@@ -1641,15 +1642,27 @@ fn eval_macroexpand(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
     macroexpand(&form, env)
 }
 
+/// Maximum number of macro expansion iterations before we assume infinite recursion.
+const MAX_MACROEXPAND_DEPTH: usize = 10000;
+
 /// Fully expand all macros in a form
 fn macroexpand(form: &KlujurVal, env: &Env) -> Result<KlujurVal> {
     let mut current = form.clone();
+    let mut iterations = 0;
     loop {
+        if iterations >= MAX_MACROEXPAND_DEPTH {
+            return Err(Error::EvalError(format!(
+                "Macro expansion exceeded maximum depth ({}). \
+                 This may indicate an infinitely-recursive macro.",
+                MAX_MACROEXPAND_DEPTH
+            )));
+        }
         let expanded = macroexpand_1(&current, env)?;
         if expanded == current {
             return Ok(current);
         }
         current = expanded;
+        iterations += 1;
     }
 }
 

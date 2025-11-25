@@ -472,8 +472,9 @@ pub struct RecordInstance {
     pub record_ns: String,
     /// Ordered base field names (from the record definition)
     pub fields: Vec<Symbol>,
-    /// All values: base fields + any extra keys added via assoc
-    pub values: std::collections::HashMap<Keyword, KlujurVal>,
+    /// All values: base fields + any extra keys added via assoc.
+    /// Uses OrdMap for efficient iteration in sorted order (O(n) hash instead of O(n log n)).
+    pub values: OrdMap<Keyword, KlujurVal>,
 }
 
 impl RecordInstance {
@@ -482,7 +483,7 @@ impl RecordInstance {
         record_type: Symbol,
         record_ns: String,
         fields: Vec<Symbol>,
-        values: std::collections::HashMap<Keyword, KlujurVal>,
+        values: OrdMap<Keyword, KlujurVal>,
     ) -> Self {
         RecordInstance {
             record_type,
@@ -640,10 +641,8 @@ impl Hash for RecordInstance {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.record_type.hash(state);
         self.record_ns.hash(state);
-        // Hash values in sorted order for consistency
-        let mut entries: Vec<_> = self.values.iter().collect();
-        entries.sort_by(|a, b| a.0.cmp(b.0));
-        for (k, v) in entries {
+        // OrdMap maintains sorted order, so iteration is O(n) not O(n log n)
+        for (k, v) in &self.values {
             k.hash(state);
             v.hash(state);
         }
@@ -717,7 +716,7 @@ impl KlujurSortedMapBy {
         self.entries.borrow().is_empty()
     }
 
-    /// Get a clone of all entries.
+    /// Get a clone of all entries (use `try_borrow_entries()` for read-only access without cloning).
     ///
     /// # Errors
     ///
@@ -728,6 +727,20 @@ impl KlujurSortedMapBy {
         self.entries
             .try_borrow()
             .map(|e| e.clone())
+            .map_err(|_| "Re-entrant access to SortedMapBy during comparator call")
+    }
+
+    /// Borrow the entries without cloning (preferred for iteration).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the entries are currently borrowed mutably.
+    #[inline]
+    pub fn try_borrow_entries(
+        &self,
+    ) -> Result<std::cell::Ref<'_, Vec<(KlujurVal, KlujurVal)>>, &'static str> {
+        self.entries
+            .try_borrow()
             .map_err(|_| "Re-entrant access to SortedMapBy during comparator call")
     }
 
@@ -889,6 +902,14 @@ impl KlujurSortedSetBy {
         self.elements
             .try_borrow()
             .map(|e| e.clone())
+            .map_err(|_| "Re-entrant access to SortedSetBy during comparator call")
+    }
+
+    /// Borrow the elements without cloning (preferred for iteration).
+    #[inline]
+    pub fn try_borrow_elements(&self) -> Result<std::cell::Ref<'_, Vec<KlujurVal>>, &'static str> {
+        self.elements
+            .try_borrow()
             .map_err(|_| "Re-entrant access to SortedSetBy during comparator call")
     }
 
@@ -3462,11 +3483,27 @@ impl PartialEq for KlujurVal {
             (KlujurVal::Float(a), KlujurVal::Float(b)) => {
                 normalize_float_bits(*a) == normalize_float_bits(*b)
             }
+            // For Int/Float equality, we need to be careful about precision loss.
+            // f64 can only exactly represent integers up to 2^53.
+            // For larger integers, we check if the float can be exactly represented
+            // as that integer (round-trip check).
             (KlujurVal::Int(a), KlujurVal::Float(b)) => {
-                normalize_float_bits(*a as f64) == normalize_float_bits(*b)
+                // Check if float has a fractional part
+                if b.fract() != 0.0 || b.is_nan() || b.is_infinite() {
+                    return false;
+                }
+                // Convert float to int and check round-trip
+                let b_as_int = *b as i64;
+                *a == b_as_int && (b_as_int as f64) == *b
             }
             (KlujurVal::Float(a), KlujurVal::Int(b)) => {
-                normalize_float_bits(*a) == normalize_float_bits(*b as f64)
+                // Check if float has a fractional part
+                if a.fract() != 0.0 || a.is_nan() || a.is_infinite() {
+                    return false;
+                }
+                // Convert float to int and check round-trip
+                let a_as_int = *a as i64;
+                a_as_int == *b && (a_as_int as f64) == *a
             }
             // BigInt-Float equality: convert BigInt to f64 and compare
             (KlujurVal::BigInt(a), KlujurVal::Float(b)) => a
@@ -3850,12 +3887,12 @@ impl Hash for KlujurVal {
                 std::mem::discriminant(self).hash(state);
                 kw.hash(state);
             }
-            KlujurVal::List(items, _) => {
-                std::mem::discriminant(self).hash(state);
-                items.hash(state); // ignore metadata
-            }
-            KlujurVal::Vector(items, _) => {
-                std::mem::discriminant(self).hash(state);
+            // List and Vector use a shared discriminant for hashing because they
+            // compare equal when they contain the same elements (Clojure semantics:
+            // (= '(1 2) [1 2]) => true). This maintains the Hash/Eq contract.
+            KlujurVal::List(items, _) | KlujurVal::Vector(items, _) => {
+                const SEQUENTIAL_DISCRIMINANT: u8 = 200;
+                SEQUENTIAL_DISCRIMINANT.hash(state);
                 items.hash(state); // ignore metadata
             }
             KlujurVal::Map(map, _) => {
@@ -3900,9 +3937,55 @@ impl Hash for KlujurVal {
                 (Rc::as_ptr(&d.state) as usize).hash(state);
             }
             KlujurVal::LazySeq(ls) => {
-                std::mem::discriminant(self).hash(state);
-                // Hash by pointer address (lazy seqs are identity-compared)
-                (Rc::as_ptr(ls.state()) as usize).hash(state);
+                // LazySeqs can compare equal to List/Vector when realized via seqs_equal.
+                // To maintain the Hash/Eq contract for realized lazy seqs, we attempt to
+                // hash by value using the same discriminant as List/Vector.
+                // For unrealized lazy seqs, we fall back to pointer identity.
+                //
+                // WARNING: Using LazySeqs as map keys is discouraged because:
+                // 1. Unrealized lazy seqs hash by pointer identity
+                // 2. Realizing a lazy seq doesn't change its hash
+                // 3. This can lead to Hash/Eq inconsistency
+                if let Some(result) = ls.get_cached() {
+                    // Realized - hash by value like List/Vector
+                    const SEQUENTIAL_DISCRIMINANT: u8 = 200;
+                    SEQUENTIAL_DISCRIMINANT.hash(state);
+                    // Hash elements
+                    let mut current_result = result;
+                    loop {
+                        match current_result {
+                            SeqResult::Empty => break,
+                            SeqResult::Cons(first, rest) => {
+                                first.hash(state);
+                                // Try to continue with rest
+                                match &rest {
+                                    KlujurVal::LazySeq(rest_ls) => {
+                                        if let Some(r) = rest_ls.get_cached() {
+                                            current_result = r;
+                                        } else {
+                                            // Rest not realized, hash remaining by pointer
+                                            (Rc::as_ptr(rest_ls.state()) as usize).hash(state);
+                                            break;
+                                        }
+                                    }
+                                    KlujurVal::List(items, _) | KlujurVal::Vector(items, _) => {
+                                        items.hash(state);
+                                        break;
+                                    }
+                                    KlujurVal::Nil => break,
+                                    other => {
+                                        other.hash(state);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Unrealized - hash by pointer identity
+                    std::mem::discriminant(self).hash(state);
+                    (Rc::as_ptr(ls.state()) as usize).hash(state);
+                }
             }
             KlujurVal::Multimethod(mm) => {
                 std::mem::discriminant(self).hash(state);
@@ -4198,5 +4281,53 @@ mod size_tests {
         // The enum size is determined by its largest variant plus discriminant
         // If the enum is significantly larger than needed, we should consider boxing
         assert!(size > 0, "KlujurVal should have non-zero size");
+    }
+
+    #[test]
+    fn test_list_vector_hash_eq_consistency() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        fn hash_val(v: &KlujurVal) -> u64 {
+            let mut h = DefaultHasher::new();
+            v.hash(&mut h);
+            h.finish()
+        }
+
+        // Create a list and vector with the same elements
+        let list = KlujurVal::list(vec![
+            KlujurVal::int(1),
+            KlujurVal::int(2),
+            KlujurVal::int(3),
+        ]);
+        let vec = KlujurVal::vector(vec![
+            KlujurVal::int(1),
+            KlujurVal::int(2),
+            KlujurVal::int(3),
+        ]);
+
+        // Per Clojure semantics, they should be equal
+        assert_eq!(
+            list, vec,
+            "List and Vector with same elements should be equal"
+        );
+
+        // The Hash/Eq contract requires: a == b implies hash(a) == hash(b)
+        assert_eq!(
+            hash_val(&list),
+            hash_val(&vec),
+            "List and Vector that are equal must have the same hash"
+        );
+
+        // Empty collections should also satisfy this
+        let empty_list = KlujurVal::list(vec![]);
+        let empty_vec = KlujurVal::vector(vec![]);
+        assert_eq!(empty_list, empty_vec);
+        assert_eq!(hash_val(&empty_list), hash_val(&empty_vec));
+
+        // Different contents should (usually) have different hashes
+        let different_vec = KlujurVal::vector(vec![KlujurVal::int(4), KlujurVal::int(5)]);
+        assert_ne!(list, different_vec);
+        // Note: hash collision is possible but very unlikely with different contents
     }
 }

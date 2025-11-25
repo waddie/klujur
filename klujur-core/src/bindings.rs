@@ -48,17 +48,6 @@ impl BindingFrame {
         self.bindings.contains_key(var_id)
             || self.prev.as_ref().is_some_and(|p| p.has_binding(var_id))
     }
-
-    /// Set a binding in the current frame (for set! within binding context).
-    /// Returns true if the binding was found and updated.
-    fn set(&mut self, var_id: &str, value: KlujurVal) -> bool {
-        if self.bindings.contains_key(var_id) {
-            self.bindings.insert(var_id.to_string(), value);
-            true
-        } else {
-            false
-        }
-    }
 }
 
 thread_local! {
@@ -134,6 +123,7 @@ pub fn has_thread_binding(var: &KlujurVar) -> bool {
 
 /// Set a thread-local binding for a var.
 /// Only works if the var already has a thread-local binding (i.e., within a `binding` form).
+/// Per Clojure semantics, this updates the nearest binding in the frame stack.
 /// Returns true if the binding was updated, false if no binding exists.
 pub fn set_thread_binding(var: &KlujurVar, value: KlujurVal) -> bool {
     if !var.is_dynamic() {
@@ -144,15 +134,46 @@ pub fn set_thread_binding(var: &KlujurVar, value: KlujurVal) -> bool {
     CURRENT_FRAME.with(|frame_cell| {
         let mut borrow = frame_cell.borrow_mut();
         if let Some(frame) = borrow.as_mut() {
-            // We need to mutate the frame, so we need to get a mutable reference
-            // Since we're using Rc, we need to clone and replace
-            let mut new_frame = (**frame).clone();
-            if new_frame.set(&var_id, value) {
-                *frame = Rc::new(new_frame);
-                return true;
+            // Check if binding exists anywhere in the stack
+            if !frame.has_binding(&var_id) {
+                return false;
             }
+
+            // Rebuild the frame stack with the updated binding.
+            // We need to find the frame containing the binding and update it,
+            // while preserving the structure of the stack.
+            fn rebuild_with_update(
+                frame: &BindingFrame,
+                var_id: &str,
+                value: KlujurVal,
+            ) -> BindingFrame {
+                if frame.bindings.contains_key(var_id) {
+                    // This frame has the binding - update it
+                    let mut new_bindings = frame.bindings.clone();
+                    new_bindings.insert(var_id.to_string(), value);
+                    BindingFrame {
+                        bindings: new_bindings,
+                        prev: frame.prev.clone(),
+                    }
+                } else if let Some(prev) = &frame.prev {
+                    // Binding is in an ancestor - recurse
+                    let new_prev = rebuild_with_update(prev, var_id, value);
+                    BindingFrame {
+                        bindings: frame.bindings.clone(),
+                        prev: Some(Rc::new(new_prev)),
+                    }
+                } else {
+                    // Shouldn't happen since we checked has_binding above
+                    frame.clone()
+                }
+            }
+
+            let new_frame = rebuild_with_update(frame, &var_id, value);
+            *frame = Rc::new(new_frame);
+            true
+        } else {
+            false
         }
-        false
     })
 }
 
@@ -385,32 +406,5 @@ mod tests {
 
         // Doesn't have missing binding
         assert!(!frame2.has_binding("b"));
-    }
-
-    #[test]
-    fn test_binding_frame_set_only_affects_current_frame() {
-        let mut bindings1 = HashMap::new();
-        bindings1.insert("a".to_string(), KlujurVal::int(1));
-        let frame1 = Rc::new(BindingFrame::with_bindings(bindings1, None));
-
-        let mut bindings2 = HashMap::new();
-        bindings2.insert("a".to_string(), KlujurVal::int(10));
-        let mut frame2 = BindingFrame::with_bindings(bindings2, Some(frame1.clone()));
-
-        // Set in current frame
-        assert!(frame2.set("a", KlujurVal::int(20)));
-        assert_eq!(frame2.get("a"), Some(KlujurVal::int(20)));
-
-        // Ancestor frame unchanged
-        assert_eq!(frame1.get("a"), Some(KlujurVal::int(1)));
-    }
-
-    #[test]
-    fn test_binding_frame_set_returns_false_for_missing() {
-        let bindings = HashMap::new();
-        let mut frame = BindingFrame::with_bindings(bindings, None);
-
-        // Can't set a binding that doesn't exist
-        assert!(!frame.set("missing", KlujurVal::int(1)));
     }
 }

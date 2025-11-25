@@ -326,6 +326,75 @@ pub(crate) fn eval_reset_vals(args: &[KlujurVal], env: &Env) -> Result<KlujurVal
     Ok(KlujurVal::vector(vec![old_val, new_val]))
 }
 
+/// (alter-meta! ref f & args) - Atomically sets ref's metadata to (apply f (meta ref) args)
+/// Returns the new metadata.
+pub(crate) fn eval_alter_meta(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
+    use klujur_parser::Meta;
+
+    if args.len() < 2 {
+        return Err(Error::syntax(
+            "alter-meta!",
+            "requires at least 2 arguments (ref and function)",
+        ));
+    }
+
+    // Evaluate the reference
+    let ref_val = eval(&args[0], env)?;
+
+    // Evaluate the function
+    let f = eval(&args[1], env)?;
+
+    // Evaluate additional arguments
+    let mut extra_args = Vec::new();
+    for arg in &args[2..] {
+        extra_args.push(eval(arg, env)?);
+    }
+
+    match &ref_val {
+        KlujurVal::Var(v) => {
+            // Get current metadata as a map (or empty map if nil)
+            let current_meta = v.meta().map_or_else(
+                || KlujurVal::Map(Meta::new(), None),
+                |m| KlujurVal::Map(m, None),
+            );
+
+            // Build call args: (f current-meta & extra-args)
+            let mut call_args = vec![current_meta];
+            call_args.extend(extra_args);
+
+            // Apply f to get new metadata
+            let new_meta_val = apply(&f, &call_args)?;
+
+            // Convert result to metadata map
+            let new_meta = match &new_meta_val {
+                KlujurVal::Map(m, _) => Some(m.clone()),
+                KlujurVal::Nil => None,
+                other => {
+                    return Err(Error::type_error_in(
+                        "alter-meta!",
+                        "map or nil (from function result)",
+                        other.type_name(),
+                    ));
+                }
+            };
+
+            // Set the new metadata
+            v.set_meta(new_meta.clone());
+
+            // Return the new metadata
+            match new_meta {
+                Some(m) => Ok(KlujurVal::Map(m, None)),
+                None => Ok(KlujurVal::Nil),
+            }
+        }
+        other => Err(Error::type_error_in(
+            "alter-meta!",
+            "var or atom",
+            other.type_name(),
+        )),
+    }
+}
+
 /// (delay & body) - Create a delay that will evaluate body on first deref
 pub(crate) fn eval_delay(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
     if args.is_empty() {

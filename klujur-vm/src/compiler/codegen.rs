@@ -5,6 +5,7 @@
 
 use std::any::Any;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use klujur_parser::Symbol;
 use klujur_parser::value::{CustomType, KlujurVal};
@@ -233,7 +234,7 @@ impl<'a> FunctionCompiler<'a> {
                 arity: self.arity,
                 has_rest: self.has_rest,
                 is_multi_arity: self.is_multi_arity,
-                chunk: self.chunk,
+                chunk: Rc::new(self.chunk),
                 upvalue_count,
                 local_count,
             },
@@ -1114,13 +1115,15 @@ impl<'a> FunctionCompiler<'a> {
         Ok(())
     }
 
-    /// Patch a jump to a specific target address
+    /// Patch a jump instruction to jump to a specific target address.
+    /// Calculates the relative offset from the jump instruction to the target.
     fn patch_jump_to(&mut self, jump_index: usize, target: usize) {
+        let jump_distance = target as i16 - jump_index as i16 - 1;
         let op = &mut self.chunk.code[jump_index];
         match op {
-            OpCode::Jump(offset) => *offset = target as i16,
-            OpCode::PopJumpIfFalse(offset) => *offset = target as i16,
-            OpCode::JumpIfTrue(offset) => *offset = target as i16,
+            OpCode::Jump(offset) => *offset = jump_distance,
+            OpCode::PopJumpIfFalse(offset) => *offset = jump_distance,
+            OpCode::JumpIfTrue(offset) => *offset = jump_distance,
             _ => panic!("Not a jump instruction"),
         }
     }
@@ -2313,13 +2316,15 @@ impl Compiler {
         Ok(())
     }
 
-    /// Patch a jump to a specific target address
+    /// Patch a jump instruction to jump to a specific target address.
+    /// Calculates the relative offset from the jump instruction to the target.
     fn patch_jump_to(&mut self, jump_index: usize, target: usize) {
+        let jump_distance = target as i16 - jump_index as i16 - 1;
         let op = &mut self.chunk.code[jump_index];
         match op {
-            OpCode::Jump(offset) => *offset = target as i16,
-            OpCode::PopJumpIfFalse(offset) => *offset = target as i16,
-            OpCode::JumpIfTrue(offset) => *offset = target as i16,
+            OpCode::Jump(offset) => *offset = jump_distance,
+            OpCode::PopJumpIfFalse(offset) => *offset = jump_distance,
+            OpCode::JumpIfTrue(offset) => *offset = jump_distance,
             _ => panic!("Not a jump instruction"),
         }
     }

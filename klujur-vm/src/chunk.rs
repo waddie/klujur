@@ -143,7 +143,8 @@ pub struct FunctionPrototype {
     pub is_multi_arity: bool,
 
     /// The compiled bytecode for this function's body.
-    pub chunk: Chunk,
+    /// Wrapped in Rc for efficient sharing - chunks are never mutated after compilation.
+    pub chunk: Rc<Chunk>,
 
     /// Number of captured variables (upvalues).
     pub upvalue_count: u16,
@@ -160,7 +161,7 @@ impl FunctionPrototype {
             arity,
             has_rest,
             is_multi_arity: false,
-            chunk: Chunk::new(),
+            chunk: Rc::new(Chunk::new()),
             upvalue_count: 0,
             local_count: 0,
         }
@@ -173,7 +174,7 @@ impl FunctionPrototype {
             arity: min_arity,
             has_rest: false,
             is_multi_arity: true,
-            chunk: Chunk::new(),
+            chunk: Rc::new(Chunk::new()),
             upvalue_count: 0,
             local_count: 0,
         }
@@ -266,9 +267,9 @@ impl BytecodeFn {
         self.prototype.is_multi_arity
     }
 
-    /// Get the bytecode chunk.
-    pub fn chunk(&self) -> &Chunk {
-        &self.prototype.chunk
+    /// Get the bytecode chunk (shared reference).
+    pub fn chunk(&self) -> Rc<Chunk> {
+        Rc::clone(&self.prototype.chunk)
     }
 }
 
