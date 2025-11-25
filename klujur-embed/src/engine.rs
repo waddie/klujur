@@ -70,6 +70,7 @@ impl Engine {
     ///
     /// Useful for sandboxed environments or when you want to provide
     /// your own functions.
+    #[must_use]
     pub fn new_bare() -> Self {
         let env = Env::new();
         register_builtins(&env);

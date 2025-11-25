@@ -2,6 +2,22 @@
 // Copyright (c) 2025 Tom Waddington. MIT licensed.
 
 //! Higher-order functions: apply, map, filter, reduce, comp, partial, etc.
+//!
+//! # Eager vs Lazy Sequence Functions
+//!
+//! This module provides **eager** implementations of `map*` and `filter*` that
+//! immediately evaluate and return lists. The lazy versions `map` and `filter`
+//! are implemented in the standard library (`klujur-std/core.cljc`) and return
+//! lazy sequences that compute elements on demand.
+//!
+//! | Native (eager) | Stdlib (lazy) | Description |
+//! |----------------|---------------|-------------|
+//! | `map*`         | `map`         | Transform each element with a function |
+//! | `filter*`      | `filter`      | Keep elements matching a predicate |
+//!
+//! The eager versions are used internally and for cases where immediate
+//! evaluation is desired. The lazy stdlib versions are preferred for most
+//! use cases as they support infinite sequences and compose efficiently.
 
 use std::any::Any;
 use std::rc::Rc;
@@ -53,7 +69,10 @@ pub(crate) fn builtin_apply(args: &[KlujurVal]) -> Result<KlujurVal> {
     apply(func, &all_args)
 }
 
-/// (map f coll) - apply f to each element, return lazy seq
+/// (map* f coll) - eagerly apply f to each element, return a list.
+///
+/// This is the eager native implementation. The lazy `map` function is
+/// defined in the standard library and should be preferred for most uses.
 pub(crate) fn builtin_map(args: &[KlujurVal]) -> Result<KlujurVal> {
     if args.len() < 2 {
         return Err(Error::arity_at_least(2, args.len()));
@@ -85,7 +104,10 @@ pub(crate) fn builtin_map(args: &[KlujurVal]) -> Result<KlujurVal> {
     }
 }
 
-/// (filter pred coll) - return elements where (pred elem) is truthy
+/// (filter* pred coll) - eagerly return elements where (pred elem) is truthy.
+///
+/// This is the eager native implementation. The lazy `filter` function is
+/// defined in the standard library and should be preferred for most uses.
 pub(crate) fn builtin_filter(args: &[KlujurVal]) -> Result<KlujurVal> {
     if args.len() != 2 {
         return Err(Error::arity_named("filter", 2, args.len()));

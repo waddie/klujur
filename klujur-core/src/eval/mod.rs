@@ -1224,15 +1224,25 @@ fn try_compile_to_bytecode(
     }
 }
 
-/// Result of parsing fn* parameters: (params, rest_param, param_patterns, rest_pattern, pre, post, body)
+/// Result of parsing fn* parameters.
+///
+/// This tuple type holds all information parsed from a function arity definition:
+///
+/// 0. `Vec<Symbol>` - Param names (generated symbols for destructuring patterns)
+/// 1. `Option<Symbol>` - Rest param name (the symbol after `&`), if any
+/// 2. `Vec<KlujurVal>` - Param patterns for destructuring (original param forms)
+/// 3. `Option<KlujurVal>` - Rest pattern for destructuring the rest param
+/// 4. `Vec<KlujurVal>` - Pre conditions from `:pre` metadata
+/// 5. `Vec<KlujurVal>` - Post conditions from `:post` metadata
+/// 6. `Vec<KlujurVal>` - Body expressions to evaluate
 pub(crate) type ParsedFnArity = (
     Vec<Symbol>,
     Option<Symbol>,
     Vec<KlujurVal>,
     Option<KlujurVal>,
-    Vec<KlujurVal>, // pre conditions
-    Vec<KlujurVal>, // post conditions
-    Vec<KlujurVal>, // body
+    Vec<KlujurVal>,
+    Vec<KlujurVal>,
+    Vec<KlujurVal>,
 );
 
 /// Parse a parameter vector and body for fn*

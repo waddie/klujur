@@ -951,14 +951,11 @@ pub(crate) fn builtin_partition(args: &[KlujurVal]) -> Result<KlujurVal> {
         if chunk.len() == n {
             result.push(KlujurVal::list(chunk));
         } else if pad.is_some() {
-            // Pad the chunk
+            // Pad the chunk - use pad elements once, not cycling
             let mut padded = chunk;
             let needed = n - padded.len();
-            let mut pad_iter = pad_vec.iter().cycle();
-            for _ in 0..needed {
-                if let Some(p) = pad_iter.next() {
-                    padded.push(p.clone());
-                }
+            for p in pad_vec.iter().take(needed) {
+                padded.push(p.clone());
             }
             result.push(KlujurVal::list(padded));
         }

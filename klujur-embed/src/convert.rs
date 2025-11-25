@@ -14,11 +14,16 @@
 //! |-----------|-------------|
 //! | `()` | `nil` |
 //! | `bool` | `bool` |
-//! | `i32`, `i64`, `usize` | `int` |
+//! | `i32`, `i64`, `usize`, `u8`, `u16`, `u32`, `u64` | `int` |
 //! | `f32`, `f64` | `float` |
 //! | `char` | `char` |
 //! | `String`, `&str` | `string` |
-//! | `Vec<T>` | `vector` |
+//! | `Keyword` | `keyword` |
+//! | `Symbol` | `symbol` |
+//! | `Vec<T>`, `&[T]`, `[T; N]` | `vector` |
+//! | `(A, B)`, `(A, B, C)`, `(A, B, C, D)` | `vector` |
+//! | `HashMap<K, V>` | `map` |
+//! | `HashSet<T>` | `set` |
 //! | `Option<T>` | `T` or `nil` |
 //!
 //! # Custom Conversions
@@ -119,12 +124,12 @@
 //! assert!(wrong_type.is_err());  // Err(...) = conversion failed
 //! ```
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::rc::Rc;
 
 use klujur_core::{Error, Result};
-use klujur_parser::KlujurVal;
+use klujur_parser::{Keyword, KlujurVal, Symbol};
 
 /// Convert a Rust type into a `KlujurVal`.
 pub trait IntoKlujurVal {
@@ -172,6 +177,32 @@ impl IntoKlujurVal for i32 {
 
 impl IntoKlujurVal for usize {
     fn into_klujur_val(self) -> KlujurVal {
+        KlujurVal::int(self as i64)
+    }
+}
+
+impl IntoKlujurVal for u8 {
+    fn into_klujur_val(self) -> KlujurVal {
+        KlujurVal::int(self as i64)
+    }
+}
+
+impl IntoKlujurVal for u16 {
+    fn into_klujur_val(self) -> KlujurVal {
+        KlujurVal::int(self as i64)
+    }
+}
+
+impl IntoKlujurVal for u32 {
+    fn into_klujur_val(self) -> KlujurVal {
+        KlujurVal::int(self as i64)
+    }
+}
+
+impl IntoKlujurVal for u64 {
+    fn into_klujur_val(self) -> KlujurVal {
+        // Values > i64::MAX will be converted, but may overflow
+        // Users working with large u64 values should use BigInt directly
         KlujurVal::int(self as i64)
     }
 }
@@ -234,6 +265,66 @@ impl<K: IntoKlujurVal, V: IntoKlujurVal> IntoKlujurVal for HashMap<K, V> {
             .map(|(k, v)| (k.into_klujur_val(), v.into_klujur_val()))
             .collect();
         KlujurVal::map(pairs)
+    }
+}
+
+impl<T: IntoKlujurVal> IntoKlujurVal for HashSet<T> {
+    fn into_klujur_val(self) -> KlujurVal {
+        KlujurVal::set(self.into_iter().map(|x| x.into_klujur_val()).collect())
+    }
+}
+
+impl IntoKlujurVal for Keyword {
+    fn into_klujur_val(self) -> KlujurVal {
+        KlujurVal::Keyword(self)
+    }
+}
+
+impl IntoKlujurVal for Symbol {
+    fn into_klujur_val(self) -> KlujurVal {
+        KlujurVal::Symbol(self, None)
+    }
+}
+
+impl<T: IntoKlujurVal + Clone> IntoKlujurVal for &[T] {
+    fn into_klujur_val(self) -> KlujurVal {
+        KlujurVal::vector(self.iter().cloned().map(|x| x.into_klujur_val()).collect())
+    }
+}
+
+impl<T: IntoKlujurVal, const N: usize> IntoKlujurVal for [T; N] {
+    fn into_klujur_val(self) -> KlujurVal {
+        KlujurVal::vector(self.into_iter().map(|x| x.into_klujur_val()).collect())
+    }
+}
+
+// Tuple conversions
+impl<A: IntoKlujurVal, B: IntoKlujurVal> IntoKlujurVal for (A, B) {
+    fn into_klujur_val(self) -> KlujurVal {
+        KlujurVal::vector(vec![self.0.into_klujur_val(), self.1.into_klujur_val()])
+    }
+}
+
+impl<A: IntoKlujurVal, B: IntoKlujurVal, C: IntoKlujurVal> IntoKlujurVal for (A, B, C) {
+    fn into_klujur_val(self) -> KlujurVal {
+        KlujurVal::vector(vec![
+            self.0.into_klujur_val(),
+            self.1.into_klujur_val(),
+            self.2.into_klujur_val(),
+        ])
+    }
+}
+
+impl<A: IntoKlujurVal, B: IntoKlujurVal, C: IntoKlujurVal, D: IntoKlujurVal> IntoKlujurVal
+    for (A, B, C, D)
+{
+    fn into_klujur_val(self) -> KlujurVal {
+        KlujurVal::vector(vec![
+            self.0.into_klujur_val(),
+            self.1.into_klujur_val(),
+            self.2.into_klujur_val(),
+            self.3.into_klujur_val(),
+        ])
     }
 }
 
@@ -301,6 +392,8 @@ impl FromKlujurVal for i32 {
 
 impl FromKlujurVal for usize {
     fn from_klujur_val(val: &KlujurVal) -> Result<Self> {
+        use klujur_parser::ToPrimitive;
+
         match val {
             KlujurVal::Int(n) if *n >= 0 => {
                 // On 32-bit platforms, usize::MAX < i64::MAX, so we need a bounds check
@@ -318,6 +411,9 @@ impl FromKlujurVal for usize {
                 "non-negative integer",
                 "negative integer",
             )),
+            KlujurVal::BigInt(n) => n
+                .to_usize()
+                .ok_or_else(|| Error::EvalError("BigInt out of range for usize".into())),
             other => Err(Error::type_error("non-negative integer", other.type_name())),
         }
     }
@@ -418,6 +514,39 @@ impl<K: FromKlujurVal + Eq + Hash, V: FromKlujurVal> FromKlujurVal for HashMap<K
                 Ok(result)
             }
             other => Err(Error::type_error("map", other.type_name())),
+        }
+    }
+}
+
+impl<T: FromKlujurVal + Eq + Hash> FromKlujurVal for HashSet<T> {
+    fn from_klujur_val(val: &KlujurVal) -> Result<Self> {
+        match val {
+            KlujurVal::Set(s, _) => {
+                let mut result = HashSet::with_capacity(s.len());
+                for v in s.iter() {
+                    result.insert(T::from_klujur_val(v)?);
+                }
+                Ok(result)
+            }
+            other => Err(Error::type_error("set", other.type_name())),
+        }
+    }
+}
+
+impl FromKlujurVal for Keyword {
+    fn from_klujur_val(val: &KlujurVal) -> Result<Self> {
+        match val {
+            KlujurVal::Keyword(k) => Ok(k.clone()),
+            other => Err(Error::type_error("keyword", other.type_name())),
+        }
+    }
+}
+
+impl FromKlujurVal for Symbol {
+    fn from_klujur_val(val: &KlujurVal) -> Result<Self> {
+        match val {
+            KlujurVal::Symbol(s, _) => Ok(s.clone()),
+            other => Err(Error::type_error("symbol", other.type_name())),
         }
     }
 }

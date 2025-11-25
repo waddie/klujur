@@ -1124,7 +1124,7 @@ impl<'a> FunctionCompiler<'a> {
             OpCode::Jump(offset) => *offset = jump_distance,
             OpCode::PopJumpIfFalse(offset) => *offset = jump_distance,
             OpCode::JumpIfTrue(offset) => *offset = jump_distance,
-            _ => panic!("Not a jump instruction"),
+            other => debug_assert!(false, "patch_jump_to called on non-jump: {:?}", other),
         }
     }
 
@@ -2325,7 +2325,7 @@ impl Compiler {
             OpCode::Jump(offset) => *offset = jump_distance,
             OpCode::PopJumpIfFalse(offset) => *offset = jump_distance,
             OpCode::JumpIfTrue(offset) => *offset = jump_distance,
-            _ => panic!("Not a jump instruction"),
+            other => debug_assert!(false, "patch_jump_to called on non-jump: {:?}", other),
         }
     }
 

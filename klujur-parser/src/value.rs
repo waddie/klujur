@@ -1921,6 +1921,24 @@ impl Ord for KlujurDelay {
 /// - Cons(first, rest) where rest is another lazy seq or list
 ///
 /// Results are cached after first evaluation.
+///
+/// # Head Retention Warning
+///
+/// Holding a reference to the head of a lazy sequence while traversing it
+/// prevents garbage collection of already-computed elements. This can cause
+/// memory issues when processing large or infinite sequences:
+///
+/// ```clojure
+/// ;; BAD: holds reference to head, retains entire sequence in memory
+/// (let [s (range 1000000)]
+///   (last s))  ; s is still in scope, all elements retained
+///
+/// ;; GOOD: no head reference retained
+/// (last (range 1000000))  ; elements can be GC'd as we traverse
+/// ```
+///
+/// To avoid head retention, ensure lazy sequences are not bound to local
+/// variables when only the result of a traversal is needed.
 #[derive(Clone)]
 pub struct KlujurLazySeq {
     /// The internal state (pending thunk or realized result)

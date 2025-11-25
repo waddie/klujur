@@ -111,7 +111,7 @@ impl Chunk {
             | OpCode::PopJumpIfTrue(target) => {
                 *target = jump_distance;
             }
-            _ => panic!("Attempted to patch non-jump instruction"),
+            other => debug_assert!(false, "patch_jump called on non-jump: {:?}", other),
         }
     }
 

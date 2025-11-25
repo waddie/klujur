@@ -13,6 +13,8 @@
 //! Operations involving floats do not check for overflow.
 
 use klujur_parser::{BigInt, KlujurVal, ToPrimitive};
+use num_bigint::Sign;
+use num_traits::{Signed, Zero};
 
 use crate::error::{Error, Result};
 
@@ -41,7 +43,6 @@ fn to_float(val: &KlujurVal) -> Result<f64> {
                 }
                 (None, Some(df)) => {
                     // Numerator too large, result is +/- infinity
-                    use num_bigint::Sign;
                     let num_neg = num.sign() == Sign::Minus;
                     let den_neg = df < 0.0;
                     let result_neg = num_neg != den_neg;
@@ -546,8 +547,6 @@ pub(crate) fn builtin_mul_prime(args: &[KlujurVal]) -> Result<KlujurVal> {
 }
 
 pub(crate) fn builtin_div(args: &[KlujurVal]) -> Result<KlujurVal> {
-    use num_traits::Zero;
-
     if args.is_empty() {
         return Err(Error::arity_at_least(1, 0));
     }
@@ -622,8 +621,6 @@ pub(crate) fn builtin_div(args: &[KlujurVal]) -> Result<KlujurVal> {
 }
 
 pub(crate) fn builtin_quot(args: &[KlujurVal]) -> Result<KlujurVal> {
-    use num_traits::Zero;
-
     if args.len() != 2 {
         return Err(Error::arity_named("quot", 2, args.len()));
     }
@@ -642,8 +639,6 @@ pub(crate) fn builtin_quot(args: &[KlujurVal]) -> Result<KlujurVal> {
 }
 
 pub(crate) fn builtin_rem(args: &[KlujurVal]) -> Result<KlujurVal> {
-    use num_traits::Zero;
-
     if args.len() != 2 {
         return Err(Error::arity_named("rem", 2, args.len()));
     }
@@ -662,8 +657,6 @@ pub(crate) fn builtin_rem(args: &[KlujurVal]) -> Result<KlujurVal> {
 }
 
 pub(crate) fn builtin_mod(args: &[KlujurVal]) -> Result<KlujurVal> {
-    use num_traits::{Signed, Zero};
-
     if args.len() != 2 {
         return Err(Error::arity_named("mod", 2, args.len()));
     }
@@ -797,8 +790,6 @@ pub(crate) fn builtin_min(args: &[KlujurVal]) -> Result<KlujurVal> {
 }
 
 pub(crate) fn builtin_abs(args: &[KlujurVal]) -> Result<KlujurVal> {
-    use num_traits::Signed;
-
     if args.len() != 1 {
         return Err(Error::arity_named("abs", 1, args.len()));
     }
@@ -872,8 +863,6 @@ pub(crate) fn builtin_int(args: &[KlujurVal]) -> Result<KlujurVal> {
 // ============================================================================
 
 pub(crate) fn builtin_even_p(args: &[KlujurVal]) -> Result<KlujurVal> {
-    use num_traits::Zero;
-
     if args.len() != 1 {
         return Err(Error::arity_named("even?", 1, args.len()));
     }
@@ -885,8 +874,6 @@ pub(crate) fn builtin_even_p(args: &[KlujurVal]) -> Result<KlujurVal> {
 }
 
 pub(crate) fn builtin_odd_p(args: &[KlujurVal]) -> Result<KlujurVal> {
-    use num_traits::Zero;
-
     if args.len() != 1 {
         return Err(Error::arity_named("odd?", 1, args.len()));
     }
@@ -898,8 +885,6 @@ pub(crate) fn builtin_odd_p(args: &[KlujurVal]) -> Result<KlujurVal> {
 }
 
 pub(crate) fn builtin_pos_p(args: &[KlujurVal]) -> Result<KlujurVal> {
-    use num_traits::Signed;
-
     if args.len() != 1 {
         return Err(Error::arity_named("pos?", 1, args.len()));
     }
@@ -914,8 +899,6 @@ pub(crate) fn builtin_pos_p(args: &[KlujurVal]) -> Result<KlujurVal> {
 }
 
 pub(crate) fn builtin_neg_p(args: &[KlujurVal]) -> Result<KlujurVal> {
-    use num_traits::Signed;
-
     if args.len() != 1 {
         return Err(Error::arity_named("neg?", 1, args.len()));
     }
@@ -930,8 +913,6 @@ pub(crate) fn builtin_neg_p(args: &[KlujurVal]) -> Result<KlujurVal> {
 }
 
 pub(crate) fn builtin_zero_p(args: &[KlujurVal]) -> Result<KlujurVal> {
-    use num_traits::Zero;
-
     if args.len() != 1 {
         return Err(Error::arity_named("zero?", 1, args.len()));
     }

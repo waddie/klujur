@@ -284,8 +284,11 @@ impl OpCode {
             | OpCode::Get
             | OpCode::Nth => -1,
 
+            // Pop 2, push 1
+            OpCode::Conj => -1,
+
             // Pop 3, push 1
-            OpCode::GetDefault | OpCode::Assoc | OpCode::Conj => -2,
+            OpCode::GetDefault | OpCode::Assoc => -2,
 
             // Control flow (no stack effect on their own)
             OpCode::Jump(_)

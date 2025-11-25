@@ -736,9 +736,9 @@ pub(crate) fn eval_use(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
         if !registry.is_loaded(&ns_name)
             && let LoadResult::NotFound =
                 try_load_namespace(&ns_name, &registry, &original_ns_name, env)?
-            {
-                return Err(Error::namespace_not_found(&ns_name));
-            }
+        {
+            return Err(Error::namespace_not_found(&ns_name));
+        }
 
         // Refer vars from namespace (use original namespace, not whatever the loaded file switched to)
         if let Some(source_ns) = registry.find(&ns_name) {
