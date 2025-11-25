@@ -1074,28 +1074,45 @@ fn eval_fn(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
             if arity_list.is_empty() {
                 return Err(Error::syntax("fn*", "arity requires a parameter vector"));
             }
-            let (params, rest, patterns, rest_pattern, body) =
+            let (params, rest, patterns, rest_pattern, pre, post, body) =
                 parse_fn_arity(&arity_list[0], &arity_list[1..])?;
-            arities.push(FnArity::with_patterns(
+            arities.push(FnArity::with_conditions(
                 params,
                 rest,
                 patterns,
                 rest_pattern,
+                pre,
+                post,
                 body,
             ));
         }
         arities
     } else {
         // Single-arity: (fn* [x] body)
-        let (params, rest, patterns, rest_pattern, body) = parse_fn_arity(&args[0], &args[1..])?;
-        vec![FnArity::with_patterns(
+        let (params, rest, patterns, rest_pattern, pre, post, body) =
+            parse_fn_arity(&args[0], &args[1..])?;
+        vec![FnArity::with_conditions(
             params,
             rest,
             patterns,
             rest_pattern,
+            pre,
+            post,
             body,
         )]
     };
+
+    // Validate multi-arity constraints
+    if arities.len() > 1 {
+        // Check for multiple variadic arities (not allowed)
+        let variadic_count = arities.iter().filter(|a| a.rest_param.is_some()).count();
+        if variadic_count > 1 {
+            return Err(Error::syntax(
+                "fn*",
+                "cannot have multiple variadic arities",
+            ));
+        }
+    }
 
     // Try bytecode compilation for simple functions
     if is_bytecode_mode()
@@ -1206,13 +1223,15 @@ fn try_compile_to_bytecode(
     }
 }
 
-/// Result of parsing fn* parameters: (params, rest_param, param_patterns, rest_pattern, body)
+/// Result of parsing fn* parameters: (params, rest_param, param_patterns, rest_pattern, pre, post, body)
 pub(crate) type ParsedFnArity = (
     Vec<Symbol>,
     Option<Symbol>,
     Vec<KlujurVal>,
     Option<KlujurVal>,
-    Vec<KlujurVal>,
+    Vec<KlujurVal>, // pre conditions
+    Vec<KlujurVal>, // post conditions
+    Vec<KlujurVal>, // body
 );
 
 /// Parse a parameter vector and body for fn*
@@ -1303,13 +1322,63 @@ pub(crate) fn parse_fn_arity(
         i += 1;
     }
 
-    let body = body_forms.to_vec();
+    // Check if body starts with a pre/post conditions map: {:pre [...] :post [...]}
+    let (pre, post, body) = if !body_forms.is_empty() {
+        if let KlujurVal::Map(map, _) = &body_forms[0] {
+            // Check if this map contains :pre or :post
+            let pre_key = KlujurVal::keyword(Keyword::new("pre"));
+            let post_key = KlujurVal::keyword(Keyword::new("post"));
+            let has_pre = map.contains_key(&pre_key);
+            let has_post = map.contains_key(&post_key);
+
+            if has_pre || has_post {
+                // Extract preconditions
+                let pre = if let Some(pre_val) = map.get(&pre_key) {
+                    match pre_val {
+                        KlujurVal::Vector(items, _) => items.iter().cloned().collect(),
+                        _ => Vec::new(),
+                    }
+                } else {
+                    Vec::new()
+                };
+
+                // Extract postconditions
+                let post = if let Some(post_val) = map.get(&post_key) {
+                    match post_val {
+                        KlujurVal::Vector(items, _) => items.iter().cloned().collect(),
+                        _ => Vec::new(),
+                    }
+                } else {
+                    Vec::new()
+                };
+
+                // Rest of body after the conditions map
+                let body = body_forms[1..].to_vec();
+                (pre, post, body)
+            } else {
+                // Map doesn't contain :pre or :post, treat as part of body
+                (Vec::new(), Vec::new(), body_forms.to_vec())
+            }
+        } else {
+            (Vec::new(), Vec::new(), body_forms.to_vec())
+        }
+    } else {
+        (Vec::new(), Vec::new(), Vec::new())
+    };
 
     // Only include patterns if there was actually destructuring
     if has_destructuring {
-        Ok((param_names, rest_param, param_patterns, rest_pattern, body))
+        Ok((
+            param_names,
+            rest_param,
+            param_patterns,
+            rest_pattern,
+            pre,
+            post,
+            body,
+        ))
     } else {
-        Ok((param_names, rest_param, Vec::new(), None, body))
+        Ok((param_names, rest_param, Vec::new(), None, pre, post, body))
     }
 }
 
@@ -1481,8 +1550,9 @@ fn eval_defmacro(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
                     "arity requires a parameter vector",
                 ));
             }
-            let (params, rest_param, patterns, rest_pattern, body) =
+            let (params, rest_param, patterns, rest_pattern, _pre, _post, body) =
                 parse_fn_arity(&arity_list[0], &arity_list[1..])?;
+            // Macros don't use pre/post conditions
             arities.push(FnArity::with_patterns(
                 params,
                 rest_param,
@@ -1494,12 +1564,13 @@ fn eval_defmacro(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
         arities
     } else {
         // Single-arity: (defmacro name [params] body...)
-        let (params, rest_param, patterns, rest_pattern, body) =
+        let (params, rest_param, patterns, rest_pattern, _pre, _post, body) =
             parse_fn_arity(&rest[0], &rest[1..])?;
 
         if body.is_empty() {
             return Err(Error::syntax("defmacro", "requires a body"));
         }
+        // Macros don't use pre/post conditions
         vec![FnArity::with_patterns(
             params,
             rest_param,

@@ -522,6 +522,56 @@ pub(crate) fn builtin_next(args: &[KlujurVal]) -> Result<KlujurVal> {
     args[0].seq_next()
 }
 
+/// (nthnext coll n) - like (next (next ... n times)), returns nil if not enough elements
+pub(crate) fn builtin_nthnext(args: &[KlujurVal]) -> Result<KlujurVal> {
+    if args.len() != 2 {
+        return Err(Error::arity_named("nthnext", 2, args.len()));
+    }
+    let n = match &args[1] {
+        KlujurVal::Int(i) => *i as usize,
+        other => {
+            return Err(Error::type_error_in(
+                "nthnext",
+                "integer",
+                other.type_name(),
+            ));
+        }
+    };
+
+    let mut current = args[0].clone();
+    for _ in 0..n {
+        current = current.seq_next()?;
+        if matches!(current, KlujurVal::Nil) {
+            return Ok(KlujurVal::Nil);
+        }
+    }
+    Ok(current)
+}
+
+/// (nthrest coll n) - like (rest (rest ... n times)), returns empty list if not enough elements
+pub(crate) fn builtin_nthrest(args: &[KlujurVal]) -> Result<KlujurVal> {
+    if args.len() != 2 {
+        return Err(Error::arity_named("nthrest", 2, args.len()));
+    }
+    let n = match &args[1] {
+        KlujurVal::Int(i) => *i as usize,
+        other => {
+            return Err(Error::type_error_in(
+                "nthrest",
+                "integer",
+                other.type_name(),
+            ));
+        }
+    };
+
+    let mut current = args[0].clone();
+    for _ in 0..n {
+        current = current.seq_rest()?;
+        // Unlike nthnext, nthrest continues even on empty - rest of () is ()
+    }
+    Ok(current)
+}
+
 pub(crate) fn builtin_second(args: &[KlujurVal]) -> Result<KlujurVal> {
     if args.len() != 1 {
         return Err(Error::arity_named("second", 1, args.len()));
@@ -579,15 +629,15 @@ pub(crate) fn builtin_butlast(args: &[KlujurVal]) -> Result<KlujurVal> {
     }
     match &args[0] {
         KlujurVal::Nil => Ok(KlujurVal::Nil),
-        KlujurVal::List(items, _) if items.is_empty() => Ok(KlujurVal::Nil),
+        KlujurVal::List(items, _) if items.len() <= 1 => Ok(KlujurVal::Nil),
         KlujurVal::List(items, _) => Ok(KlujurVal::list(
             items.iter().take(items.len() - 1).cloned().collect(),
         )),
-        KlujurVal::Vector(items, _) if items.is_empty() => Ok(KlujurVal::Nil),
+        KlujurVal::Vector(items, _) if items.len() <= 1 => Ok(KlujurVal::Nil),
         KlujurVal::Vector(items, _) => Ok(KlujurVal::list(
             items.iter().take(items.len() - 1).cloned().collect(),
         )),
-        KlujurVal::String(s) if s.is_empty() => Ok(KlujurVal::Nil),
+        KlujurVal::String(s) if s.len() <= 1 => Ok(KlujurVal::Nil),
         KlujurVal::String(s) => {
             // Return all chars except the last as a list
             let chars: Vec<char> = s.chars().collect();
@@ -600,7 +650,7 @@ pub(crate) fn builtin_butlast(args: &[KlujurVal]) -> Result<KlujurVal> {
         }
         KlujurVal::ChunkedSeq(_) | KlujurVal::LazySeq(_) => {
             let items = to_seq(&args[0])?;
-            if items.is_empty() {
+            if items.len() <= 1 {
                 Ok(KlujurVal::Nil)
             } else {
                 Ok(KlujurVal::list(items[..items.len() - 1].to_vec()))

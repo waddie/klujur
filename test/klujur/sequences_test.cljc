@@ -243,7 +243,8 @@
 
 (deftest sort-test
   (testing "sort"
-    (is (= '(1 2 3 4 5) (sort [3 1 4 1 5 2])))
+    (is (= '(1 1 2 3 4 5) (sort [3 1 4 1 5 2]))) ; input has two 1s (pi
+                                                 ; digits)
     (is (= '(1 2 3) (sort [3 2 1]))))
   (testing "sort with comparator" (is (= '(5 4 3 2 1) (sort > [1 2 3 4 5])))))
 
@@ -383,7 +384,14 @@
 
 (deftest keep-indexed-test
   (testing "keep-indexed"
-    (is (= '(0 2 4) (keep-indexed #(when (even? %1) %2) [:a :b :c :d :e])))))
+    ;; Returns the value when index is even
+    (is (= '(:a :c :e)
+           (keep-indexed (fn [idx val] (when (even? idx) val))
+                         [:a :b :c :d :e])))
+    ;; Returns the index when it's even
+    (is (= '(0 2 4)
+           (keep-indexed (fn [idx val] (when (even? idx) idx))
+                         [:a :b :c :d :e])))))
 
 (deftest map-indexed-test
   (testing "map-indexed"

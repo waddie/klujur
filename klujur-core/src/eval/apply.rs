@@ -7,7 +7,7 @@ use std::any::Any;
 use std::borrow::Cow;
 use std::rc::Rc;
 
-use klujur_parser::{KlujurFn, KlujurNativeFn, KlujurVal};
+use klujur_parser::{KlujurFn, KlujurNativeFn, KlujurVal, Symbol};
 use klujur_vm::VM;
 use klujur_vm::chunk::BytecodeFnWrapper;
 
@@ -281,6 +281,14 @@ pub(crate) fn apply_fn(func: &KlujurFn, args: &[KlujurVal]) -> Result<KlujurVal>
             }
         }
 
+        // Check preconditions
+        for pre_expr in &arity.pre {
+            let pre_result = eval(pre_expr, &fn_env)?;
+            if !pre_result.is_truthy() {
+                return Err(Error::EvalError(format!("Assert failed: {:?}", pre_expr)));
+            }
+        }
+
         // Evaluate body with recur support
         let mut result = KlujurVal::Nil;
         for (i, expr) in arity.body.iter().enumerate() {
@@ -305,6 +313,18 @@ pub(crate) fn apply_fn(func: &KlujurFn, args: &[KlujurVal]) -> Result<KlujurVal>
                     continue 'recur_loop;
                 }
                 Err(e) => return Err(e),
+            }
+        }
+
+        // Check postconditions
+        if !arity.post.is_empty() {
+            // Bind % to the result for postcondition evaluation
+            fn_env.define(Symbol::new("%"), result.clone());
+            for post_expr in &arity.post {
+                let post_result = eval(post_expr, &fn_env)?;
+                if !post_result.is_truthy() {
+                    return Err(Error::EvalError(format!("Assert failed: {:?}", post_expr)));
+                }
             }
         }
 

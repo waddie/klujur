@@ -154,11 +154,9 @@ fn test_sequential_ampersand_at_end_error() {
 
 #[test]
 fn test_sequential_multiple_rest_error() {
-    // Multiple & rest - the second & is treated as a literal symbol in rest binding
-    // This is actually valid but probably not what the user intended
-    // Testing current behaviour: evaluates without error
-    let result = eval_forms(&["(let [[a & b & c] [1 2 3]] a)"]);
-    assert!(result.is_ok());
+    // Multiple & rest - Clojure rejects this as a syntax error
+    // Only one & rest binding is allowed in sequential destructuring
+    assert_eval_forms_err!(&["(let [[a & b & c] [1 2 3]] a)"]);
 }
 
 #[test]

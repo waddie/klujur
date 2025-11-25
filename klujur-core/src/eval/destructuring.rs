@@ -76,6 +76,18 @@ fn destructure_sequential(
 ) -> Result<Bindings> {
     let mut bindings = Vec::new();
 
+    // Check for multiple & rest symbols (not allowed)
+    let ampersand_count = patterns
+        .iter()
+        .filter(|p| matches!(p, KlujurVal::Symbol(s, _) if s.name() == "&"))
+        .count();
+    if ampersand_count > 1 {
+        return Err(Error::syntax(
+            "destructure",
+            "only one & rest binding is allowed in sequential destructuring",
+        ));
+    }
+
     // Convert value to a sequence
     let items = value_to_seq(value)?;
 
@@ -250,11 +262,28 @@ fn destructure_associative(
                 }
                 "syms" => {
                     // {:syms [a b c]} - bind symbols to symbol lookups
+                    // {:ns/syms [a b c]} - bind symbols to namespaced symbol lookups
                     let syms = extract_symbols(pat_val, ":syms")?;
+                    let sym_namespace = kw.namespace(); // e.g., "user" from :user/syms
                     for sym in syms {
-                        let lookup_key = KlujurVal::symbol(Symbol::new(sym.name()));
+                        // Determine the lookup key namespace:
+                        // 1. If symbol has a namespace (e.g., user/name), use that
+                        // 2. Else if :ns/syms was used (e.g., :user/syms), use that namespace
+                        // 3. Else no namespace
+                        let lookup_key = if let Some(s_ns) = sym.namespace() {
+                            // Symbol has explicit namespace: {:syms [user/name]} -> 'user/name
+                            KlujurVal::symbol(Symbol::with_namespace(s_ns, sym.name()))
+                        } else if let Some(key_ns) = sym_namespace {
+                            // :ns/syms shorthand: {:user/syms [name]} -> 'user/name
+                            KlujurVal::symbol(Symbol::with_namespace(key_ns, sym.name()))
+                        } else {
+                            // No namespace: {:syms [name]} -> 'name
+                            KlujurVal::symbol(Symbol::new(sym.name()))
+                        };
                         let val = lookup_with_default(&lookup_key, value_map, defaults, &sym);
-                        bindings.push((sym, val));
+                        // Bind to local name (without namespace)
+                        let local_sym = Symbol::new(sym.name());
+                        bindings.push((local_sym, val));
                     }
                     continue;
                 }
@@ -349,10 +378,12 @@ fn extract_symbols(val: &KlujurVal, context: &str) -> Result<Vec<Symbol>> {
         .iter()
         .map(|item| match item {
             KlujurVal::Symbol(s, _) => Ok(s.clone()),
+            // Also accept keywords and extract their name (Clojure allows {:keys [:a :b]})
+            KlujurVal::Keyword(kw) => Ok(Symbol::new(kw.name())),
             other => Err(Error::syntax(
                 "destructure",
                 format!(
-                    "{} vector must contain symbols, got {}",
+                    "{} vector must contain symbols or keywords, got {}",
                     context,
                     other.type_name()
                 ),

@@ -58,8 +58,8 @@
 
 (deftest map-xf-test
   (testing "map as transducer" (is (= [2 3 4] (into [] (map inc) [1 2 3]))))
-  (testing "map with multiple args as transducer"
-    (is (= [5 7 9] (into [] (map +) [[1 4] [2 5] [3 6]])))))
+  (testing "map with apply to unpack args"
+    (is (= [5 7 9] (into [] (map #(apply + %)) [[1 4] [2 5] [3 6]])))))
 
 (deftest filter-xf-test
   (testing "filter as transducer"
@@ -105,7 +105,9 @@
   (testing "reduced in reducing fn"
     (is (= 6
            (transduce identity
-                      (fn [acc x] (if (> acc 5) (reduced acc) (+ acc x)))
+                      (fn
+                        ([result] result) ;; completion arity
+                        ([acc x] (if (> acc 5) (reduced acc) (+ acc x))))
                       0
                       [1 2 3 4 5])))))
 

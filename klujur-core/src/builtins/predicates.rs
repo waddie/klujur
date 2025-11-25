@@ -203,3 +203,55 @@ pub(crate) fn builtin_denominator(args: &[KlujurVal]) -> Result<KlujurVal> {
         )),
     }
 }
+
+pub(crate) fn builtin_protocol_p(args: &[KlujurVal]) -> Result<KlujurVal> {
+    if args.len() != 1 {
+        return Err(Error::arity_named("protocol?", 1, args.len()));
+    }
+    Ok(KlujurVal::bool(matches!(args[0], KlujurVal::Protocol(_))))
+}
+
+/// (pos-int? x) - true if x is a positive integer (> 0)
+pub(crate) fn builtin_pos_int_p(args: &[KlujurVal]) -> Result<KlujurVal> {
+    use num_bigint::Sign;
+
+    if args.len() != 1 {
+        return Err(Error::arity_named("pos-int?", 1, args.len()));
+    }
+    let result = match &args[0] {
+        KlujurVal::Int(n) => *n > 0,
+        KlujurVal::BigInt(n) => n.sign() == Sign::Plus,
+        _ => false,
+    };
+    Ok(KlujurVal::bool(result))
+}
+
+/// (neg-int? x) - true if x is a negative integer (< 0)
+pub(crate) fn builtin_neg_int_p(args: &[KlujurVal]) -> Result<KlujurVal> {
+    use num_bigint::Sign;
+
+    if args.len() != 1 {
+        return Err(Error::arity_named("neg-int?", 1, args.len()));
+    }
+    let result = match &args[0] {
+        KlujurVal::Int(n) => *n < 0,
+        KlujurVal::BigInt(n) => n.sign() == Sign::Minus,
+        _ => false,
+    };
+    Ok(KlujurVal::bool(result))
+}
+
+/// (nat-int? x) - true if x is a natural number (non-negative integer, >= 0)
+pub(crate) fn builtin_nat_int_p(args: &[KlujurVal]) -> Result<KlujurVal> {
+    use num_bigint::Sign;
+
+    if args.len() != 1 {
+        return Err(Error::arity_named("nat-int?", 1, args.len()));
+    }
+    let result = match &args[0] {
+        KlujurVal::Int(n) => *n >= 0,
+        KlujurVal::BigInt(n) => n.sign() != Sign::Minus,
+        _ => false,
+    };
+    Ok(KlujurVal::bool(result))
+}

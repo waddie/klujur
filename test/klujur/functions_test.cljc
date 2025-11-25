@@ -91,9 +91,15 @@
     (is (= 2 ((fn ([x] 1) ([x y] 2) ([] 0)) :a :b)))))
 
 (deftest fn-multi-arity-errors-test
-  (testing "fixed arity cannot exceed variadic arity"
-    ;; If there's a variadic [x & xs], can't have [x y z] fixed
-    (is (thrown? Exception (fn ([x y z] 1) ([x & xs] 2)))))
+  (testing "fixed arity can exceed variadic arity (provides specialized impl)"
+    ;; This is valid in Clojure - [x y z] provides a specialized
+    ;; implementation for 3 args while [x & xs] handles 1+ args (with [x y
+    ;; z] taking precedence for
+    ;; exactly 3)
+    (is (= 1 ((fn ([x y z] 1) ([x & xs] 2)) :a :b :c))) ; 3 args -> matches
+                                                        ; [x y z]
+    (is (= 2 ((fn ([x y z] 1) ([x & xs] 2)) :a :b))))   ; 2 args -> matches
+                                                        ; [x & xs]
   (testing "cannot have multiple variadic arities"
     (is (thrown? Exception (fn ([& xs] 1) ([x & xs] 2))))))
 

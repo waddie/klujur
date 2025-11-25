@@ -1098,6 +1098,10 @@ pub struct FnArity {
     pub param_patterns: Vec<KlujurVal>,
     /// Original rest parameter pattern (for destructuring support)
     pub rest_pattern: Option<KlujurVal>,
+    /// Preconditions (:pre) - list of expressions that must all be truthy
+    pub pre: Vec<KlujurVal>,
+    /// Postconditions (:post) - list of expressions (can use % for return value)
+    pub post: Vec<KlujurVal>,
     /// Function body expressions
     pub body: Vec<KlujurVal>,
 }
@@ -1110,6 +1114,8 @@ impl FnArity {
             rest_param,
             param_patterns: Vec::new(),
             rest_pattern: None,
+            pre: Vec::new(),
+            post: Vec::new(),
             body,
         }
     }
@@ -1127,6 +1133,29 @@ impl FnArity {
             rest_param,
             param_patterns,
             rest_pattern,
+            pre: Vec::new(),
+            post: Vec::new(),
+            body,
+        }
+    }
+
+    /// Create a new arity definition with pre/post conditions.
+    pub fn with_conditions(
+        params: Vec<Symbol>,
+        rest_param: Option<Symbol>,
+        param_patterns: Vec<KlujurVal>,
+        rest_pattern: Option<KlujurVal>,
+        pre: Vec<KlujurVal>,
+        post: Vec<KlujurVal>,
+        body: Vec<KlujurVal>,
+    ) -> Self {
+        FnArity {
+            params,
+            rest_param,
+            param_patterns,
+            rest_pattern,
+            pre,
+            post,
             body,
         }
     }

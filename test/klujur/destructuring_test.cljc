@@ -275,7 +275,7 @@
 
 (deftest loop-map-destructure-test
   (testing "loop with map destructuring"
-    (is (= [:a 1]
+    (is (= [1 2]
            (loop [{:keys [a b] :as m} {:a 1 :b 2}]
              [a b])))))
 

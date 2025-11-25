@@ -150,10 +150,12 @@ pub(crate) fn eval_defmethod(args: &[KlujurVal], env: &Env) -> Result<KlujurVal>
     let dispatch_val = eval(&args[1], env)?;
 
     // Parse the params vector and body using parse_fn_arity for destructuring support
-    let (params, rest_param, patterns, rest_pattern, body) = parse_fn_arity(&args[2], &args[3..])?;
+    let (params, rest_param, patterns, rest_pattern, pre, post, body) =
+        parse_fn_arity(&args[2], &args[3..])?;
 
-    // Create the method function with destructuring support
-    let arity = FnArity::with_patterns(params, rest_param, patterns, rest_pattern, body);
+    // Create the method function with destructuring support (including pre/post conditions)
+    let arity =
+        FnArity::with_conditions(params, rest_param, patterns, rest_pattern, pre, post, body);
     let env_any: Rc<dyn Any> = Rc::new(env.clone());
     let method_fn = KlujurFn::new_multi(None, vec![arity], env_any);
     let method = KlujurVal::Fn(method_fn);

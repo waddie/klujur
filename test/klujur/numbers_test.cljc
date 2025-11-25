@@ -439,7 +439,7 @@
     (is (= -9223372036854775809 (-' -9223372036854775808 1))))
   (testing "*' auto-promotes to BigInt on overflow"
     (is (= 18446744073709551614 (*' 9223372036854775807 2)))
-    (is (= 9223372036854775809 (*' 3037000500 3037000500)))))
+    (is (= 9223372037000250000 (*' 3037000500 3037000500)))))
 
 (deftest bigint-inc-dec-promoting-test
   (testing "inc' auto-promotes to BigInt"

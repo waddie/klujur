@@ -37,6 +37,20 @@
 (def drop drop*)
 
 ;; ============================================================================
+;; Type Symbols for extend-type
+;; ============================================================================
+
+;; These symbols are used with extend-type to specify type implementations
+(def Vector 'Vector)
+(def List 'List)
+(def Map 'Map)
+(def Set 'Set)
+(def String 'String)
+(def Keyword 'Keyword)
+(def Symbol 'Symbol)
+(def Atom 'Atom)
+
+;; ============================================================================
 ;; Function Definition Macros
 ;; ============================================================================
 
@@ -956,14 +970,14 @@
 
 (defn cat
   "A transducer which concatenates nested collections.
-   Returns a transducer when called with no arguments."
-  []
-  (fn [rf]
-    (let [rrf (preserving-reduced rf)]
-      (fn
-        ([] (rf))
-        ([result] (rf result))
-        ([result input] (reduce rrf result input))))))
+   Can be used directly (cat) or called with no args ((cat))."
+  ([] cat) ;; 0-arity returns cat itself for backward compatibility
+  ([rf]
+   (let [rrf (preserving-reduced rf)]
+     (fn
+       ([] (rf))
+       ([result] (rf result))
+       ([result input] (reduce rrf result input))))))
 
 (defn dedupe
   "Returns a lazy sequence removing consecutive duplicates.
@@ -1118,12 +1132,12 @@
 
 (defn sequence
   "Coerces coll to a (possibly lazy) sequence. If coll is already a sequence,
-   returns it. If coll is empty, returns nil.
+   returns it. If coll is empty, returns ().
 
    When a transducer is supplied, returns a lazy sequence of applications of
    the transform to the items in coll(s). The transform should accept the
    number of items provided in the colls."
-  ([coll] (seq coll))
+  ([coll] (or (seq coll) '()))
   ([xform coll]
    ;; Implementation using a multi-step approach: We use a volatile to
    ;; buffer items since transducers push while lazy-seqs pull. We step

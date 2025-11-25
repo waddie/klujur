@@ -134,9 +134,9 @@ use multimethods::{
 use predicates::{
     builtin_bigint_p, builtin_boolean_p, builtin_coll_p, builtin_denominator, builtin_float_p,
     builtin_fn_p, builtin_hierarchy_p, builtin_integer_p, builtin_keyword_p, builtin_list_p,
-    builtin_map_p, builtin_nil_p, builtin_number_p, builtin_numerator, builtin_ratio_p,
-    builtin_seq_p, builtin_set_p, builtin_some_p, builtin_string_p, builtin_symbol_p,
-    builtin_vector_p,
+    builtin_map_p, builtin_nat_int_p, builtin_neg_int_p, builtin_nil_p, builtin_number_p,
+    builtin_numerator, builtin_pos_int_p, builtin_protocol_p, builtin_ratio_p, builtin_seq_p,
+    builtin_set_p, builtin_some_p, builtin_string_p, builtin_symbol_p, builtin_vector_p,
 };
 use random::{
     builtin_gensym, builtin_hash, builtin_rand, builtin_rand_int, builtin_rand_nth, builtin_shuffle,
@@ -144,8 +144,8 @@ use random::{
 use sequences::{
     builtin_butlast, builtin_concat, builtin_cons, builtin_count, builtin_drop, builtin_empty_p,
     builtin_first, builtin_into, builtin_last, builtin_mapcat, builtin_next, builtin_nth,
-    builtin_partition, builtin_range, builtin_rest, builtin_reverse, builtin_second, builtin_seq,
-    builtin_subvec, builtin_take,
+    builtin_nthnext, builtin_nthrest, builtin_partition, builtin_range, builtin_rest,
+    builtin_reverse, builtin_second, builtin_seq, builtin_subvec, builtin_take,
 };
 // Note: repeat is implemented in stdlib (core.cljc) as a lazy sequence
 use set_ops::{
@@ -236,6 +236,21 @@ pub fn register_builtins(env: &Env) {
     math_ns.define_native("to-radians", builtin_to_radians);
     math_ns.define_native("to-degrees", builtin_to_degrees);
 
+    // Common math functions also available in core (without namespace prefix)
+    core_ns.define_native("sqrt", builtin_sqrt);
+    core_ns.define_native("pow", builtin_pow);
+    core_ns.define_native("exp", builtin_exp);
+    core_ns.define_native("log", builtin_log);
+    core_ns.define_native("sin", builtin_sin);
+    core_ns.define_native("cos", builtin_cos);
+    core_ns.define_native("tan", builtin_tan);
+    core_ns.define_native("floor", builtin_floor);
+    core_ns.define_native("ceil", builtin_ceil);
+    core_ns.define_native("round", builtin_round);
+    core_ns.define_native("nan?", builtin_nan_q);
+    core_ns.define_native("NaN?", builtin_nan_q); // Alias with capital N
+    core_ns.define_native("infinite?", builtin_infinite_q);
+
     // Date/time functions registered in klujur.time namespace
     let time_ns = registry.find_or_create("klujur.time");
     time_ns.define_native("system-time", builtin_system_time);
@@ -269,6 +284,9 @@ pub fn register_builtins(env: &Env) {
     core_ns.define_native("bigint?", builtin_bigint_p);
     core_ns.define_native("float?", builtin_float_p);
     core_ns.define_native("ratio?", builtin_ratio_p);
+    core_ns.define_native("pos-int?", builtin_pos_int_p);
+    core_ns.define_native("neg-int?", builtin_neg_int_p);
+    core_ns.define_native("nat-int?", builtin_nat_int_p);
     core_ns.define_native("numerator", builtin_numerator);
     core_ns.define_native("denominator", builtin_denominator);
     core_ns.define_native("string?", builtin_string_p);
@@ -279,6 +297,7 @@ pub fn register_builtins(env: &Env) {
     core_ns.define_native("map?", builtin_map_p);
     core_ns.define_native("set?", builtin_set_p);
     core_ns.define_native("hierarchy?", builtin_hierarchy_p);
+    core_ns.define_native("protocol?", builtin_protocol_p);
     core_ns.define_native("fn?", builtin_fn_p);
     core_ns.define_native("coll?", builtin_coll_p);
     core_ns.define_native("seq?", builtin_seq_p);
@@ -334,6 +353,8 @@ pub fn register_builtins(env: &Env) {
     core_ns.define_native("first", builtin_first);
     core_ns.define_native("rest", builtin_rest);
     core_ns.define_native("next", builtin_next);
+    core_ns.define_native("nthnext", builtin_nthnext);
+    core_ns.define_native("nthrest", builtin_nthrest);
     core_ns.define_native("second", builtin_second);
     core_ns.define_native("last", builtin_last);
     core_ns.define_native("butlast", builtin_butlast);

@@ -245,6 +245,29 @@ pub(crate) fn builtin_conj(args: &[KlujurVal]) -> Result<KlujurVal> {
             }
             Ok(KlujurVal::Set(new_set, None))
         }
+        KlujurVal::Map(map, _) => {
+            // conj on map expects [k v] pairs or MapEntry-like values
+            let mut new_map = map.clone();
+            for item in &args[1..] {
+                match item {
+                    KlujurVal::Vector(pair, _) if pair.len() == 2 => {
+                        new_map.insert(pair[0].clone(), pair[1].clone());
+                    }
+                    KlujurVal::Map(m, _) if m.len() == 1 => {
+                        // Single-entry map can be conj'd
+                        for (k, v) in m.iter() {
+                            new_map.insert(k.clone(), v.clone());
+                        }
+                    }
+                    _ => {
+                        return Err(Error::EvalError(
+                            "conj on map requires [key value] vectors".into(),
+                        ));
+                    }
+                }
+            }
+            Ok(KlujurVal::Map(new_map, None))
+        }
         KlujurVal::SortedMapBy(sm) => {
             // conj on sorted map expects [k v] pairs
             let mut result = sm.clone();
