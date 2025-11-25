@@ -2616,7 +2616,8 @@ impl KlujurVal {
         KlujurVal::Int(n)
     }
 
-    /// Create an arbitrary precision integer value
+    /// Create an arbitrary precision integer value, normalising to Int if it fits.
+    /// Use this for auto-promoted values (overflow results).
     #[inline]
     #[must_use]
     pub fn bigint(n: BigInt) -> Self {
@@ -2626,6 +2627,14 @@ impl KlujurVal {
         } else {
             KlujurVal::BigInt(n)
         }
+    }
+
+    /// Create an arbitrary precision integer value without normalising.
+    /// Use this for explicit BigInt literals (with N suffix) to preserve the type.
+    #[inline]
+    #[must_use]
+    pub fn bigint_literal(n: BigInt) -> Self {
+        KlujurVal::BigInt(n)
     }
 
     /// Create a float value

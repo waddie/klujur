@@ -412,9 +412,9 @@ fn lookup_symbol(sym: &Symbol, env: &Env) -> Result<KlujurVal> {
         Ok(val) => Ok(val),
         Err(_) => {
             // Not in lexical env, try namespace registry
+            // Use registry.resolve() to handle qualified symbols like ns/name
             let registry = env.registry();
-            let current_ns = registry.current();
-            current_ns
+            registry
                 .resolve(sym)
                 .map(KlujurVal::Var)
                 .ok_or_else(|| Error::UndefinedSymbol(sym.clone()))

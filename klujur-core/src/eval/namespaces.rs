@@ -514,9 +514,25 @@ pub(crate) fn eval_require(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
                 registry.reload(&ns_name);
             }
 
-            // Find the file
-            if let Some(path) = registry.find_namespace_file(&ns_name) {
-                // Load the file
+            // Check for embedded source first (for stdlib namespaces like klujur.test)
+            if let Some(source) = registry.get_embedded_source(&ns_name) {
+                // Load from embedded source
+                let mut parser = klujur_parser::Parser::new(source)
+                    .map_err(|e| Error::parse_error(format!("{:?}", e)))?;
+
+                while let Some(form) = parser
+                    .parse()
+                    .map_err(|e| Error::parse_error(format!("{:?}", e)))?
+                {
+                    eval(&form, env)?;
+                }
+
+                registry.mark_loaded(&ns_name);
+
+                // Restore original namespace after loading
+                registry.set_current(&original_ns_name);
+            } else if let Some(path) = registry.find_namespace_file(&ns_name) {
+                // Load from file
                 let content = std::fs::read_to_string(&path)
                     .map_err(|e| Error::io("Reading file", Some(path.display().to_string()), e))?;
 
@@ -684,7 +700,25 @@ pub(crate) fn eval_use(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
 
         // Load namespace if not loaded
         if !registry.is_loaded(&ns_name) {
-            if let Some(path) = registry.find_namespace_file(&ns_name) {
+            // Check for embedded source first (for stdlib namespaces like klujur.test)
+            if let Some(source) = registry.get_embedded_source(&ns_name) {
+                // Load from embedded source
+                let mut parser = klujur_parser::Parser::new(source)
+                    .map_err(|e| Error::parse_error(format!("{:?}", e)))?;
+
+                while let Some(form) = parser
+                    .parse()
+                    .map_err(|e| Error::parse_error(format!("{:?}", e)))?
+                {
+                    eval(&form, env)?;
+                }
+
+                registry.mark_loaded(&ns_name);
+
+                // Restore original namespace after loading
+                registry.set_current(&original_ns_name);
+            } else if let Some(path) = registry.find_namespace_file(&ns_name) {
+                // Load from file
                 let content = std::fs::read_to_string(&path)
                     .map_err(|e| Error::io("Reading file", Some(path.display().to_string()), e))?;
 

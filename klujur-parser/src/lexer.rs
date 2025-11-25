@@ -618,10 +618,20 @@ impl<'a> Lexer<'a> {
     fn parse_int(&self, s: &str) -> Result<Token, LexerError> {
         use num_traits::Num;
 
+        // Store original string for special cases like i64::MIN
+        let original = s;
+
         let (is_negative, s) = if let Some(rest) = s.strip_prefix('-') {
             (true, rest)
         } else if let Some(rest) = s.strip_prefix('+') {
             (false, rest)
+        } else {
+            (false, s)
+        };
+
+        // Check for explicit BigInt suffix (N)
+        let (force_bigint, s) = if let Some(rest) = s.strip_suffix('N') {
+            (true, rest)
         } else {
             (false, s)
         };
@@ -642,6 +652,23 @@ impl<'a> Lexer<'a> {
         } else {
             (10, s)
         };
+
+        // If explicit N suffix, always parse as BigInt
+        if force_bigint {
+            let big = BigInt::from_str_radix(digits, base)
+                .map_err(|_| self.error(format!("Invalid BigInt: {}N", s)))?;
+            let big = if is_negative { -big } else { big };
+            return Ok(Token::BigInt(big));
+        }
+
+        // For base 10, try parsing the full signed string first to handle i64::MIN correctly.
+        // i64::MIN's magnitude (9223372036854775808) exceeds i64::MAX (9223372036854775807),
+        // so parsing just the digits would fail even though -9223372036854775808 fits in i64.
+        if base == 10
+            && let Ok(n) = original.parse::<i64>()
+        {
+            return Ok(Token::Int(n));
+        }
 
         // Try parsing as i64 first
         match i64::from_str_radix(digits, base) {
@@ -790,6 +817,36 @@ mod tests {
                 Token::Int(255),
                 Token::Int(35),
             ]
+        );
+    }
+
+    #[test]
+    fn test_bigint_literals() {
+        // Explicit N suffix forces BigInt even for small numbers
+        assert_eq!(
+            tokenize("0N 42N -100N").unwrap(),
+            vec![
+                Token::BigInt(BigInt::from(0)),
+                Token::BigInt(BigInt::from(42)),
+                Token::BigInt(BigInt::from(-100)),
+            ]
+        );
+
+        // Large numbers with N suffix
+        let tokens = tokenize("18446744073709551614N").unwrap();
+        assert_eq!(tokens.len(), 1);
+        assert!(matches!(&tokens[0], Token::BigInt(n) if n.to_string() == "18446744073709551614"));
+
+        // Hex with N suffix
+        assert_eq!(
+            tokenize("0xFFN").unwrap(),
+            vec![Token::BigInt(BigInt::from(255))]
+        );
+
+        // Radix with N suffix
+        assert_eq!(
+            tokenize("2r1010N").unwrap(),
+            vec![Token::BigInt(BigInt::from(10))]
         );
     }
 

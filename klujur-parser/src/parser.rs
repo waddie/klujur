@@ -156,7 +156,7 @@ impl<'a> Parser<'a> {
             Token::BigInt(n) => {
                 let n = n.clone();
                 self.advance()?;
-                Ok(KlujurVal::bigint(n))
+                Ok(KlujurVal::bigint_literal(n))
             }
             Token::Float(n) => {
                 let n = *n;

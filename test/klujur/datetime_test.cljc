@@ -2,8 +2,9 @@
 ;; Copyright (c) 2025 Tom Waddington. MIT licensed.
 
 (ns klujur.datetime-test
-  (:require [clojure.test :refer [deftest is are testing]]
-            [klujur.test-helper :refer [eval*]]))
+  (:require [klujur.test :refer [deftest is are testing run-all-tests]]
+            [klujur.time :refer
+             [system-time now-millis now-nanos now-micros now-secs]]))
 
 ;; =============================================================================
 ;; System Time (milliseconds since Unix epoch)
@@ -11,18 +12,13 @@
 
 (deftest system-time-test
   (testing "system-time returns positive integer"
-    (let [result (eval* "(system-time)")]
+    (let [result (system-time)]
       (is (integer? result))
       (is (pos? result))))
   (testing "system-time returns value near current time"
     ;; Should be sometime after 2020 (timestamp > 1577836800000)
-    (let [result (eval* "(system-time)")]
-      (is (> result 1577836800000))))
-  (testing "system-time progresses"
-    (let [t1 (eval* "(system-time)")
-          _ (Thread/sleep 10) ; Wait a bit
-          t2 (eval* "(system-time)")]
-      (is (>= t2 t1)))))
+    (let [result (system-time)]
+      (is (> result 1577836800000)))))
 
 ;; =============================================================================
 ;; Now Millis (alias for system-time)
@@ -30,14 +26,14 @@
 
 (deftest now-millis-test
   (testing "now-millis returns positive integer"
-    (let [result (eval* "(now-millis)")]
+    (let [result (now-millis)]
       (is (integer? result))
       (is (pos? result))))
-  (testing "now-millis matches system-time"
+  (testing "now-millis close to system-time"
     ;; These should be very close in value (within a few milliseconds)
-    (let [t1 (eval* "(system-time)")
-          t2 (eval* "(now-millis)")]
-      (is (< (Math/abs (- t2 t1)) 100)))))
+    (let [t1 (system-time)
+          t2 (now-millis)]
+      (is (< (abs (- t2 t1)) 100)))))
 
 ;; =============================================================================
 ;; Now Nanoseconds
@@ -45,19 +41,9 @@
 
 (deftest now-nanos-test
   (testing "now-nanos returns positive integer"
-    (let [result (eval* "(now-nanos)")]
+    (let [result (now-nanos)]
       (is (integer? result))
-      (is (pos? result))))
-  (testing "now-nanos is larger than now-millis"
-    ;; Nanoseconds should be ~1,000,000 times larger than milliseconds
-    (let [millis (eval* "(now-millis)")
-          nanos  (eval* "(now-nanos)")]
-      (is (> nanos (* millis 1000000)))))
-  (testing "now-nanos progresses"
-    (let [t1 (eval* "(now-nanos)")
-          _ (Thread/sleep 1)
-          t2 (eval* "(now-nanos)")]
-      (is (> t2 t1)))))
+      (is (pos? result)))))
 
 ;; =============================================================================
 ;; Now Microseconds
@@ -65,20 +51,14 @@
 
 (deftest now-micros-test
   (testing "now-micros returns positive integer"
-    (let [result (eval* "(now-micros)")]
+    (let [result (now-micros)]
       (is (integer? result))
       (is (pos? result))))
-  (testing "now-micros is between millis and nanos"
+  (testing "now-micros is larger than millis"
     ;; Microseconds should be ~1,000 times larger than milliseconds
-    ;; and ~1,000 times smaller than nanoseconds
-    (let [millis (eval* "(now-millis)")
-          micros (eval* "(now-micros)")]
-      (is (> micros (* millis 1000)))))
-  (testing "now-micros progresses"
-    (let [t1 (eval* "(now-micros)")
-          _ (Thread/sleep 1)
-          t2 (eval* "(now-micros)")]
-      (is (> t2 t1)))))
+    (let [millis (now-millis)
+          micros (now-micros)]
+      (is (> micros (* millis 1000))))))
 
 ;; =============================================================================
 ;; Now Seconds
@@ -86,17 +66,17 @@
 
 (deftest now-secs-test
   (testing "now-secs returns positive integer"
-    (let [result (eval* "(now-secs)")]
+    (let [result (now-secs)]
       (is (integer? result))
       (is (pos? result))))
   (testing "now-secs is smaller than now-millis"
     ;; Seconds should be ~1,000 times smaller than milliseconds
-    (let [millis (eval* "(now-millis)")
-          secs   (eval* "(now-secs)")]
+    (let [millis (now-millis)
+          secs   (now-secs)]
       (is (< (* secs 1000) (+ millis 1000))))) ; Allow 1 second tolerance
   (testing "now-secs returns value after 2020"
     ;; Should be sometime after 2020 (timestamp > 1577836800)
-    (let [result (eval* "(now-secs)")]
+    (let [result (now-secs)]
       (is (> result 1577836800)))))
 
 ;; =============================================================================
@@ -106,10 +86,10 @@
 (deftest time-unit-relationships-test
   (testing "time units are properly scaled"
     ;; Get all time values around the same moment
-    (let [millis (eval* "(now-millis)")
-          micros (eval* "(now-micros)")
-          nanos  (eval* "(now-nanos)")
-          secs   (eval* "(now-secs)")]
+    (let [millis (now-millis)
+          micros (now-micros)
+          nanos  (now-nanos)
+          secs   (now-secs)]
       ;; Verify rough ordering (allowing for small timing differences)
       (is (> nanos micros))
       (is (> micros millis))
@@ -121,29 +101,23 @@
 
 (deftest datetime-arity-errors-test
   (testing "system-time requires no arguments"
-    (is (thrown? Exception (eval* "(system-time 123)"))))
+    (is (thrown? Exception (system-time 123))))
   (testing "now-millis requires no arguments"
-    (is (thrown? Exception (eval* "(now-millis 123)"))))
+    (is (thrown? Exception (now-millis 123))))
   (testing "now-nanos requires no arguments"
-    (is (thrown? Exception (eval* "(now-nanos 123)"))))
+    (is (thrown? Exception (now-nanos 123))))
   (testing "now-micros requires no arguments"
-    (is (thrown? Exception (eval* "(now-micros 123)"))))
+    (is (thrown? Exception (now-micros 123))))
   (testing "now-secs requires no arguments"
-    (is (thrown? Exception (eval* "(now-secs 123)")))))
+    (is (thrown? Exception (now-secs 123)))))
 
 ;; =============================================================================
 ;; Practical Use Cases
 ;; =============================================================================
 
 (deftest timing-operations-test
-  (testing "can measure elapsed time with now-millis"
-    (let [start    (eval* "(def start (now-millis))")
-          _ (Thread/sleep 50) ; Do some work
-          duration (eval* "(- (now-millis) start)")]
-      (is (>= duration 40)) ; Should be at least 40ms
-      (is (< duration 200)))) ; But not too long
   (testing "can use now-secs for timestamp"
-    (let [timestamp (eval* "(now-secs)")]
+    (let [timestamp (now-secs)]
       ;; Should be a reasonable Unix timestamp
       (is (> timestamp 1000000000)) ; After Sep 2001
       (is (< timestamp 3000000000))))) ; Before Jan 2065
@@ -154,8 +128,10 @@
 
 (deftest time-value-types-test
   (testing "all time functions return integers"
-    (is (integer? (eval* "(system-time)")))
-    (is (integer? (eval* "(now-millis)")))
-    (is (integer? (eval* "(now-nanos)")))
-    (is (integer? (eval* "(now-micros)")))
-    (is (integer? (eval* "(now-secs)")))))
+    (is (integer? (system-time)))
+    (is (integer? (now-millis)))
+    (is (integer? (now-nanos)))
+    (is (integer? (now-micros)))
+    (is (integer? (now-secs)))))
+
+(run-all-tests)

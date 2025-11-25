@@ -200,6 +200,8 @@ struct RegistryInner {
     protocols: HashMap<String, Rc<Protocol>>,
     /// Registered record types (qualified name -> RecordDef)
     records: HashMap<String, RecordDef>,
+    /// Embedded namespace sources (for stdlib namespaces loaded on require)
+    embedded_sources: HashMap<String, &'static str>,
 }
 
 impl NamespaceRegistry {
@@ -224,6 +226,7 @@ impl NamespaceRegistry {
                 global_hierarchy: Rc::new(RefCell::new(KlujurHierarchy::new())),
                 protocols: HashMap::new(),
                 records: HashMap::new(),
+                embedded_sources: HashMap::new(),
             })),
         }
     }
@@ -388,6 +391,25 @@ impl NamespaceRegistry {
             }
         }
         None
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Embedded Sources (for stdlib namespaces)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Register an embedded source for a namespace.
+    /// This allows namespaces to be loaded via `require` without file system access.
+    /// Used for stdlib namespaces like `klujur.test`.
+    pub fn register_embedded_source(&self, ns_name: &str, source: &'static str) {
+        self.inner
+            .borrow_mut()
+            .embedded_sources
+            .insert(ns_name.to_string(), source);
+    }
+
+    /// Get the embedded source for a namespace, if registered.
+    pub fn get_embedded_source(&self, ns_name: &str) -> Option<&'static str> {
+        self.inner.borrow().embedded_sources.get(ns_name).copied()
     }
 
     /// Find a namespace by name, or create it if it doesn't exist.

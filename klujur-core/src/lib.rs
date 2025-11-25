@@ -55,6 +55,9 @@ pub use klujur_parser::{Keyword, KlujurVal, Symbol};
 /// Embedded standard library source (macros and utility functions).
 const CORE_STDLIB: &str = include_str!("../../klujur-std/core.cljc");
 
+/// Embedded test library source (testing framework).
+const TEST_STDLIB: &str = include_str!("../../klujur-std/test.cljc");
+
 /// Initialise the standard library by evaluating embedded macros.
 ///
 /// This loads the standard library into the `klujur.core` namespace,
@@ -98,12 +101,57 @@ pub fn init_stdlib(env: &Env) -> Result<()> {
         eval::eval(&expr, env)?;
     }
 
+    // Register klujur.test as an embedded source (lazy loaded on require)
+    registry.register_embedded_source("klujur.test", TEST_STDLIB);
+
     // Refer all klujur.core publics into the user namespace
     let user_ns = registry.find("user").expect("user namespace should exist");
     registry.refer_core_to(&user_ns);
 
     // Restore user as the current namespace
     registry.set_current("user");
+
+    Ok(())
+}
+
+/// Explicitly initialise the test library.
+///
+/// This is provided for Rust API users who want to pre-load the test library
+/// rather than relying on `(require '[klujur.test])` from Klujur code.
+///
+/// # Examples
+///
+/// ```
+/// use klujur_core::{Env, register_builtins, init_stdlib, init_test_stdlib};
+///
+/// let env = Env::new();
+/// register_builtins(&env);
+/// init_stdlib(&env).unwrap();
+/// init_test_stdlib(&env).unwrap();
+///
+/// // klujur.test is now loaded and ready to use
+/// ```
+pub fn init_test_stdlib(env: &Env) -> Result<()> {
+    let registry = env.registry();
+    let prev_ns = registry.current_name();
+
+    // Switch to klujur.test namespace
+    registry.set_current("klujur.test");
+
+    let mut parser = klujur_parser::Parser::new(TEST_STDLIB)
+        .map_err(|e| Error::parse_error(format!("Failed to parse test lib: {:?}", e)))?;
+
+    while let Some(expr) = parser
+        .parse()
+        .map_err(|e| Error::parse_error(format!("Failed to parse test lib: {:?}", e)))?
+    {
+        eval::eval(&expr, env)?;
+    }
+
+    registry.mark_loaded("klujur.test");
+
+    // Restore the previous namespace
+    registry.set_current(&prev_ns);
 
     Ok(())
 }

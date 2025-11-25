@@ -555,9 +555,9 @@
   ([f coll]
    (lazy-seq (when-let [s (seq coll)]
                (if (chunked-seq? s)
-                 (let [c (chunk-first s)
+                 (let [c    (chunk-first s)
                        size (chunk-count c)
-                       b (chunk-buffer size)]
+                       b    (chunk-buffer size)]
                    (dotimes [i size]
                      (chunk-append b (f (chunk-nth c i))))
                    (chunk-cons (chunk b) (map f (chunk-rest s))))
@@ -595,13 +595,12 @@
   ([pred coll]
    (lazy-seq (when-let [s (seq coll)]
                (if (chunked-seq? s)
-                 (let [c (chunk-first s)
+                 (let [c    (chunk-first s)
                        size (chunk-count c)
-                       b (chunk-buffer size)]
+                       b    (chunk-buffer size)]
                    (dotimes [i size]
                      (let [v (chunk-nth c i)]
-                       (when (pred v)
-                         (chunk-append b v))))
+                       (when (pred v) (chunk-append b v))))
                    (chunk-cons (chunk b) (filter pred (chunk-rest s))))
                  (let [f (first s)]
                    (if (pred f)
