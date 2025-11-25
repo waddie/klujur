@@ -1,6 +1,6 @@
 # Klujur
 
-This is an LLM coded experiment. I don’t recommend actually using it. I was curious how far you can get prompting Claude Code over a weekend to build something complex.
+This is an LLM coded experiment. I don’t recommend actually using it. I was curious how far you can get prompting Claude Code (mostly Sonnet 4.5, some Opus 4.5) over a weekend to build something complex.
 
 Klujur is an interpreted programming language modelled on [Clojure](https://github.com/clojure/clojure). Klujur is written in Rust and intended to be useful as an embedded scripting language, but also ships with a standalone CLI REPL.
 
