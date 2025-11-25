@@ -54,15 +54,16 @@ pub(crate) fn builtin_deref(args: &[KlujurVal]) -> Result<KlujurVal> {
 // Dynamic Bindings
 // ============================================================================
 
-/// (bound? var) - check if a var has a value (root or thread-local)
+/// (bound? var) - check if a var has a root binding or thread-local binding
 pub(crate) fn builtin_bound_p(args: &[KlujurVal]) -> Result<KlujurVal> {
     if args.len() != 1 {
         return Err(Error::arity_named("bound?", 1, args.len()));
     }
     match &args[0] {
-        KlujurVal::Var(_) => {
-            // In our implementation, all vars have a root value when created
-            Ok(KlujurVal::bool(true))
+        KlujurVal::Var(v) => {
+            // Check if var is bound (has root binding or thread-local binding)
+            let is_bound = v.is_bound() || has_thread_binding(v);
+            Ok(KlujurVal::bool(is_bound))
         }
         other => Err(Error::type_error("Var", other.type_name())),
     }

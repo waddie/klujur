@@ -8,7 +8,8 @@ use std::path::Path;
 use std::process;
 
 use klujur_core::{
-    Env, eval, init_stdlib, register_builtins, set_bytecode_mode, set_bytecode_registry,
+    Env, eval, init_stdlib, realize_for_print, register_builtins, set_bytecode_mode,
+    set_bytecode_registry,
 };
 use klujur_parser::Parser;
 
@@ -153,7 +154,10 @@ fn run_repl(env: &Env, bytecode_mode: bool) {
                 match Parser::new(input) {
                     Ok(mut parser) => match parser.parse() {
                         Ok(Some(expr)) => match eval(&expr, env) {
-                            Ok(result) => println!("{}", result),
+                            Ok(result) => match realize_for_print(result) {
+                                Ok(realized) => println!("{}", realized),
+                                Err(e) => eprintln!("Error realizing result: {}", e),
+                            },
                             Err(e) => eprintln!("Error: {}", e),
                         },
                         Ok(None) => {}

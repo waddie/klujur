@@ -189,9 +189,19 @@ impl Drop for EvalDepthGuard {
     }
 }
 
-use crate::bindings::deref_var;
+use crate::bindings::{deref_var, has_thread_binding};
 use crate::env::Env;
 use crate::error::{Error, Result};
+use klujur_parser::KlujurVar;
+
+/// Safely dereference a var, throwing an error if unbound.
+#[inline]
+fn safe_deref_var(var: &KlujurVar) -> Result<KlujurVal> {
+    if !var.is_bound() && !has_thread_binding(var) {
+        return Err(Error::unbound_var(&var.qualified_name()));
+    }
+    Ok(deref_var(var))
+}
 
 // Import from submodules for internal use
 use apply::apply_fn;
@@ -324,7 +334,7 @@ pub fn eval(expr: &KlujurVal, env: &Env) -> Result<KlujurVal> {
                             sym.name()
                         )));
                     }
-                    return Ok(deref_var(&var));
+                    return safe_deref_var(&var);
                 }
 
                 // Then try to look up the namespace directly by name
@@ -339,7 +349,7 @@ pub fn eval(expr: &KlujurVal, env: &Env) -> Result<KlujurVal> {
                                 sym.name()
                             )));
                         }
-                        return Ok(deref_var(&var));
+                        return safe_deref_var(&var);
                     }
                 }
                 // Fall through to normal lookup if not found
@@ -347,19 +357,16 @@ pub fn eval(expr: &KlujurVal, env: &Env) -> Result<KlujurVal> {
 
             // Try lexical environment first
             match env.lookup(sym) {
-                Ok(val) => {
-                    // Auto-deref Vars to get the value (checking thread bindings)
-                    match val {
-                        KlujurVal::Var(v) => Ok(deref_var(&v)),
-                        other => Ok(other),
-                    }
-                }
+                // Lexical bindings are returned as-is (including Vars bound by user)
+                // This allows (let [v #'foo] (var? v)) to work correctly
+                Ok(val) => Ok(val),
                 Err(_) => {
                     // Not in lexical env, try namespace registry (current ns + refers)
+                    // Namespace vars are auto-dereferenced to get their value
                     let registry = env.registry();
                     let current_ns = registry.current();
                     if let Some(var) = current_ns.resolve(sym) {
-                        return Ok(deref_var(&var));
+                        return safe_deref_var(&var);
                     }
                     Err(Error::UndefinedSymbol(sym.clone()))
                 }
@@ -394,7 +401,8 @@ pub fn eval(expr: &KlujurVal, env: &Env) -> Result<KlujurVal> {
         }
 
         // Vars dereference to their value (checking thread bindings)
-        KlujurVal::Var(v) => Ok(deref_var(v)),
+        // Unbound vars throw an error when accessed
+        KlujurVal::Var(v) => safe_deref_var(v),
 
         // Sorted collections are self-evaluating
         KlujurVal::SortedMapBy(_) | KlujurVal::SortedSetBy(_) => Ok(expr.clone()),
@@ -934,25 +942,36 @@ fn extract_symbol_and_meta(form: &KlujurVal, env: &Env) -> Result<(Symbol, Optio
     }
 }
 
-/// (def name value) - define a var in the current environment
+/// (def name) or (def name value) - define a var in the current environment
 /// Uses "earmuffs" convention: vars named like `*name*` are dynamic.
 /// Also applies any metadata from the symbol to the created var.
 ///
 /// Supports metadata syntax: (def ^:private x 1)
 /// which parses as (def (with-meta x {:private true}) 1)
+/// Also supports docstring: (def name "docstring" value)
 fn eval_def(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
-    if args.is_empty() || args.len() > 2 {
-        return Err(Error::syntax("def", "requires 1 or 2 arguments"));
+    if args.is_empty() || args.len() > 3 {
+        return Err(Error::syntax("def", "requires 1 to 3 arguments"));
     }
 
     // Extract symbol and metadata - handle both direct symbol and (with-meta sym meta)
     let (sym, sym_meta) = extract_symbol_and_meta(&args[0], env)?;
 
-    // If only 1 arg, value is nil (creates unbound var); otherwise evaluate the second arg
-    let val = if args.len() == 2 {
-        eval(&args[1], env)?
+    // Handle docstring form: (def name "docstring" value)
+    let (docstring, value_index) = if args.len() == 3 {
+        match &args[1] {
+            KlujurVal::String(s) => (Some(s.clone()), Some(2)),
+            _ => {
+                return Err(Error::syntax(
+                    "def",
+                    "second argument must be a docstring when 3 arguments are provided",
+                ));
+            }
+        }
+    } else if args.len() == 2 {
+        (None, Some(1))
     } else {
-        KlujurVal::Nil
+        (None, None)
     };
 
     // Check for "earmuffs" convention: *name* indicates dynamic var
@@ -967,17 +986,46 @@ fn eval_def(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
     // Create or update a Var in the current namespace
     let registry = env.registry();
     let current_ns = registry.current();
-    let var = current_ns.intern_with_value(sym.name(), val);
+
+    // Create the var with or without a value
+    let var = if let Some(idx) = value_index {
+        let val = eval(&args[idx], env)?;
+        current_ns.intern_with_value(sym.name(), val)
+    } else {
+        // Create unbound var (or return existing var unchanged)
+        current_ns.intern(sym.name())
+    };
 
     // Set the dynamic flag if using earmuffs convention or :dynamic metadata
     if is_dynamic {
         var.set_dynamic(true);
     }
 
-    // Apply symbol metadata to the var
-    if let Some(meta) = sym_meta {
-        var.set_meta(Some((*meta).clone()));
+    // Build final metadata with :name and :ns, then merge symbol metadata and docstring
+    let name_key = KlujurVal::keyword(Keyword::new("name"));
+    let ns_key = KlujurVal::keyword(Keyword::new("ns"));
+    let doc_key = KlujurVal::keyword(Keyword::new("doc"));
+
+    // Start with default metadata (:name and :ns)
+    let ns_name = current_ns.name();
+    let mut final_meta = Meta::new();
+    final_meta.insert(name_key, KlujurVal::symbol(Symbol::new(sym.name())));
+    final_meta.insert(ns_key, KlujurVal::symbol(Symbol::new(&ns_name)));
+
+    // Merge any symbol metadata (e.g., ^:private)
+    if let Some(m) = sym_meta {
+        for (k, v) in m.iter() {
+            final_meta.insert(k.clone(), v.clone());
+        }
     }
+
+    // Add docstring if present
+    if let Some(doc) = docstring {
+        final_meta.insert(doc_key, KlujurVal::string(doc));
+    }
+
+    // Apply metadata to the var
+    var.set_meta(Some(final_meta));
 
     // Return the Var (vars are stored in the namespace, not lexical env)
     Ok(KlujurVal::Var(var))

@@ -224,16 +224,15 @@
     (is (= 42 (do (def x 42) x)))
     (is (= :value (do (def my-var :value) my-var)))))
 
-;; NOTE: Klujur allows (def x) without value - the var is nil
+;; Klujur follows Clojure semantics: (def x) creates an unbound var
 (deftest def-without-value-test
-  (testing "def without value creates var with nil"
-    ;; In Klujur, (def x) creates x with nil value
-    (is (nil? (do (def unbound-test-x) unbound-test-x)))))
+  (testing "def without value creates unbound var"
+    ;; Accessing an unbound var throws an exception
+    (is (thrown? Exception (do (def unbound-test-x) unbound-test-x)))))
 
-;; NOTE: Klujur doesn't support def with docstring (3-arg form)
-;; (deftest def-with-docstring-test
-;;   (testing "def with docstring"
-;;     (is (= 42 (do (def x "A number" 42) x)))))
+(deftest def-with-docstring-test
+  (testing "def with docstring"
+    (is (= 42 (do (def docstring-test-x "A number" 42) docstring-test-x)))))
 
 (deftest def-redefinition-test
   (testing "def can redefine" (is (= 2 (do (def x 1) (def x 2) x)))))

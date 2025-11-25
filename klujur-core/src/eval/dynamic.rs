@@ -20,16 +20,43 @@ use super::{apply, eval, lookup_symbol};
 // Atom Validation Helper
 // ============================================================================
 
-/// Validate a new value against an atom's validator, then set the value.
+/// Validate a new value against an atom's validator, set the value, and call watches.
 /// In Clojure, if the validator returns false or throws, an IllegalStateException is raised.
-fn validate_and_set_atom(atom: &KlujurAtom, new_val: KlujurVal) -> Result<()> {
+/// Watches are called with (watch-fn key atom old-val new-val) after successful state change.
+fn validate_and_set_atom(
+    atom: &KlujurAtom,
+    atom_val: &KlujurVal,
+    new_val: KlujurVal,
+) -> Result<()> {
+    // Capture old value before any changes
+    let old_val = atom.deref();
+
+    // Validate the new value
     if let Some(validator) = atom.get_validator() {
         let result = apply(&validator, std::slice::from_ref(&new_val))?;
         if !result.is_truthy() {
             return Err(Error::EvalError("Invalid reference state".to_string()));
         }
     }
-    atom.set_value(new_val);
+
+    // Set the new value
+    atom.set_value(new_val.clone());
+
+    // Call all watch functions: (watch-fn key atom old-val new-val)
+    let watches = atom.get_watches();
+    for (key, watch_fn) in watches.iter() {
+        // Ignore errors from watch functions (Clojure behaviour)
+        let _ = apply(
+            watch_fn,
+            &[
+                key.clone(),
+                atom_val.clone(),
+                old_val.clone(),
+                new_val.clone(),
+            ],
+        );
+    }
+
     Ok(())
 }
 
@@ -210,7 +237,7 @@ pub(crate) fn eval_swap(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
     call_args.extend(extra_args);
 
     let new_val = apply(&f, &call_args)?;
-    validate_and_set_atom(atom, new_val.clone())?;
+    validate_and_set_atom(atom, &atom_val, new_val.clone())?;
 
     Ok(new_val)
 }
@@ -249,7 +276,7 @@ pub(crate) fn eval_swap_vals(args: &[KlujurVal], env: &Env) -> Result<KlujurVal>
     call_args.extend(extra_args);
 
     let new_val = apply(&f, &call_args)?;
-    validate_and_set_atom(atom, new_val.clone())?;
+    validate_and_set_atom(atom, &atom_val, new_val.clone())?;
 
     Ok(KlujurVal::vector(vec![old_val, new_val]))
 }
@@ -269,7 +296,7 @@ pub(crate) fn eval_reset(args: &[KlujurVal], env: &Env) -> Result<KlujurVal> {
     };
 
     let new_val = eval(&args[1], env)?;
-    validate_and_set_atom(atom, new_val.clone())?;
+    validate_and_set_atom(atom, &atom_val, new_val.clone())?;
 
     Ok(new_val)
 }
@@ -294,7 +321,7 @@ pub(crate) fn eval_reset_vals(args: &[KlujurVal], env: &Env) -> Result<KlujurVal
 
     let old_val = atom.deref();
     let new_val = eval(&args[1], env)?;
-    validate_and_set_atom(atom, new_val.clone())?;
+    validate_and_set_atom(atom, &atom_val, new_val.clone())?;
 
     Ok(KlujurVal::vector(vec![old_val, new_val]))
 }

@@ -230,9 +230,11 @@
 
 (deftest condp-custom-predicate-test
   (testing "condp with custom predicate"
-    (is (= :small (condp < 5 10 :small 20 :medium 30 :large)))
-    (is (= :contains-a
-           (condp contains? #{:a :b} :a :contains-a :c :contains-c)))))
+    ;; condp evaluates (pred test-expr expr), so (> 10 5) is true
+    (is (= :small (condp > 5 10 :small 20 :medium 30 :large)))
+    ;; Use a set as predicate - sets act as functions that return the
+    ;; element if present
+    (is (= :contains-a (condp #{:a :b} :a :a :contains-a :c :contains-c)))))
 
 (deftest condp-threading-test
   (testing "condp with :>> threading"

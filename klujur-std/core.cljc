@@ -70,15 +70,16 @@
   "defs name to have the root value of the expr iff the named var has no root value,
    else expr is unevaluated"
   [name expr]
-  ;; Use try/catch since var throws if symbol is unresolved
-  `(try (when-not (bound? (var ~name)) (def ~name ~expr))
-        (catch :default _# (def ~name ~expr))))
+  ;; Check if var exists and is bound (has non-nil root value)
+  ;; In Klujur, nil is treated as unbound for defonce purposes
+  (let [v (gensym "v")]
+    `(let [~v (resolve '~name)]
+       (when (or (nil? ~v) (not (bound? ~v))) (def ~name ~expr)))))
 
 (defmacro declare
-  "defs the supplied var names with no bindings, useful for making forward declarations.
-   Note: In Klujur, vars are initialised to nil (Clojure uses unbound vars)."
+  "defs the supplied var names with no bindings, useful for making forward declarations."
   [& names]
-  (cons 'do (map (fn [n] (list 'def n nil)) names)))
+  (cons 'do (map (fn [n] (list 'def n)) names)))
 
 (defmacro comment "Ignores body, yields nil" [& _body] nil)
 
@@ -275,30 +276,37 @@
     (:a :b) \"got a or b\"
     :c \"got c\")"
   [expr & clauses]
-  (let [default       (if (odd? (count clauses))
-                        (last clauses)
-                        `(throw (ex-info (str "No matching clause: " ~expr)
-                                         {:value ~expr})))
-        pairs         (vec
-                       (if (odd? (count clauses)) (butlast clauses) clauses))
-        g             (gensym "case_")
+  (let [default         (if (odd? (count clauses))
+                          (last clauses)
+                          `(throw (ex-info (str "No matching clause: " ~expr)
+                                           {:value ~expr})))
+        pairs           (vec
+                         (if (odd? (count clauses)) (butlast clauses) clauses))
+        g               (gensym "case_")
         ;; Build indexed result fns: {0 (fn [] result0), 1 (fn [] result1),
         ;; ...}
         ;; We use thunks to avoid evaluating all branches
-        indexed-pairs (vec (map-indexed vector (partition 2 pairs)))
+        indexed-pairs   (vec (map-indexed vector (partition 2 pairs)))
         ;; Build the dispatch map: {test-val index, ...}
-        ;; We build this manually to avoid lazy-seq issues with into
-        dispatch-map  (reduce (fn [m [idx [test _then]]]
-                                (if (list? test)
-                                  ;; Multiple values map to same index
-                                  (reduce (fn [m2 t] (assoc m2 t idx)) m test)
-                                  (assoc m test idx)))
-                              {}
-                              indexed-pairs)
+        ;; We build this manually to avoid lazy-seq issues with into. Only
+        ;; symbols need quoting - numbers, keywords, strings are
+        ;; self-evaluating
+        quote-if-needed (fn [k] (if (symbol? k) (list 'quote k) k))
+        dispatch-map    (reduce (fn [m [idx [test _then]]]
+                                  (if (list? test)
+                                    ;; Multiple values map to same index
+                                    (reduce
+                                     (fn [m2 t]
+                                       (assoc m2 (quote-if-needed t) idx))
+                                     m
+                                     test)
+                                    (assoc m (quote-if-needed test) idx)))
+                                {}
+                                indexed-pairs)
         ;; Build thunks for each branch
-        thunks        (vec (map (fn [[_idx [_test then]]] `(fn [] ~then))
-                                indexed-pairs))
-        thunks-sym    (gensym "thunks_")]
+        thunks          (vec (map (fn [[_idx [_test then]]] `(fn [] ~then))
+                                  indexed-pairs))
+        thunks-sym      (gensym "thunks_")]
     `(let [~g ~expr
            ~thunks-sym ~thunks]
        (if-let [idx# (get ~dispatch-map ~g)]

@@ -341,6 +341,11 @@ impl Error {
     pub fn parse_error(message: impl Into<String>) -> Self {
         Error::ParseError(message.into())
     }
+
+    /// Create an unbound var error.
+    pub fn unbound_var(name: &str) -> Self {
+        Error::EvalError(format!("Unbound var: #'{}", name))
+    }
 }
 
 /// Helper to check if a value is a specific type for error messages.

@@ -96,7 +96,7 @@ use eager_sequences::{
     builtin_ffirst, builtin_fnext, builtin_frequencies, builtin_group_by, builtin_nfirst,
     builtin_nnext, builtin_rseq, builtin_sort, builtin_sort_by,
 };
-use exceptions::{builtin_ex_data, builtin_ex_info, builtin_ex_message};
+use exceptions::{builtin_ex_cause, builtin_ex_data, builtin_ex_info, builtin_ex_message};
 use higher_order::{
     builtin_apply, builtin_comp, builtin_constantly, builtin_every_p, builtin_filter,
     builtin_identity, builtin_map, builtin_not_any_p, builtin_not_every_p, builtin_partial,
@@ -133,9 +133,10 @@ use multimethods::{
 };
 use predicates::{
     builtin_bigint_p, builtin_boolean_p, builtin_coll_p, builtin_denominator, builtin_float_p,
-    builtin_fn_p, builtin_integer_p, builtin_keyword_p, builtin_list_p, builtin_map_p,
-    builtin_nil_p, builtin_number_p, builtin_numerator, builtin_ratio_p, builtin_seq_p,
-    builtin_set_p, builtin_some_p, builtin_string_p, builtin_symbol_p, builtin_vector_p,
+    builtin_fn_p, builtin_hierarchy_p, builtin_integer_p, builtin_keyword_p, builtin_list_p,
+    builtin_map_p, builtin_nil_p, builtin_number_p, builtin_numerator, builtin_ratio_p,
+    builtin_seq_p, builtin_set_p, builtin_some_p, builtin_string_p, builtin_symbol_p,
+    builtin_vector_p,
 };
 use random::{
     builtin_gensym, builtin_hash, builtin_rand, builtin_rand_int, builtin_rand_nth, builtin_shuffle,
@@ -277,6 +278,7 @@ pub fn register_builtins(env: &Env) {
     core_ns.define_native("vector?", builtin_vector_p);
     core_ns.define_native("map?", builtin_map_p);
     core_ns.define_native("set?", builtin_set_p);
+    core_ns.define_native("hierarchy?", builtin_hierarchy_p);
     core_ns.define_native("fn?", builtin_fn_p);
     core_ns.define_native("coll?", builtin_coll_p);
     core_ns.define_native("seq?", builtin_seq_p);
@@ -417,6 +419,7 @@ pub fn register_builtins(env: &Env) {
     core_ns.define_native("ex-info", builtin_ex_info);
     core_ns.define_native("ex-message", builtin_ex_message);
     core_ns.define_native("ex-data", builtin_ex_data);
+    core_ns.define_native("ex-cause", builtin_ex_cause);
 
     // Dynamic bindings
     core_ns.define_native("bound?", builtin_bound_p);

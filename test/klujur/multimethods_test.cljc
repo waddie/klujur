@@ -96,7 +96,8 @@
 ;; =============================================================================
 
 (deftest custom-hierarchy-test
-  (testing "make-hierarchy creates hierarchy" (is (map? (make-hierarchy))))
+  (testing "make-hierarchy creates hierarchy"
+    (is (hierarchy? (make-hierarchy))))
   (testing "derive with custom hierarchy"
     (is (true? (let [h (-> (make-hierarchy)
                            (derive :child :parent))]

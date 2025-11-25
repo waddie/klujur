@@ -123,7 +123,8 @@
 (deftest vector-as-function-test
   (testing "vector as function (lookup)"
     (is (= :b ([:a :b :c] 1)))
-    (is (nil? ([:a :b] 5)))))
+    ;; Out of bounds throws, unlike get which returns nil
+    (is (thrown? Exception ([:a :b] 5)))))
 
 ;; =============================================================================
 ;; Maps

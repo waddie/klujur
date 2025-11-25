@@ -64,8 +64,9 @@ impl Namespace {
         self.inner.borrow().name.clone()
     }
 
-    /// Intern a Var with the given name, creating it if it doesn't exist.
+    /// Intern an unbound Var with the given name, creating it if it doesn't exist.
     /// Returns the existing Var if one already exists.
+    /// Use `intern_with_value` to create a bound var.
     pub fn intern(&self, name: impl Into<String>) -> KlujurVar {
         let name = name.into();
         let mut inner = self.inner.borrow_mut();
@@ -75,16 +76,16 @@ impl Namespace {
         }
 
         let ns_name = inner.name.to_string();
-        let var = KlujurVar::new_with_ns(ns_name, name.clone(), KlujurVal::Nil);
+        let var = KlujurVar::new_unbound_with_ns(ns_name, name.clone());
         inner.vars.insert(name, var.clone());
         var
     }
 
     /// Intern a Var with the given name and value.
-    /// Updates the root value if the Var already exists.
+    /// Creates and binds a new var, or binds an existing var to the new value.
     pub fn intern_with_value(&self, name: impl Into<String>, value: KlujurVal) -> KlujurVar {
         let var = self.intern(name);
-        var.set_root(value);
+        var.bind(value);
         var
     }
 

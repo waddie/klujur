@@ -155,3 +155,88 @@ pub fn init_test_stdlib(env: &Env) -> Result<()> {
 
     Ok(())
 }
+
+/// Realize a value for printing, forcing any lazy sequences.
+///
+/// In Clojure, printing a lazy sequence forces it. This function
+/// recursively walks the value and forces any lazy sequences,
+/// converting them to lists for display.
+///
+/// # Examples
+///
+/// ```
+/// use klujur_core::{Env, eval, register_builtins, init_stdlib, realize_for_print};
+/// use klujur_parser::Parser;
+///
+/// let env = Env::new();
+/// register_builtins(&env);
+/// init_stdlib(&env).unwrap();
+///
+/// // Evaluate a lazy sequence
+/// let mut parser = Parser::new("(filter even? [1 2 3 4])").unwrap();
+/// let expr = parser.parse().unwrap().unwrap();
+/// let result = eval(&expr, &env).unwrap();
+///
+/// // Force and print
+/// let realized = realize_for_print(result).unwrap();
+/// assert!(realized.to_string().contains("2"));
+/// ```
+pub fn realize_for_print(val: KlujurVal) -> Result<KlujurVal> {
+    use builtins::force_lazy_seq;
+    use klujur_parser::{OrdMap, SeqResult};
+
+    match val {
+        KlujurVal::LazySeq(ref _ls) => {
+            // Force and convert to list
+            let mut elements = Vec::new();
+            let mut current = val.clone();
+
+            loop {
+                match current {
+                    KlujurVal::Nil => break,
+                    KlujurVal::List(ref items, _) if items.is_empty() => break,
+                    KlujurVal::List(ref items, _) => {
+                        // Recursively realize elements in case they contain lazy seqs
+                        for item in items.iter() {
+                            elements.push(realize_for_print(item.clone())?);
+                        }
+                        break;
+                    }
+                    KlujurVal::LazySeq(ref ls) => match force_lazy_seq(ls)? {
+                        SeqResult::Empty => break,
+                        SeqResult::Cons(first, rest) => {
+                            elements.push(realize_for_print(first)?);
+                            current = rest;
+                        }
+                    },
+                    other => {
+                        elements.push(realize_for_print(other)?);
+                        break;
+                    }
+                }
+            }
+
+            Ok(KlujurVal::list(elements))
+        }
+        // Recursively handle collections that might contain lazy seqs
+        KlujurVal::Vector(items, meta) => {
+            let realized: Result<Vec<_>> =
+                items.iter().map(|v| realize_for_print(v.clone())).collect();
+            Ok(KlujurVal::Vector(realized?.into_iter().collect(), meta))
+        }
+        KlujurVal::List(items, meta) => {
+            let realized: Result<Vec<_>> =
+                items.iter().map(|v| realize_for_print(v.clone())).collect();
+            Ok(KlujurVal::List(realized?.into_iter().collect(), meta))
+        }
+        KlujurVal::Map(map, meta) => {
+            let mut new_map = OrdMap::new();
+            for (k, v) in map.iter() {
+                new_map.insert(realize_for_print(k.clone())?, realize_for_print(v.clone())?);
+            }
+            Ok(KlujurVal::Map(new_map, meta))
+        }
+        // Other values pass through unchanged
+        other => Ok(other),
+    }
+}

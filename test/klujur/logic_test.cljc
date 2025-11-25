@@ -181,7 +181,8 @@
     (is (= 4 (or (and nil 2) 4))))
   (testing "or inside and"
     (is (= 2 (and (or nil 1) 2)))
-    (is (nil? (and (or nil false) 2)))))
+    ;; (or nil false) -> false, then (and false 2) -> false (not nil)
+    (is (false? (and (or nil false) 2)))))
 
 ;; =============================================================================
 ;; Predicates
@@ -250,9 +251,12 @@
 
 (deftest if-not-logic-test
   (testing "if-not is inverse of if"
-    (is (= :falsy-branch (if-not true :falsy-branch :truthy-branch)))
-    (is (= :truthy-branch (if-not false :falsy-branch :truthy-branch)))
-    (is (= :truthy-branch (if-not nil :falsy-branch :truthy-branch)))))
+    ;; if-not: when test is truthy, return else; when falsy, return then
+    (is (= :else (if-not true :then :else)))  ; true is truthy -> else
+                                              ; branch
+    (is (= :then (if-not false :then :else))) ; false is falsy -> then
+                                              ; branch
+    (is (= :then (if-not nil :then :else)))))
 
 (deftest when-not-logic-test
   (testing "when-not executes on falsy"

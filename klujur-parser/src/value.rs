@@ -1329,6 +1329,7 @@ use std::cell::RefCell;
 /// - A name (the symbol bound to)
 /// - A root value (the current value)
 /// - A dynamic flag (for thread-local bindings)
+/// - A bound flag (whether the var has a root binding)
 /// - Optional metadata (mutable via alter-meta!/reset-meta!)
 #[derive(Clone)]
 pub struct KlujurVar {
@@ -1340,29 +1341,57 @@ pub struct KlujurVar {
     root: Rc<RefCell<KlujurVal>>,
     /// Whether this var supports dynamic (thread-local) binding
     dynamic: Rc<RefCell<bool>>,
+    /// Whether this var has a root binding (false for declared/unbound vars)
+    bound: Rc<RefCell<bool>>,
     /// Var metadata (mutable, for doc strings, arglists, etc.)
     meta: Rc<RefCell<Option<Meta>>>,
 }
 
 impl KlujurVar {
-    /// Create a new Var with a value.
+    /// Create a new Var with a value (bound).
     pub fn new(name: String, value: KlujurVal) -> Self {
         KlujurVar {
             ns: None,
             name,
             root: Rc::new(RefCell::new(value)),
             dynamic: Rc::new(RefCell::new(false)),
+            bound: Rc::new(RefCell::new(true)),
             meta: Rc::new(RefCell::new(None)),
         }
     }
 
-    /// Create a new Var with namespace.
+    /// Create a new unbound Var (for declare).
+    pub fn new_unbound(name: String) -> Self {
+        KlujurVar {
+            ns: None,
+            name,
+            root: Rc::new(RefCell::new(KlujurVal::Nil)),
+            dynamic: Rc::new(RefCell::new(false)),
+            bound: Rc::new(RefCell::new(false)),
+            meta: Rc::new(RefCell::new(None)),
+        }
+    }
+
+    /// Create a new Var with namespace (bound).
     pub fn new_with_ns(ns: String, name: String, value: KlujurVal) -> Self {
         KlujurVar {
             ns: Some(ns),
             name,
             root: Rc::new(RefCell::new(value)),
             dynamic: Rc::new(RefCell::new(false)),
+            bound: Rc::new(RefCell::new(true)),
+            meta: Rc::new(RefCell::new(None)),
+        }
+    }
+
+    /// Create a new unbound Var with namespace (for declare).
+    pub fn new_unbound_with_ns(ns: String, name: String) -> Self {
+        KlujurVar {
+            ns: Some(ns),
+            name,
+            root: Rc::new(RefCell::new(KlujurVal::Nil)),
+            dynamic: Rc::new(RefCell::new(false)),
+            bound: Rc::new(RefCell::new(false)),
             meta: Rc::new(RefCell::new(None)),
         }
     }
@@ -1408,6 +1437,19 @@ impl KlujurVar {
     /// Set the dynamic flag.
     pub fn set_dynamic(&self, dynamic: bool) {
         *self.dynamic.borrow_mut() = dynamic;
+    }
+
+    /// Check if this var has a root binding.
+    #[inline]
+    #[must_use]
+    pub fn is_bound(&self) -> bool {
+        *self.bound.borrow()
+    }
+
+    /// Set the bound flag and root value (used when binding an unbound var).
+    pub fn bind(&self, value: KlujurVal) {
+        *self.root.borrow_mut() = value;
+        *self.bound.borrow_mut() = true;
     }
 
     /// Get the fully qualified name.

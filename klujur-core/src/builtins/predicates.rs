@@ -119,6 +119,13 @@ pub(crate) fn builtin_set_p(args: &[KlujurVal]) -> Result<KlujurVal> {
     Ok(KlujurVal::bool(matches!(args[0], KlujurVal::Set(_, _))))
 }
 
+pub(crate) fn builtin_hierarchy_p(args: &[KlujurVal]) -> Result<KlujurVal> {
+    if args.len() != 1 {
+        return Err(Error::arity_named("hierarchy?", 1, args.len()));
+    }
+    Ok(KlujurVal::bool(matches!(args[0], KlujurVal::Hierarchy(_))))
+}
+
 pub(crate) fn builtin_fn_p(args: &[KlujurVal]) -> Result<KlujurVal> {
     if args.len() != 1 {
         return Err(Error::arity_named("fn?", 1, args.len()));
