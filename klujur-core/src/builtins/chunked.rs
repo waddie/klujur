@@ -6,10 +6,14 @@
 //! Chunked sequences process elements in batches of 32 (by default),
 //! reducing the overhead of lazy evaluation for large sequences.
 
-use klujur_parser::{KlujurChunkBuffer, KlujurChunkedSeq, KlujurVal};
+use klujur_parser::{
+    KlujurChunk, KlujurChunkBuffer, KlujurChunkedSeq, KlujurVal, NativeChunkThunk,
+};
 
 use crate::error::{Error, Result};
 use crate::eval::apply;
+
+use super::sequences::CHUNK_SIZE;
 
 // ============================================================================
 // Forcing chunked rest
@@ -37,7 +41,13 @@ pub(crate) fn force_chunked_rest(cs: &KlujurChunkedSeq) -> Result<KlujurVal> {
 
     // Try native thunk
     if let Some(native_thunk) = cs.get_native_rest_thunk() {
-        let val = native_thunk().map_err(Error::EvalError)?;
+        let val = match native_thunk {
+            NativeChunkThunk::Closure(f) => f().map_err(Error::EvalError)?,
+            NativeChunkThunk::Range { start, end, step } => {
+                // Compute range chunk directly - no recursion, no closures
+                compute_range_chunk(start, end, step)
+            }
+        };
         // Cache and return the result (can be any seqable or Nil)
         cs.set_rest_realized(val.clone());
         return Ok(val);
@@ -45,6 +55,53 @@ pub(crate) fn force_chunked_rest(cs: &KlujurChunkedSeq) -> Result<KlujurVal> {
 
     // Should not happen - if not cached, must have some thunk
     Err(Error::syntax("force", "chunked-seq in invalid state"))
+}
+
+/// Compute the next chunk for a range - pure function, no closures, no recursion.
+fn compute_range_chunk(start: i64, end: i64, step: i64) -> KlujurVal {
+    // Check if we've reached the end
+    let at_end = if step > 0 { start >= end } else { start <= end };
+    if at_end {
+        return KlujurVal::Nil;
+    }
+
+    // Build the chunk
+    let chunk = build_range_chunk(start, end, step);
+    if chunk.is_empty() {
+        return KlujurVal::Nil;
+    }
+
+    // Calculate next chunk start
+    let next_start = start + (chunk.len() as i64) * step;
+
+    // Create next thunk as Range variant - NO CLOSURE ALLOCATION
+    let rest_thunk = NativeChunkThunk::Range {
+        start: next_start,
+        end,
+        step,
+    };
+
+    KlujurVal::ChunkedSeq(KlujurChunkedSeq::new_native(chunk, rest_thunk))
+}
+
+/// Build a chunk of range values starting from `start`.
+fn build_range_chunk(start: i64, end: i64, step: i64) -> KlujurChunk {
+    let mut elements = Vec::with_capacity(CHUNK_SIZE);
+    let mut i = start;
+
+    if step > 0 {
+        while i < end && elements.len() < CHUNK_SIZE {
+            elements.push(KlujurVal::int(i));
+            i += step;
+        }
+    } else {
+        while i > end && elements.len() < CHUNK_SIZE {
+            elements.push(KlujurVal::int(i));
+            i += step;
+        }
+    }
+
+    KlujurChunk::new(elements)
 }
 
 // ============================================================================

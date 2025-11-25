@@ -3,8 +3,6 @@
 
 //! Sequence operations: first, rest, cons, count, nth, take, drop, etc.
 
-use std::rc::Rc;
-
 use klujur_parser::{
     KlujurChunk, KlujurChunkedSeq, KlujurLazySeq, KlujurVal, NativeChunkThunk, SeqResult,
 };
@@ -416,6 +414,12 @@ fn nth_from_chunked_seq(
     idx: usize,
     not_found: Option<&KlujurVal>,
 ) -> Result<KlujurVal> {
+    // Check if this is a Range-based chunked seq - handle specially to avoid caching chain
+    if let Some(NativeChunkThunk::Range { start, end, step }) = cs.get_native_rest_thunk() {
+        return nth_from_range(cs.chunk(), start, end, step, idx, not_found);
+    }
+
+    // General case: use caching traversal
     let mut current: KlujurVal = KlujurVal::ChunkedSeq(cs.clone());
     let mut remaining = idx;
 
@@ -451,6 +455,67 @@ fn nth_from_chunked_seq(
                 return builtin_nth(&args);
             }
         }
+    }
+}
+
+/// Optimized nth for Range-based chunked sequences.
+/// Computes the value directly without creating intermediate ChunkedSeq objects.
+fn nth_from_range(
+    first_chunk: &klujur_parser::KlujurChunk,
+    start: i64,
+    end: i64,
+    step: i64,
+    idx: usize,
+    not_found: Option<&KlujurVal>,
+) -> Result<KlujurVal> {
+    let mut remaining = idx;
+
+    // Check if index is in the first chunk
+    let chunk_len = first_chunk.len();
+    if remaining < chunk_len {
+        return Ok(first_chunk.nth(remaining).unwrap().clone());
+    }
+    remaining -= chunk_len;
+
+    // Calculate which chunk and position within chunk
+    // Each chunk after the first has CHUNK_SIZE elements (except possibly the last)
+    let mut current_start = start;
+
+    loop {
+        // Check if we've reached the end of the range
+        let at_end = if step > 0 {
+            current_start >= end
+        } else {
+            current_start <= end
+        };
+        if at_end {
+            if let Some(default) = not_found {
+                return Ok(default.clone());
+            } else {
+                return Err(Error::IndexOutOfBounds {
+                    index: idx as i64,
+                    length: 0,
+                });
+            }
+        }
+
+        // Calculate how many elements in this chunk
+        let elements_remaining = if step > 0 {
+            ((end - current_start + step - 1) / step) as usize
+        } else {
+            ((current_start - end + (-step) - 1) / (-step)) as usize
+        };
+        let this_chunk_len = elements_remaining.min(CHUNK_SIZE);
+
+        if remaining < this_chunk_len {
+            // Found it - compute the value directly
+            let value = current_start + (remaining as i64) * step;
+            return Ok(KlujurVal::int(value));
+        }
+
+        // Move to next chunk
+        remaining -= this_chunk_len;
+        current_start += (this_chunk_len as i64) * step;
     }
 }
 
@@ -1020,33 +1085,10 @@ fn build_range_chunk(start: i64, end: i64, step: i64) -> KlujurChunk {
     KlujurChunk::new(elements)
 }
 
-/// Create a native thunk that generates the rest of a range as chunked seq
+/// Create a native thunk that generates the rest of a range as chunked seq.
+/// Uses the Range variant of NativeChunkThunk - no closures, no recursion.
 fn make_range_thunk(start: i64, end: i64, step: i64) -> NativeChunkThunk {
-    Rc::new(move || {
-        // Check if we've reached the end
-        let at_end = if step > 0 { start >= end } else { start <= end };
-
-        if at_end {
-            Ok(KlujurVal::Nil)
-        } else {
-            // Build the next chunk
-            let chunk = build_range_chunk(start, end, step);
-
-            if chunk.is_empty() {
-                Ok(KlujurVal::Nil)
-            } else {
-                // Calculate next chunk start
-                let next_start = start + (chunk.len() as i64) * step;
-
-                // Create the next thunk
-                let rest_thunk = make_range_thunk(next_start, end, step);
-
-                Ok(KlujurVal::ChunkedSeq(KlujurChunkedSeq::new_native(
-                    chunk, rest_thunk,
-                )))
-            }
-        }
-    })
+    NativeChunkThunk::Range { start, end, step }
 }
 
 /// Helper to extract i64 from a KlujurVal

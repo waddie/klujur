@@ -2232,9 +2232,15 @@ impl std::hash::Hash for KlujurChunkBuffer {
     }
 }
 
-/// A native thunk function type for chunked sequences.
-/// Takes no arguments and returns either a ChunkedSeq or Nil.
-pub type NativeChunkThunk = Rc<dyn Fn() -> std::result::Result<KlujurVal, String>>;
+/// A native thunk for chunked sequences.
+/// Can be either a general-purpose closure or a specialized range iterator.
+#[derive(Clone)]
+pub enum NativeChunkThunk {
+    /// General-purpose closure thunk - takes no arguments, returns ChunkedSeq or Nil.
+    Closure(Rc<dyn Fn() -> std::result::Result<KlujurVal, String>>),
+    /// Optimized range iterator - stores range parameters, no closures needed.
+    Range { start: i64, end: i64, step: i64 },
+}
 
 /// Internal state of a chunked sequence's rest thunk.
 #[derive(Clone)]
