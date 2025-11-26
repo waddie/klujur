@@ -1,0 +1,12 @@
+@ size:120:30
+@ speed:0.1
+@ jitter:0.09
+
+$ cd ~/source/klujur<ret>
+$ clear<ret>
+@ wait:1.0
+$ clj -M examples/bytemap.cljc<ret>
+@ wait:1.0
+
+$ klj examples/bytemap.cljc<ret>
+@ wait:1.0

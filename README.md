@@ -4,6 +4,10 @@ This is an LLM coded experiment. I don’t recommend actually using it. I was cu
 
 Klujur is an interpreted programming language modelled on [Clojure](https://github.com/clojure/clojure). Klujur is written in Rust and intended to be useful as an embedded scripting language, but also ships with a standalone CLI REPL.
 
+## Demo
+
+![A terminal recording of a non-trivial .cljc file running in both Clojure and Klujur](./demo/klujur.gif)
+
 ## Installation
 
 ```sh
