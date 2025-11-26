@@ -24,7 +24,7 @@ pub use symbol::Symbol;
 pub use value::{
     ChunkedRestState, CustomType, FnArity, KlujurAtom, KlujurChunk, KlujurChunkBuffer,
     KlujurChunkedSeq, KlujurCustom, KlujurDelay, KlujurFn, KlujurLazySeq, KlujurMultimethod,
-    KlujurNativeFn, KlujurProtocol, KlujurSortedMapBy, KlujurSortedSetBy, KlujurVal, KlujurVar,
-    KlujurVolatile, LazySeqState, Meta, MethodSignature, NativeChunkThunk, Protocol, RecordDef,
-    RecordInstance, SeqResult, TypeImpl, TypeKey, get_print_length, set_print_length,
+    KlujurNativeFn, KlujurProtocol, KlujurRegex, KlujurSortedMapBy, KlujurSortedSetBy, KlujurVal,
+    KlujurVar, KlujurVolatile, LazySeqState, Meta, MethodSignature, NativeChunkThunk, Protocol,
+    RecordDef, RecordInstance, SeqResult, TypeImpl, TypeKey, get_print_length, set_print_length,
 };

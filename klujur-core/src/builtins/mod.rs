@@ -29,6 +29,7 @@ mod metadata;
 mod multimethods;
 mod predicates;
 mod random;
+mod regex;
 mod sequences;
 mod set_ops;
 mod strings;
@@ -141,6 +142,10 @@ use predicates::{
 use random::{
     builtin_gensym, builtin_hash, builtin_rand, builtin_rand_int, builtin_rand_nth, builtin_shuffle,
 };
+use regex::{
+    builtin_re_find, builtin_re_groups, builtin_re_matches, builtin_re_pattern, builtin_re_seq,
+    builtin_regex_p,
+};
 use sequences::{
     builtin_butlast, builtin_concat, builtin_cons, builtin_count, builtin_drop, builtin_empty_p,
     builtin_first, builtin_into, builtin_last, builtin_mapcat, builtin_next, builtin_nth,
@@ -228,6 +233,7 @@ pub fn register_builtins(env: &Env) {
     math_ns.define_native("round", builtin_round);
     math_ns.define_native("trunc", builtin_trunc);
     math_ns.define_native("signum", builtin_signum);
+    math_ns.define_native("abs", builtin_abs);
     math_ns.define_native("hypot", builtin_hypot);
     math_ns.define_native("nan?", builtin_nan_q);
     math_ns.define_native("infinite?", builtin_infinite_q);
@@ -259,13 +265,52 @@ pub fn register_builtins(env: &Env) {
     time_ns.define_native("now-nanos", builtin_now_nanos);
     time_ns.define_native("now-secs", builtin_now_secs);
 
-    // Set operations registered in clojure.set namespace
-    let set_ns = registry.find_or_create("clojure.set");
+    // Set operations registered in klujur.set namespace
+    let set_ns = registry.find_or_create("klujur.set");
     set_ns.define_native("union", builtin_set_union);
     set_ns.define_native("intersection", builtin_set_intersection);
     set_ns.define_native("difference", builtin_set_difference);
     set_ns.define_native("subset?", builtin_subset_p);
     set_ns.define_native("superset?", builtin_superset_p);
+
+    // String operations registered in klujur.string namespace
+    let string_ns = registry.find_or_create("klujur.string");
+
+    // String case conversion
+    string_ns.define_native("upper-case", builtin_upper_case);
+    string_ns.define_native("lower-case", builtin_lower_case);
+    string_ns.define_native("capitalize", builtin_capitalize);
+
+    // String trimming
+    string_ns.define_native("trim", builtin_trim);
+    string_ns.define_native("triml", builtin_triml);
+    string_ns.define_native("trimr", builtin_trimr);
+
+    // String split/join
+    string_ns.define_native("split", builtin_split);
+    string_ns.define_native("join", builtin_join);
+
+    // String replace
+    string_ns.define_native("replace", builtin_replace);
+    string_ns.define_native("replace-first", builtin_replace_first);
+
+    // String predicates
+    string_ns.define_native("blank?", builtin_blank_p);
+    string_ns.define_native("starts-with?", builtin_starts_with_p);
+    string_ns.define_native("ends-with?", builtin_ends_with_p);
+    string_ns.define_native("includes?", builtin_includes_p);
+
+    // String search/escape
+    string_ns.define_native("index-of", builtin_index_of);
+    string_ns.define_native("escape", builtin_escape);
+
+    // Regular expressions
+    string_ns.define_native("re-pattern", builtin_re_pattern);
+    string_ns.define_native("re-find", builtin_re_find);
+    string_ns.define_native("re-matches", builtin_re_matches);
+    string_ns.define_native("re-seq", builtin_re_seq);
+    string_ns.define_native("re-groups", builtin_re_groups);
+    string_ns.define_native("regex?", builtin_regex_p);
 
     // Comparison
     core_ns.define_native("=", builtin_eq);
@@ -449,40 +494,12 @@ pub fn register_builtins(env: &Env) {
     core_ns.define_native("var-set", builtin_var_set);
     core_ns.define_native("alter-var-root", builtin_alter_var_root);
 
-    // String/Symbol/Keyword operations
+    // String/Symbol/Keyword operations (kept in core)
     core_ns.define_native("name", builtin_name);
     core_ns.define_native("namespace", builtin_namespace);
     core_ns.define_native("symbol", builtin_symbol);
     core_ns.define_native("keyword", builtin_keyword);
     core_ns.define_native("subs", builtin_subs);
-
-    // String case conversion
-    core_ns.define_native("upper-case", builtin_upper_case);
-    core_ns.define_native("lower-case", builtin_lower_case);
-    core_ns.define_native("capitalize", builtin_capitalize);
-
-    // String trimming
-    core_ns.define_native("trim", builtin_trim);
-    core_ns.define_native("triml", builtin_triml);
-    core_ns.define_native("trimr", builtin_trimr);
-
-    // String split/join
-    core_ns.define_native("split", builtin_split);
-    core_ns.define_native("join", builtin_join);
-
-    // String replace
-    core_ns.define_native("replace", builtin_replace);
-    core_ns.define_native("replace-first", builtin_replace_first);
-
-    // String predicates
-    core_ns.define_native("blank?", builtin_blank_p);
-    core_ns.define_native("starts-with?", builtin_starts_with_p);
-    core_ns.define_native("ends-with?", builtin_ends_with_p);
-    core_ns.define_native("includes?", builtin_includes_p);
-
-    // String search/escape
-    core_ns.define_native("index-of", builtin_index_of);
-    core_ns.define_native("escape", builtin_escape);
 
     // Additional predicates
     core_ns.define_native("true?", builtin_true_p);

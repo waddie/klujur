@@ -306,7 +306,7 @@ pub(crate) fn builtin_trimr(args: &[KlujurVal]) -> Result<KlujurVal> {
 // Split and Join
 // ============================================================================
 
-/// (split s delimiter) - splits string by delimiter, returns vector
+/// (split s delimiter) - splits string by delimiter (string or regex), returns vector
 pub(crate) fn builtin_split(args: &[KlujurVal]) -> Result<KlujurVal> {
     if args.len() != 2 {
         return Err(Error::arity_named("split", 2, args.len()));
@@ -315,12 +315,22 @@ pub(crate) fn builtin_split(args: &[KlujurVal]) -> Result<KlujurVal> {
         KlujurVal::String(s) => s.as_ref(),
         other => return Err(Error::type_error_in("split", "string", other.type_name())),
     };
-    let delimiter = match &args[1] {
-        KlujurVal::String(d) => d.as_ref(),
-        other => return Err(Error::type_error_in("split", "string", other.type_name())),
-    };
-    let parts: Vec<KlujurVal> = s.split(delimiter).map(KlujurVal::string).collect();
-    Ok(KlujurVal::vector(parts))
+
+    match &args[1] {
+        KlujurVal::String(d) => {
+            let parts: Vec<KlujurVal> = s.split(d.as_ref()).map(KlujurVal::string).collect();
+            Ok(KlujurVal::vector(parts))
+        }
+        KlujurVal::Regex(r) => {
+            let parts: Vec<KlujurVal> = r.split(s).map(KlujurVal::string).collect();
+            Ok(KlujurVal::vector(parts))
+        }
+        other => Err(Error::type_error_in(
+            "split",
+            "string or regex",
+            other.type_name(),
+        )),
+    }
 }
 
 /// (join coll) or (join sep coll) - joins collection elements into string
@@ -371,7 +381,7 @@ pub(crate) fn builtin_join(args: &[KlujurVal]) -> Result<KlujurVal> {
 // Replace
 // ============================================================================
 
-/// (replace s match replacement) - replaces all occurrences
+/// (replace s match replacement) - replaces all occurrences (match can be string or regex)
 pub(crate) fn builtin_replace(args: &[KlujurVal]) -> Result<KlujurVal> {
     if args.len() != 3 {
         return Err(Error::arity_named("replace", 3, args.len()));
@@ -380,18 +390,25 @@ pub(crate) fn builtin_replace(args: &[KlujurVal]) -> Result<KlujurVal> {
         KlujurVal::String(s) => s.as_ref(),
         other => return Err(Error::type_error_in("replace", "string", other.type_name())),
     };
-    let pattern = match &args[1] {
-        KlujurVal::String(p) => p.as_ref(),
-        other => return Err(Error::type_error_in("replace", "string", other.type_name())),
-    };
     let replacement = match &args[2] {
         KlujurVal::String(r) => r.as_ref(),
         other => return Err(Error::type_error_in("replace", "string", other.type_name())),
     };
-    Ok(KlujurVal::string(s.replace(pattern, replacement)))
+
+    match &args[1] {
+        KlujurVal::String(p) => Ok(KlujurVal::string(s.replace(p.as_ref(), replacement))),
+        KlujurVal::Regex(r) => Ok(KlujurVal::string(
+            r.replace_all(s, replacement).into_owned(),
+        )),
+        other => Err(Error::type_error_in(
+            "replace",
+            "string or regex",
+            other.type_name(),
+        )),
+    }
 }
 
-/// (replace-first s match replacement) - replaces first occurrence only
+/// (replace-first s match replacement) - replaces first occurrence only (match can be string or regex)
 pub(crate) fn builtin_replace_first(args: &[KlujurVal]) -> Result<KlujurVal> {
     if args.len() != 3 {
         return Err(Error::arity_named("replace-first", 3, args.len()));
@@ -406,16 +423,6 @@ pub(crate) fn builtin_replace_first(args: &[KlujurVal]) -> Result<KlujurVal> {
             ));
         }
     };
-    let pattern = match &args[1] {
-        KlujurVal::String(p) => p.as_ref(),
-        other => {
-            return Err(Error::type_error_in(
-                "replace-first",
-                "string",
-                other.type_name(),
-            ));
-        }
-    };
     let replacement = match &args[2] {
         KlujurVal::String(r) => r.as_ref(),
         other => {
@@ -426,7 +433,16 @@ pub(crate) fn builtin_replace_first(args: &[KlujurVal]) -> Result<KlujurVal> {
             ));
         }
     };
-    Ok(KlujurVal::string(s.replacen(pattern, replacement, 1)))
+
+    match &args[1] {
+        KlujurVal::String(p) => Ok(KlujurVal::string(s.replacen(p.as_ref(), replacement, 1))),
+        KlujurVal::Regex(r) => Ok(KlujurVal::string(r.replace(s, replacement).into_owned())),
+        other => Err(Error::type_error_in(
+            "replace-first",
+            "string or regex",
+            other.type_name(),
+        )),
+    }
 }
 
 // ============================================================================

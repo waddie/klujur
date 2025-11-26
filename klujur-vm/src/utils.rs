@@ -122,6 +122,7 @@ pub fn type_name(val: &KlujurVal) -> &'static str {
         KlujurVal::Chunk(_) => "chunk",
         KlujurVal::ChunkBuffer(_) => "chunk-buffer",
         KlujurVal::ChunkedSeq(_) => "chunked-seq",
+        KlujurVal::Regex(_) => "regex",
     }
 }
 

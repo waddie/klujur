@@ -449,12 +449,10 @@ impl<'a> Parser<'a> {
             .lexer
             .take_regex_pattern()
             .ok_or_else(|| self.error("Missing regex pattern".to_string()))?;
-        // For now, store as a list (re-pattern "...")
-        // Later phases can add a proper Regex type
-        Ok(KlujurVal::list(vec![
-            KlujurVal::symbol(Symbol::new("re-pattern")),
-            KlujurVal::string(pattern),
-        ]))
+
+        // Compile the regex at parse time
+        KlujurVal::try_regex(&pattern)
+            .ok_or_else(|| self.error(format!("Invalid regex pattern: {}", pattern)))
     }
 
     fn parse_meta(&mut self) -> Result<KlujurVal, ParseError> {
@@ -840,17 +838,24 @@ mod tests {
     #[test]
     fn test_regex() {
         let val = parse(r#"#"pattern""#);
-        // Should be (re-pattern "pattern")
-        if let KlujurVal::List(items, _) = val {
-            assert_eq!(items.len(), 2);
-            if let KlujurVal::Symbol(sym, _) = &items[0] {
-                assert_eq!(sym.name(), "re-pattern");
-            }
-            if let KlujurVal::String(s) = &items[1] {
-                assert_eq!(s.as_ref(), "pattern");
-            }
+        // Should be a compiled Regex
+        if let KlujurVal::Regex(r) = val {
+            assert_eq!(r.as_str(), "pattern");
         } else {
-            panic!("Expected list");
+            panic!("Expected Regex, got {:?}", val);
+        }
+    }
+
+    #[test]
+    fn test_regex_with_escapes() {
+        let val = parse(r#"#"\d+""#);
+        // Should be a compiled Regex with backslash preserved
+        if let KlujurVal::Regex(r) = val {
+            assert_eq!(r.as_str(), r"\d+");
+            assert!(r.is_match("123"));
+            assert!(!r.is_match("abc"));
+        } else {
+            panic!("Expected Regex, got {:?}", val);
         }
     }
 

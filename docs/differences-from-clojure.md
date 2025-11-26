@@ -119,6 +119,62 @@ Klujur follows Clojure 1.3+ semantics for integer overflow:
 
 **Predicates:** `bigint?` tests for BigInt type. `integer?` returns true for both Int and BigInt.
 
+## Regular Expressions
+
+Klujur uses Rust's `regex` crate, which has different syntax from Java's regex engine used by Clojure.
+
+### Syntax Differences
+
+| Feature                | Clojure (Java)         | Klujur (Rust)     |
+| ---------------------- | ---------------------- | ----------------- |
+| Named groups           | `(?<name>...)`         | `(?P<name>...)`   |
+| Lookahead              | `(?=...)`, `(?!...)`   | **Not supported** |
+| Lookbehind             | `(?<=...)`, `(?<!...)` | **Not supported** |
+| Backreferences         | `\1`, `\2`             | **Not supported** |
+| Unicode categories     | `\p{Letter}`           | `\p{L}`           |
+| Atomic groups          | `(?>...)`              | **Not supported** |
+| Possessive quantifiers | `*+`, `++`             | **Not supported** |
+
+### What Works the Same
+
+Most common regex features work identically:
+
+- Character classes: `[abc]`, `[^abc]`, `[a-z]`
+- Shorthand classes: `\d`, `\w`, `\s`, `\D`, `\W`, `\S`
+- Anchors: `^`, `$`, `\b`, `\B`
+- Quantifiers: `*`, `+`, `?`, `{n}`, `{n,}`, `{n,m}`
+- Alternation: `a|b`
+- Grouping: `(...)`
+- Non-capturing groups: `(?:...)`
+- Case-insensitive: `(?i)`
+
+### Examples
+
+```clojure
+;; These work the same as Clojure
+(re-find #"\d+" "abc123")         ; => "123"
+(re-find #"[A-Z]+" "abcDEF")      ; => "DEF"
+(re-find #"(?i)hello" "HELLO")    ; => "HELLO"
+
+;; Named groups use (?P<name>...) syntax
+(re-find #"(?P<year>\d{4})-(?P<month>\d{2})" "2025-01-15")
+; => ["2025-01" "2025" "01"]
+
+;; These Clojure patterns won't work:
+;; #"(?=foo)"      ; lookahead - not supported
+;; #"(?<=bar)"     ; lookbehind - not supported
+;; #"(.)\1"        ; backreference - not supported
+```
+
+### Porting Clojure Code
+
+When porting regex patterns from Clojure:
+
+1. Replace `(?<name>...)` with `(?P<name>...)`
+2. Rewrite patterns using lookahead/lookbehind without them
+3. Use multiple regex calls instead of backreferences
+4. Use `\p{L}` instead of `\p{Letter}` for Unicode categories
+
 ## Threading Model
 
 Klujur is single-threaded by design:

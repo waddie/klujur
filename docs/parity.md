@@ -111,33 +111,33 @@ A comprehensive comparison of Klujur against Clojure (the reference) and SCI (Sm
 
 ## Lazy Sequences
 
-| Feature                       | Klujur | Clojure | SCI | Notes |
-| ----------------------------- | ------ | ------- | --- | ----- |
-| `lazy-seq`                    | ✓      | ✓       | ✓   |       |
-| `map` (lazy)                  | ✓      | ✓       | ✓   |       |
-| `filter` / `remove` (lazy)    | ✓      | ✓       | ✓   |       |
-| `take` / `drop`               | ✓      | ✓       | ✓   |       |
-| `take-while` / `drop-while`   | ✓      | ✓       | ✓   |       |
-| `take-nth`                    | ✓      | ✓       | ✓   |       |
-| `take-last` / `drop-last`     | ✓      | ✓       | ✓   |       |
-| `concat`                      | ✓      | ✓       | ✓   |       |
-| `mapcat`                      | ✓      | ✓       | ✓   |       |
-| `cycle`                       | ✓      | ✓       | ✓   |       |
-| `repeat`                      | ✓      | ✓       | ✓   |       |
-| `iterate`                     | ✓      | ✓       | ✓   |       |
-| `repeatedly`                  | ✓      | ✓       | ✓   |       |
-| `range` (infinite)            | ✓      | ✓       | ✓   |       |
-| `interleave` / `interpose`    | ✓      | ✓       | ✓   |       |
-| `partition` / `partition-all` | ✓      | ✓       | ✓   |       |
-| `partition-by`                | ✓      | ✓       | ✓   |       |
-| `split-at` / `split-with`     | ✓      | ✓       | ✓   |       |
-| `keep` / `keep-indexed`       | ✓      | ✓       | ✓   |       |
-| `map-indexed`                 | ✓      | ✓       | ✓   |       |
-| `flatten`                     | ✓      | ✓       | ✓   |       |
-| `distinct`                    | ✓      | ✓       | ✓   |       |
-| `reductions`                  | ✓      | ✓       | ✓   |       |
-| `realized?`                   | ✓      | ✓       | ✓   |       |
-| `doall` / `dorun`             | ✓      | ✓       | ✓   |       |
+| Feature                       | Klujur | Clojure | SCI | Notes           |
+| ----------------------------- | ------ | ------- | --- | --------------- |
+| `lazy-seq`                    | ✓      | ✓       | ✓   |                 |
+| `map` (lazy)                  | ✓      | ✓       | ✓   |                 |
+| `filter` / `remove` (lazy)    | ✓      | ✓       | ✓   |                 |
+| `take` / `drop`               | ✓      | ✓       | ✓   |                 |
+| `take-while` / `drop-while`   | ✓      | ✓       | ✓   |                 |
+| `take-nth`                    | ✓      | ✓       | ✓   |                 |
+| `take-last` / `drop-last`     | ✓      | ✓       | ✓   |                 |
+| `concat`                      | ✓      | ✓       | ✓   |                 |
+| `mapcat`                      | ✓      | ✓       | ✓   |                 |
+| `cycle`                       | ✓      | ✓       | ✓   |                 |
+| `repeat`                      | ✓      | ✓       | ✓   |                 |
+| `iterate`                     | ✓      | ✓       | ✓   |                 |
+| `repeatedly`                  | ✓      | ✓       | ✓   |                 |
+| `range` (infinite)            | ✓      | ✓       | ✓   |                 |
+| `interleave` / `interpose`    | ✓      | ✓       | ✓   |                 |
+| `partition` / `partition-all` | ✓      | ✓       | ✓   |                 |
+| `partition-by`                | ✓      | ✓       | ✓   |                 |
+| `split-at` / `split-with`     | ✓      | ✓       | ✓   |                 |
+| `keep` / `keep-indexed`       | ✓      | ✓       | ✓   |                 |
+| `map-indexed`                 | ✓      | ✓       | ✓   |                 |
+| `flatten`                     | ✓      | ✓       | ✓   |                 |
+| `distinct`                    | ✓      | ✓       | ✓   |                 |
+| `reductions`                  | ✓      | ✓       | ✓   |                 |
+| `realized?`                   | ✓      | ✓       | ✓   |                 |
+| `doall` / `dorun`             | ✓      | ✓       | ✓   |                 |
 | Chunked sequences             | ✓      | ✓       | ✗   | Used by `range` |
 
 ## Higher-Order Functions

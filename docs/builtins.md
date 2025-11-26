@@ -2,6 +2,76 @@
 
 This document lists built-in functions in Klujur that are not part of standard Clojure. These functions are organised into dedicated namespaces.
 
+## klujur.string
+
+String manipulation and regular expression functions. Most of these mirror `clojure.string` but are in the `klujur.string` namespace.
+
+```clojure
+(require '[klujur.string :as str])
+```
+
+### String Functions
+
+| Function               | Signature                         | Description                                   |
+| ---------------------- | --------------------------------- | --------------------------------------------- |
+| `upper-case`           | `(upper-case s)`                  | Convert string to uppercase                   |
+| `lower-case`           | `(lower-case s)`                  | Convert string to lowercase                   |
+| `capitalize`           | `(capitalize s)`                  | Capitalise first character                    |
+| `trim`                 | `(trim s)`                        | Remove leading/trailing whitespace            |
+| `triml`                | `(triml s)`                       | Remove leading whitespace                     |
+| `trimr`                | `(trimr s)`                       | Remove trailing whitespace                    |
+| `trim-newline`         | `(trim-newline s)`                | Remove trailing newlines                      |
+| `blank?`               | `(blank? s)`                      | True if nil, empty, or only whitespace        |
+| `join`                 | `(join coll)` `(join sep coll)`   | Join collection with optional separator       |
+| `split`                | `(split s re)` `(split s re lim)` | Split string by regex or string delimiter     |
+| `split-lines`          | `(split-lines s)`                 | Split string into lines                       |
+| `replace`              | `(replace s match replacement)`   | Replace all occurrences (match can be regex)  |
+| `replace-first`        | `(replace-first s match repl)`    | Replace first occurrence (match can be regex) |
+| `reverse`              | `(reverse s)`                     | Reverse a string                              |
+| `includes?`            | `(includes? s substr)`            | True if string contains substring             |
+| `starts-with?`         | `(starts-with? s prefix)`         | True if string starts with prefix             |
+| `ends-with?`           | `(ends-with? s suffix)`           | True if string ends with suffix               |
+| `index-of`             | `(index-of s val)`                | First index of substring, or nil              |
+| `last-index-of`        | `(last-index-of s val)`           | Last index of substring, or nil               |
+| `escape`               | `(escape s cmap)`                 | Escape characters using a map                 |
+| `re-quote-replacement` | `(re-quote-replacement s)`        | Quote string for use as regex replacement     |
+
+### Regular Expression Functions
+
+| Function     | Signature           | Description                                         |
+| ------------ | ------------------- | --------------------------------------------------- |
+| `regex?`     | `(regex? x)`        | True if x is a compiled regex pattern               |
+| `re-pattern` | `(re-pattern s)`    | Compile string into a regex pattern                 |
+| `re-find`    | `(re-find re s)`    | Find first match; returns string or vector w/groups |
+| `re-matches` | `(re-matches re s)` | Match entire string; returns match or nil           |
+| `re-seq`     | `(re-seq re s)`     | Return lazy seq of all matches                      |
+
+### Examples
+
+```clojure
+(require '[klujur.string :as str])
+
+;; String manipulation
+(str/upper-case "hello")           ; => "HELLO"
+(str/join ", " ["a" "b" "c"])      ; => "a, b, c"
+(str/split "a,b,c" #",")           ; => ["a" "b" "c"]
+(str/replace "hello" "l" "L")      ; => "heLLo"
+(str/includes? "hello" "ell")      ; => true
+
+;; Regular expressions
+(str/re-find #"\d+" "abc123def")   ; => "123"
+(str/re-find #"(\d+)" "abc123")    ; => ["123" "123"]
+(str/re-matches #"\d+" "123")      ; => "123"
+(str/re-matches #"\d+" "abc123")   ; => nil
+(str/re-seq #"\d+" "a1b2c3")       ; => ("1" "2" "3")
+
+;; Regex with split/replace
+(str/split "a1b2c3" #"\d+")        ; => ["a" "b" "c"]
+(str/replace "a1b2c3" #"\d+" "X")  ; => "aXbXcX"
+```
+
+**Note:** Klujur uses Rust regex syntax, which differs from Java/Clojure. See [Differences from Clojure](differences-from-clojure.md#regular-expressions) for details.
+
 ## klujur.math
 
 Mathematical functions. In Clojure, these typically require Java interop (`Math/sqrt`, etc.).
@@ -56,13 +126,14 @@ All trigonometric functions work in radians.
 
 ### Miscellaneous
 
-| Function     | Signature          | Description                  |
-| ------------ | ------------------ | ---------------------------- |
-| `signum`     | `(signum x)`       | Sign of x: -1.0, 0.0, or 1.0 |
-| `nan?`       | `(nan? x)`         | True if x is NaN             |
-| `infinite?`  | `(infinite? x)`    | True if x is infinite        |
-| `to-radians` | `(to-radians deg)` | Convert degrees to radians   |
-| `to-degrees` | `(to-degrees rad)` | Convert radians to degrees   |
+| Function     | Signature          | Description                     |
+| ------------ | ------------------ | ------------------------------- |
+| `abs`        | `(abs n)`          | Absolute value (preserves type) |
+| `signum`     | `(signum x)`       | Sign of x: -1.0, 0.0, or 1.0    |
+| `nan?`       | `(nan? x)`         | True if x is NaN                |
+| `infinite?`  | `(infinite? x)`    | True if x is infinite           |
+| `to-radians` | `(to-radians deg)` | Convert degrees to radians      |
+| `to-degrees` | `(to-degrees rad)` | Convert radians to degrees      |
 
 ### Constants
 

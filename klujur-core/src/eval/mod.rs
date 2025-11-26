@@ -305,7 +305,8 @@ pub fn eval(expr: &KlujurVal, env: &Env) -> Result<KlujurVal> {
         | KlujurVal::Record(_)
         | KlujurVal::Chunk(_)
         | KlujurVal::ChunkBuffer(_)
-        | KlujurVal::ChunkedSeq(_) => Ok(expr.clone()),
+        | KlujurVal::ChunkedSeq(_)
+        | KlujurVal::Regex(_) => Ok(expr.clone()),
 
         // Symbol lookup - automatically dereferences Vars
         KlujurVal::Symbol(sym, _) => {

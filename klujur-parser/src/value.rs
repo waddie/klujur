@@ -44,6 +44,159 @@ use crate::keyword::Keyword;
 use crate::symbol::Symbol;
 
 // ============================================================================
+// Regex Type
+// ============================================================================
+
+/// Wrapper for compiled regular expression patterns.
+///
+/// Uses Rust's regex crate syntax, which differs from Java/Clojure regex:
+/// - No lookahead/lookbehind (not supported by Rust regex)
+/// - Named groups use `(?P<name>...)` not `(?<name>...)`
+/// - Unicode categories differ (`\p{L}` vs `\p{Letter}`)
+/// - Backreferences not supported in pattern matching
+#[derive(Clone)]
+pub struct KlujurRegex {
+    inner: Rc<regex::Regex>,
+}
+
+impl KlujurRegex {
+    /// Create a new regex from a pattern string.
+    ///
+    /// Returns None if the pattern is invalid.
+    #[must_use]
+    pub fn new(pattern: &str) -> Option<Self> {
+        regex::Regex::new(pattern)
+            .ok()
+            .map(|r| KlujurRegex { inner: Rc::new(r) })
+    }
+
+    /// Create a new regex, panicking on invalid pattern.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the pattern is invalid.
+    #[must_use]
+    pub fn from_pattern(pattern: &str) -> Self {
+        KlujurRegex {
+            inner: Rc::new(regex::Regex::new(pattern).expect("Invalid regex pattern")),
+        }
+    }
+
+    /// Create a KlujurRegex from a pre-compiled regex.
+    #[must_use]
+    pub fn from_regex(regex: regex::Regex) -> Self {
+        KlujurRegex {
+            inner: Rc::new(regex),
+        }
+    }
+
+    /// Get the pattern string.
+    #[inline]
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        self.inner.as_str()
+    }
+
+    /// Get a reference to the underlying regex.
+    #[inline]
+    #[must_use]
+    pub fn regex(&self) -> &regex::Regex {
+        &self.inner
+    }
+
+    /// Check if the regex matches the given string.
+    #[inline]
+    #[must_use]
+    pub fn is_match(&self, text: &str) -> bool {
+        self.inner.is_match(text)
+    }
+
+    /// Find the first match in the given string.
+    #[inline]
+    #[must_use]
+    pub fn find<'t>(&self, text: &'t str) -> Option<regex::Match<'t>> {
+        self.inner.find(text)
+    }
+
+    /// Find all matches in the given string.
+    #[inline]
+    pub fn find_iter<'r, 't>(&'r self, text: &'t str) -> regex::Matches<'r, 't> {
+        self.inner.find_iter(text)
+    }
+
+    /// Get captures from the first match.
+    #[inline]
+    #[must_use]
+    pub fn captures<'t>(&self, text: &'t str) -> Option<regex::Captures<'t>> {
+        self.inner.captures(text)
+    }
+
+    /// Get all captures from all matches.
+    #[inline]
+    pub fn captures_iter<'r, 't>(&'r self, text: &'t str) -> regex::CaptureMatches<'r, 't> {
+        self.inner.captures_iter(text)
+    }
+
+    /// Split a string by regex matches.
+    #[inline]
+    pub fn split<'r, 't>(&'r self, text: &'t str) -> regex::Split<'r, 't> {
+        self.inner.split(text)
+    }
+
+    /// Replace all matches with replacement string.
+    #[inline]
+    #[must_use]
+    pub fn replace_all<'t>(&self, text: &'t str, rep: &str) -> std::borrow::Cow<'t, str> {
+        self.inner.replace_all(text, rep)
+    }
+
+    /// Replace first match with replacement string.
+    #[inline]
+    #[must_use]
+    pub fn replace<'t>(&self, text: &'t str, rep: &str) -> std::borrow::Cow<'t, str> {
+        self.inner.replace(text, rep)
+    }
+}
+
+impl fmt::Debug for KlujurRegex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "KlujurRegex(#\"{}\")", self.inner.as_str())
+    }
+}
+
+impl fmt::Display for KlujurRegex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "#\"{}\"", self.inner.as_str())
+    }
+}
+
+impl PartialEq for KlujurRegex {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner.as_str() == other.inner.as_str()
+    }
+}
+
+impl Eq for KlujurRegex {}
+
+impl PartialOrd for KlujurRegex {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for KlujurRegex {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.inner.as_str().cmp(other.inner.as_str())
+    }
+}
+
+impl Hash for KlujurRegex {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.inner.as_str().hash(state);
+    }
+}
+
+// ============================================================================
 // CustomType - for Embedding Arbitrary Rust Types
 // ============================================================================
 
@@ -233,6 +386,8 @@ pub enum TypeKey {
     ChunkBuffer,
     /// Chunked lazy sequence
     ChunkedSeq,
+    /// Compiled regular expression
+    Regex,
 }
 
 // ============================================================================
@@ -1100,6 +1255,8 @@ pub enum KlujurVal {
     ChunkBuffer(KlujurChunkBuffer),
     /// Chunked lazy sequence (efficient batch processing)
     ChunkedSeq(KlujurChunkedSeq),
+    /// Compiled regular expression pattern
+    Regex(KlujurRegex),
 }
 
 // ============================================================================
@@ -2987,6 +3144,7 @@ impl KlujurVal {
             KlujurVal::Chunk(_) => "chunk",
             KlujurVal::ChunkBuffer(_) => "chunk-buffer",
             KlujurVal::ChunkedSeq(_) => "chunked-seq",
+            KlujurVal::Regex(_) => "regex",
         }
     }
 
@@ -3030,6 +3188,7 @@ impl KlujurVal {
             KlujurVal::Chunk(_) => TypeKey::Chunk,
             KlujurVal::ChunkBuffer(_) => TypeKey::ChunkBuffer,
             KlujurVal::ChunkedSeq(_) => TypeKey::ChunkedSeq,
+            KlujurVal::Regex(_) => TypeKey::Regex,
         }
     }
 
@@ -3043,6 +3202,30 @@ impl KlujurVal {
     #[inline]
     pub fn delay(thunk: KlujurVal) -> Self {
         KlujurVal::Delay(KlujurDelay::new(thunk))
+    }
+
+    /// Create a regex value from a pattern string.
+    ///
+    /// Returns None if the pattern is invalid.
+    #[must_use]
+    pub fn try_regex(pattern: &str) -> Option<Self> {
+        KlujurRegex::new(pattern).map(KlujurVal::Regex)
+    }
+
+    /// Create a regex value from a pattern string, panicking on invalid pattern.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the pattern is invalid.
+    #[must_use]
+    pub fn regex(pattern: &str) -> Self {
+        KlujurVal::Regex(KlujurRegex::from_pattern(pattern))
+    }
+
+    /// Create a regex value from a pre-compiled regex.
+    #[must_use]
+    pub fn regex_from(regex: regex::Regex) -> Self {
+        KlujurVal::Regex(KlujurRegex::from_regex(regex))
     }
 
     /// Create a lazy sequence value with a thunk
@@ -3311,6 +3494,7 @@ impl fmt::Display for KlujurVal {
             KlujurVal::Chunk(ch) => write!(f, "{}", ch),
             KlujurVal::ChunkBuffer(cb) => write!(f, "{}", cb),
             KlujurVal::ChunkedSeq(cs) => write!(f, "{}", cs),
+            KlujurVal::Regex(r) => write!(f, "{}", r),
         }
     }
 }
@@ -3624,6 +3808,7 @@ impl PartialEq for KlujurVal {
             (KlujurVal::Chunk(a), KlujurVal::Chunk(b)) => a == b,
             (KlujurVal::ChunkBuffer(a), KlujurVal::ChunkBuffer(b)) => a == b,
             (KlujurVal::ChunkedSeq(a), KlujurVal::ChunkedSeq(b)) => a == b,
+            (KlujurVal::Regex(a), KlujurVal::Regex(b)) => a == b,
             _ => false,
         }
     }
@@ -3679,6 +3864,7 @@ impl Ord for KlujurVal {
                 KlujurVal::Chunk(_) => 27,
                 KlujurVal::ChunkBuffer(_) => 28,
                 KlujurVal::ChunkedSeq(_) => 29,
+                KlujurVal::Regex(_) => 30,
             }
         }
 
@@ -3825,6 +4011,7 @@ impl Ord for KlujurVal {
             (KlujurVal::Chunk(a), KlujurVal::Chunk(b)) => a.cmp(b),
             (KlujurVal::ChunkBuffer(a), KlujurVal::ChunkBuffer(b)) => a.cmp(b),
             (KlujurVal::ChunkedSeq(a), KlujurVal::ChunkedSeq(b)) => a.cmp(b),
+            (KlujurVal::Regex(a), KlujurVal::Regex(b)) => a.cmp(b),
             _ => Ordering::Equal,
         }
     }
@@ -4060,6 +4247,10 @@ impl Hash for KlujurVal {
             KlujurVal::ChunkedSeq(cs) => {
                 std::mem::discriminant(self).hash(state);
                 cs.hash(state);
+            }
+            KlujurVal::Regex(r) => {
+                std::mem::discriminant(self).hash(state);
+                r.hash(state);
             }
         }
     }

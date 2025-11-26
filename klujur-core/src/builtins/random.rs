@@ -262,5 +262,9 @@ fn hash_val<H: std::hash::Hasher>(val: &KlujurVal, hasher: &mut H) {
             // Hash chunked seq by pointer (identity-based)
             std::ptr::hash(cs, hasher);
         }
+        KlujurVal::Regex(r) => {
+            // Hash regex by pattern string
+            r.as_str().hash(hasher);
+        }
     }
 }

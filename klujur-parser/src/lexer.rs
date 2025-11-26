@@ -317,7 +317,7 @@ impl<'a> Lexer<'a> {
             }
             Some('"') => {
                 self.advance(); // consume "
-                let pattern = self.read_string_content()?;
+                let pattern = self.read_regex_content()?;
                 self.regex_pattern = Some(pattern);
                 Ok(Token::Regex)
             }
@@ -381,6 +381,40 @@ impl<'a> Lexer<'a> {
                 },
                 Some(c) => s.push(c),
                 None => return Err(self.error("Unterminated string".to_string())),
+            }
+        }
+
+        Ok(s)
+    }
+
+    /// Read regex pattern content - preserves backslashes for regex engine.
+    /// Only \" is processed (to allow closing quote in pattern).
+    fn read_regex_content(&mut self) -> Result<String, LexerError> {
+        let mut s = String::new();
+
+        loop {
+            match self.advance() {
+                Some('"') => break,
+                Some('\\') => {
+                    // Only process \" to allow embedded quotes; pass all other escapes through
+                    match self.peek() {
+                        Some('"') => {
+                            self.advance();
+                            s.push('"');
+                        }
+                        Some('\\') => {
+                            // Preserve double backslash for regex engine
+                            self.advance();
+                            s.push_str("\\\\");
+                        }
+                        _ => {
+                            // Pass the backslash through as-is for regex engine
+                            s.push('\\');
+                        }
+                    }
+                }
+                Some(c) => s.push(c),
+                None => return Err(self.error("Unterminated regex pattern".to_string())),
             }
         }
 
