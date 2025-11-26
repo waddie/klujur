@@ -23,17 +23,19 @@ pub enum Token {
     RBrace,   // }
 
     // Reader macros
-    Quote,         // '
-    SyntaxQuote,   // `
-    Unquote,       // ~
-    UnquoteSplice, // ~@
-    Deref,         // @
-    VarQuote,      // #'
-    AnonFn,        // #(
-    Set,           // #{
-    Discard,       // #_
-    Regex,         // #" followed by string content
-    Meta,          // ^
+    Quote,              // '
+    SyntaxQuote,        // `
+    Unquote,            // ~
+    UnquoteSplice,      // ~@
+    Deref,              // @
+    VarQuote,           // #'
+    AnonFn,             // #(
+    Set,                // #{
+    Discard,            // #_
+    Regex,              // #" followed by string content
+    Meta,               // ^
+    ReaderCond,         // #?
+    ReaderCondSplicing, // #?@
 
     // Literals
     Nil,
@@ -73,6 +75,8 @@ impl fmt::Display for Token {
             Token::Discard => write!(f, "#_"),
             Token::Regex => write!(f, "#\"...\""),
             Token::Meta => write!(f, "^"),
+            Token::ReaderCond => write!(f, "#?"),
+            Token::ReaderCondSplicing => write!(f, "#?@"),
             Token::Nil => write!(f, "nil"),
             Token::True => write!(f, "true"),
             Token::False => write!(f, "false"),
@@ -314,6 +318,16 @@ impl<'a> Lexer<'a> {
             Some('_') => {
                 self.advance();
                 Ok(Token::Discard)
+            }
+            Some('?') => {
+                self.advance();
+                // Check for splicing variant #?@
+                if self.peek() == Some('@') {
+                    self.advance();
+                    Ok(Token::ReaderCondSplicing)
+                } else {
+                    Ok(Token::ReaderCond)
+                }
             }
             Some('"') => {
                 self.advance(); // consume "
@@ -800,6 +814,14 @@ mod tests {
         assert_eq!(
             tokenize("#' #( #{  #_").unwrap(),
             vec![Token::VarQuote, Token::AnonFn, Token::Set, Token::Discard,]
+        );
+    }
+
+    #[test]
+    fn test_reader_cond_tokens() {
+        assert_eq!(
+            tokenize("#? #?@").unwrap(),
+            vec![Token::ReaderCond, Token::ReaderCondSplicing,]
         );
     }
 

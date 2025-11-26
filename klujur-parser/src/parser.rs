@@ -213,6 +213,8 @@ impl<'a> Parser<'a> {
             Token::Discard => self.parse_discard(),
             Token::Regex => self.parse_regex(),
             Token::Meta => self.parse_meta(),
+            Token::ReaderCond => self.parse_reader_cond(false),
+            Token::ReaderCondSplicing => self.parse_reader_cond(true),
 
             // Unexpected tokens
             Token::RParen => Err(self.error("Unexpected ')'".to_string())),
@@ -507,6 +509,79 @@ impl<'a> Parser<'a> {
             form,
             meta,
         ]))
+    }
+
+    fn parse_reader_cond(&mut self, splicing: bool) -> Result<KlujurVal, ParseError> {
+        self.advance()?; // consume #? or #?@
+
+        // Expect a list
+        if !matches!(self.current, Token::LParen) {
+            return Err(self.error("Reader conditional body must be a list".to_string()));
+        }
+
+        self.advance()?; // consume (
+
+        // Parse key-value pairs looking for :klj or :default
+        let mut result: Option<KlujurVal> = None;
+        let mut found_default: Option<KlujurVal> = None;
+
+        while !matches!(self.current, Token::RParen | Token::Eof) {
+            // Parse the feature keyword
+            let feature = self.parse_form()?;
+
+            // Check for EOF or closing paren before value
+            if matches!(self.current, Token::RParen | Token::Eof) {
+                return Err(
+                    self.error("Reader conditional requires an even number of forms".to_string())
+                );
+            }
+
+            // Parse the value expression
+            let value = self.parse_form()?;
+
+            // Check if this is our platform or default
+            if let KlujurVal::Keyword(kw) = &feature {
+                let name = kw.name();
+                if name == "klj" && result.is_none() {
+                    result = Some(value);
+                } else if name == "default" && found_default.is_none() {
+                    found_default = Some(value);
+                }
+            }
+        }
+
+        self.expect(&Token::RParen)?;
+
+        // Use :klj value if found, otherwise :default, otherwise nil
+        let selected = result.or(found_default);
+
+        match selected {
+            Some(val) => {
+                if splicing {
+                    // For #?@, the value should be a sequence that gets spliced
+                    // We wrap it in a special form that the evaluator can recognise
+                    Ok(KlujurVal::list(vec![
+                        KlujurVal::symbol(Symbol::new("reader-cond-splice")),
+                        val,
+                    ]))
+                } else {
+                    Ok(val)
+                }
+            }
+            None => {
+                if splicing {
+                    // Splicing with no match returns empty - splice nothing
+                    Ok(KlujurVal::list(vec![
+                        KlujurVal::symbol(Symbol::new("reader-cond-splice")),
+                        KlujurVal::list(vec![]),
+                    ]))
+                } else {
+                    // No match found - in Clojure this would be a read error in
+                    // some contexts, but we'll return nil for simplicity
+                    Ok(KlujurVal::Nil)
+                }
+            }
+        }
     }
 }
 
@@ -1015,6 +1090,125 @@ mod tests {
     fn test_meta_invalid() {
         // ^123 x should fail - numbers aren't valid metadata
         let result = Parser::new("^123 x").unwrap().parse_all();
+        assert!(result.is_err());
+    }
+
+    // ========================================================================
+    // Reader Conditional Tests
+    // ========================================================================
+
+    #[test]
+    fn test_reader_cond_klj() {
+        // #?(:clj 1 :klj 2) => 2 (klj platform)
+        let val = parse("#?(:clj 1 :klj 2)");
+        assert_eq!(val, KlujurVal::int(2));
+    }
+
+    #[test]
+    fn test_reader_cond_klj_first() {
+        // #?(:klj 1 :clj 2) => 1 (klj is found first)
+        let val = parse("#?(:klj 1 :clj 2)");
+        assert_eq!(val, KlujurVal::int(1));
+    }
+
+    #[test]
+    fn test_reader_cond_default() {
+        // #?(:clj 1 :default 3) => 3 (use default when klj not found)
+        let val = parse("#?(:clj 1 :default 3)");
+        assert_eq!(val, KlujurVal::int(3));
+    }
+
+    #[test]
+    fn test_reader_cond_klj_over_default() {
+        // #?(:klj 2 :default 3) => 2 (klj takes precedence over default)
+        let val = parse("#?(:klj 2 :default 3)");
+        assert_eq!(val, KlujurVal::int(2));
+    }
+
+    #[test]
+    fn test_reader_cond_no_match() {
+        // #?(:clj 1 :cljs 2) => nil (no match)
+        let val = parse("#?(:clj 1 :cljs 2)");
+        assert_eq!(val, KlujurVal::Nil);
+    }
+
+    #[test]
+    fn test_reader_cond_complex_expr() {
+        // #?(:klj (+ 1 2)) => (+ 1 2) as a list
+        let val = parse("#?(:klj (+ 1 2))");
+        if let KlujurVal::List(items, _) = val {
+            assert_eq!(items.len(), 3);
+            if let KlujurVal::Symbol(sym, _) = &items[0] {
+                assert_eq!(sym.name(), "+");
+            }
+        } else {
+            panic!("Expected list");
+        }
+    }
+
+    #[test]
+    fn test_reader_cond_in_vector() {
+        // [1 #?(:klj 2 :clj 3) 4] => [1 2 4]
+        let val = parse("[1 #?(:klj 2 :clj 3) 4]");
+        if let KlujurVal::Vector(items, _) = val {
+            assert_eq!(items.len(), 3);
+            assert_eq!(items[0], KlujurVal::int(1));
+            assert_eq!(items[1], KlujurVal::int(2));
+            assert_eq!(items[2], KlujurVal::int(4));
+        } else {
+            panic!("Expected vector");
+        }
+    }
+
+    #[test]
+    fn test_reader_cond_splicing() {
+        // #?@(:klj [1 2]) => (reader-cond-splice [1 2])
+        let val = parse("#?@(:klj [1 2])");
+        if let KlujurVal::List(items, _) = val {
+            assert_eq!(items.len(), 2);
+            if let KlujurVal::Symbol(sym, _) = &items[0] {
+                assert_eq!(sym.name(), "reader-cond-splice");
+            }
+            if let KlujurVal::Vector(vec_items, _) = &items[1] {
+                assert_eq!(vec_items.len(), 2);
+            } else {
+                panic!("Expected vector");
+            }
+        } else {
+            panic!("Expected list");
+        }
+    }
+
+    #[test]
+    fn test_reader_cond_splicing_no_match() {
+        // #?@(:clj [1 2]) => (reader-cond-splice ()) - empty splice
+        let val = parse("#?@(:clj [1 2])");
+        if let KlujurVal::List(items, _) = val {
+            assert_eq!(items.len(), 2);
+            if let KlujurVal::Symbol(sym, _) = &items[0] {
+                assert_eq!(sym.name(), "reader-cond-splice");
+            }
+            if let KlujurVal::List(list_items, _) = &items[1] {
+                assert!(list_items.is_empty());
+            } else {
+                panic!("Expected empty list");
+            }
+        } else {
+            panic!("Expected list");
+        }
+    }
+
+    #[test]
+    fn test_reader_cond_invalid_not_list() {
+        // #?:klj should fail - body must be a list
+        let result = Parser::new("#?:klj").unwrap().parse_all();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_reader_cond_invalid_odd_forms() {
+        // #?(:klj) should fail - needs even number of forms
+        let result = Parser::new("#?(:klj)").unwrap().parse_all();
         assert!(result.is_err());
     }
 }

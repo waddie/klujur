@@ -117,12 +117,12 @@ All trigonometric functions work in radians.
 
 ### Rounding
 
-| Function | Signature   | Description                        |
-| -------- | ----------- | ---------------------------------- |
-| `floor`  | `(floor x)` | Largest integer not greater than x |
-| `ceil`   | `(ceil x)`  | Smallest integer not less than x   |
-| `round`  | `(round x)` | Round to nearest integer (half up) |
-| `trunc`  | `(trunc x)` | Truncate toward zero               |
+| Function | Signature   | Description                                         |
+| -------- | ----------- | --------------------------------------------------- |
+| `floor`  | `(floor x)` | Largest integer not greater than x (returns float)  |
+| `ceil`   | `(ceil x)`  | Smallest integer not less than x (returns float)    |
+| `round`  | `(round x)` | Round to nearest integer (half up, returns **int**) |
+| `trunc`  | `(trunc x)` | Truncate toward zero (returns float)                |
 
 ### Miscellaneous
 
@@ -137,10 +137,14 @@ All trigonometric functions work in radians.
 
 ### Constants
 
-| Function | Signature | Description                 |
-| -------- | --------- | --------------------------- |
-| `pi`     | `(pi)`    | The constant π (3.14159...) |
-| `e`      | `(e)`     | Euler's number (2.71828...) |
+| Var  | Description                 |
+| ---- | --------------------------- |
+| `PI` | The constant π (3.14159...) |
+| `E`  | Euler's number (2.71828...) |
+
+**Note:** `PI` and `E` are constants (vars), not functions. Use them directly: `m/PI`, not `(m/PI)`.
+
+For compatibility, `pi` and `e` are also available as zero-argument functions.
 
 ### Examples
 
@@ -149,10 +153,14 @@ All trigonometric functions work in radians.
 
 (m/sqrt 16)             ; => 4.0
 (m/pow 2 10)            ; => 1024.0
-(m/sin (/ (m/pi) 2))    ; => 1.0
-(m/log (m/e))           ; => 1.0
-(m/to-degrees (m/pi))   ; => 180.0
+(m/sin (/ m/PI 2))      ; => 1.0
+(m/log m/E)             ; => 1.0
+(m/to-degrees m/PI)     ; => 180.0
 (m/nan? (/ 0.0 0.0))    ; => true
+(m/round 3.7)           ; => 4 (returns int, not float)
+
+;; Legacy function forms also work
+(m/sin (/ (m/pi) 2))    ; => 1.0
 ```
 
 ## klujur.time
@@ -229,6 +237,7 @@ These functions remain in `klujur.core` (available without requiring):
 
 | Function            | Signature               | Description                                              |
 | ------------------- | ----------------------- | -------------------------------------------------------- |
+| `char`              | `(char n)`              | Convert integer codepoint to character                   |
 | `set-print-length!` | `(set-print-length! n)` | Set max elements to print in sequences (nil = unlimited) |
 | `get-print-length`  | `(get-print-length)`    | Get current print-length setting                         |
 | `sorted-map-by`     | `(sorted-map-by c & k)` | Create sorted map with custom comparator                 |
@@ -267,7 +276,8 @@ These collections support all standard collection operations (`assoc`, `dissoc`,
 
 ## Notes
 
-- All math functions return floats (`f64`), even when the result could be an integer
+- Most math functions return floats (`f64`), except `round` which returns an integer
 - Time functions return integers (`i64`)
-- `setenv` is marked as unsafe internally due to Rust's thread-safety requirements, but is safe in Klujur’s single-threaded context
+- `setenv` is marked as unsafe internally due to Rust's thread-safety requirements, but is safe in Klujur's single-threaded context
 - `exit` does not return - it terminates the process immediately
+- `mod` supports both integers and floats (like Clojure)

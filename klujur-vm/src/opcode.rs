@@ -213,6 +213,21 @@ pub enum OpCode {
 
     /// Decrement: push (dec pop()).
     Dec,
+
+    // =========================================================================
+    // Collection Construction
+    // =========================================================================
+    /// Build vector from n items on stack.
+    /// Pops n items and pushes a vector containing them.
+    BuildVector(u16),
+
+    /// Build map from n key-value pairs on stack.
+    /// Pops 2n items (k1 v1 k2 v2 ...) and pushes a map.
+    BuildMap(u16),
+
+    /// Build set from n items on stack.
+    /// Pops n items and pushes a set containing them.
+    BuildSet(u16),
 }
 
 impl OpCode {
@@ -314,6 +329,9 @@ impl OpCode {
             | OpCode::CaptureUpvalue(_)
             | OpCode::CaptureHeapLocal(_)
             | OpCode::CaptureHeapUpvalue(_) => return None,
+
+            // Collection construction: variable effect (depends on n)
+            OpCode::BuildVector(_) | OpCode::BuildMap(_) | OpCode::BuildSet(_) => return None,
         })
     }
 }

@@ -254,11 +254,11 @@ impl<'a> FunctionCompiler<'a> {
             }
 
             KlujurVal::Map(map, _) => {
-                self.emit_constant(KlujurVal::Map(map.clone(), None))?;
+                self.compile_map(map)?;
             }
 
             KlujurVal::Set(set, _) => {
-                self.emit_constant(KlujurVal::Set(set.clone(), None))?;
+                self.compile_set(set)?;
             }
 
             _ => {
@@ -1866,9 +1866,69 @@ impl<'a> FunctionCompiler<'a> {
         }
     }
 
+    /// Check if a value needs evaluation (is not a literal constant)
+    fn needs_evaluation(val: &KlujurVal) -> bool {
+        match val {
+            KlujurVal::Symbol(_, _) => true,
+            KlujurVal::List(items, _) if !items.is_empty() => true,
+            KlujurVal::Vector(items, _) => items.iter().any(Self::needs_evaluation),
+            KlujurVal::Map(map, _) => map
+                .iter()
+                .any(|(k, v)| Self::needs_evaluation(k) || Self::needs_evaluation(v)),
+            KlujurVal::Set(set, _) => set.iter().any(Self::needs_evaluation),
+            _ => false,
+        }
+    }
+
     fn compile_vector(&mut self, items: &[KlujurVal]) -> Result<()> {
-        let vec: Vec<_> = items.to_vec();
-        self.emit_constant(KlujurVal::vector(vec))
+        // Check if any items need evaluation
+        if items.iter().any(Self::needs_evaluation) {
+            // Compile each item and emit BuildVector
+            for item in items {
+                self.compile_expr(item)?;
+            }
+            self.emit(OpCode::BuildVector(items.len() as u16));
+            Ok(())
+        } else {
+            // All items are literals, emit as constant
+            let vec: Vec<_> = items.to_vec();
+            self.emit_constant(KlujurVal::vector(vec))
+        }
+    }
+
+    fn compile_map(&mut self, map: &im::OrdMap<KlujurVal, KlujurVal>) -> Result<()> {
+        // Check if any keys or values need evaluation
+        let needs_eval = map
+            .iter()
+            .any(|(k, v)| Self::needs_evaluation(k) || Self::needs_evaluation(v));
+
+        if needs_eval {
+            // Compile each key-value pair and emit BuildMap
+            for (key, val) in map.iter() {
+                self.compile_expr(key)?;
+                self.compile_expr(val)?;
+            }
+            self.emit(OpCode::BuildMap(map.len() as u16));
+            Ok(())
+        } else {
+            // All items are literals, emit as constant
+            self.emit_constant(KlujurVal::Map(map.clone(), None))
+        }
+    }
+
+    fn compile_set(&mut self, set: &im::OrdSet<KlujurVal>) -> Result<()> {
+        // Check if any items need evaluation
+        if set.iter().any(Self::needs_evaluation) {
+            // Compile each item and emit BuildSet
+            for item in set.iter() {
+                self.compile_expr(item)?;
+            }
+            self.emit(OpCode::BuildSet(set.len() as u16));
+            Ok(())
+        } else {
+            // All items are literals, emit as constant
+            self.emit_constant(KlujurVal::Set(set.clone(), None))
+        }
     }
 }
 
@@ -3045,19 +3105,69 @@ impl Compiler {
         }
     }
 
+    /// Check if a value needs evaluation (is not a literal constant)
+    fn needs_evaluation(val: &KlujurVal) -> bool {
+        match val {
+            KlujurVal::Symbol(_, _) => true,
+            KlujurVal::List(items, _) if !items.is_empty() => true,
+            KlujurVal::Vector(items, _) => items.iter().any(Self::needs_evaluation),
+            KlujurVal::Map(map, _) => map
+                .iter()
+                .any(|(k, v)| Self::needs_evaluation(k) || Self::needs_evaluation(v)),
+            KlujurVal::Set(set, _) => set.iter().any(Self::needs_evaluation),
+            _ => false,
+        }
+    }
+
     fn compile_vector(&mut self, items: &[KlujurVal]) -> Result<()> {
-        // For now, emit as a constant if all items are literals
-        // Otherwise, we'd need a BUILD_VECTOR opcode
-        let vec: Vec<_> = items.to_vec();
-        self.emit_constant(KlujurVal::vector(vec))
+        // Check if any items need evaluation
+        if items.iter().any(Self::needs_evaluation) {
+            // Compile each item and emit BuildVector
+            for item in items {
+                self.compile_expr(item)?;
+            }
+            self.emit(OpCode::BuildVector(items.len() as u16));
+            Ok(())
+        } else {
+            // All items are literals, emit as constant
+            let vec: Vec<_> = items.to_vec();
+            self.emit_constant(KlujurVal::vector(vec))
+        }
     }
 
     fn compile_map(&mut self, map: &im::OrdMap<KlujurVal, KlujurVal>) -> Result<()> {
-        self.emit_constant(KlujurVal::Map(map.clone(), None))
+        // Check if any keys or values need evaluation
+        let needs_eval = map
+            .iter()
+            .any(|(k, v)| Self::needs_evaluation(k) || Self::needs_evaluation(v));
+
+        if needs_eval {
+            // Compile each key-value pair and emit BuildMap
+            for (key, val) in map.iter() {
+                self.compile_expr(key)?;
+                self.compile_expr(val)?;
+            }
+            self.emit(OpCode::BuildMap(map.len() as u16));
+            Ok(())
+        } else {
+            // All items are literals, emit as constant
+            self.emit_constant(KlujurVal::Map(map.clone(), None))
+        }
     }
 
     fn compile_set(&mut self, set: &im::OrdSet<KlujurVal>) -> Result<()> {
-        self.emit_constant(KlujurVal::Set(set.clone(), None))
+        // Check if any items need evaluation
+        if set.iter().any(Self::needs_evaluation) {
+            // Compile each item and emit BuildSet
+            for item in set.iter() {
+                self.compile_expr(item)?;
+            }
+            self.emit(OpCode::BuildSet(set.len() as u16));
+            Ok(())
+        } else {
+            // All items are literals, emit as constant
+            self.emit_constant(KlujurVal::Set(set.clone(), None))
+        }
     }
 
     // =========================================================================

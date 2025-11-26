@@ -290,7 +290,10 @@ impl VM {
                 | OpCode::Assoc
                 | OpCode::Conj
                 | OpCode::Count
-                | OpCode::Nth => {
+                | OpCode::Nth
+                | OpCode::BuildVector(_)
+                | OpCode::BuildMap(_)
+                | OpCode::BuildSet(_) => {
                     self.execute_collections(op)?;
                 }
             }

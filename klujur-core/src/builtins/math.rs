@@ -216,13 +216,13 @@ pub(crate) fn builtin_ceil(args: &[KlujurVal]) -> Result<KlujurVal> {
     Ok(KlujurVal::float(n.ceil()))
 }
 
-/// (round x) - round to nearest integer (half up)
+/// (round x) - round to nearest integer (half up), returns int like Clojure
 pub(crate) fn builtin_round(args: &[KlujurVal]) -> Result<KlujurVal> {
     if args.len() != 1 {
         return Err(Error::arity_named("round", 1, args.len()));
     }
     let n = to_f64(&args[0], "round")?;
-    Ok(KlujurVal::float(n.round()))
+    Ok(KlujurVal::int(n.round() as i64))
 }
 
 /// (trunc x) - truncate toward zero

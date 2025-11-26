@@ -22,6 +22,9 @@ impl VM {
             OpCode::Conj => self.execute_conj(),
             OpCode::Count => self.execute_count(),
             OpCode::Nth => self.execute_nth(),
+            OpCode::BuildVector(n) => self.execute_build_vector(n),
+            OpCode::BuildMap(n) => self.execute_build_map(n),
+            OpCode::BuildSet(n) => self.execute_build_set(n),
             _ => Err(RuntimeError::Internal(format!(
                 "execute_collections: unexpected opcode {:?}",
                 op
@@ -216,6 +219,54 @@ impl VM {
             }
         };
         self.stack.push(result);
+        Ok(())
+    }
+
+    /// Build a vector from n items on the stack.
+    fn execute_build_vector(&mut self, n: u16) -> Result<()> {
+        let n = n as usize;
+        let mut items = Vec::with_capacity(n);
+        // Pop items in reverse order to preserve insertion order
+        for _ in 0..n {
+            items.push(self.stack.pop()?);
+        }
+        items.reverse();
+        self.stack.push(KlujurVal::vector(items));
+        Ok(())
+    }
+
+    /// Build a map from n key-value pairs on the stack.
+    fn execute_build_map(&mut self, n: u16) -> Result<()> {
+        let n = n as usize;
+        let mut pairs = Vec::with_capacity(n);
+        // Pop pairs in reverse order
+        for _ in 0..n {
+            let val = self.stack.pop()?;
+            let key = self.stack.pop()?;
+            pairs.push((key, val));
+        }
+        pairs.reverse();
+        let mut map = im::OrdMap::new();
+        for (key, val) in pairs {
+            map.insert(key, val);
+        }
+        self.stack.push(KlujurVal::Map(map, None));
+        Ok(())
+    }
+
+    /// Build a set from n items on the stack.
+    fn execute_build_set(&mut self, n: u16) -> Result<()> {
+        let n = n as usize;
+        let mut items = Vec::with_capacity(n);
+        for _ in 0..n {
+            items.push(self.stack.pop()?);
+        }
+        items.reverse();
+        let mut set = im::OrdSet::new();
+        for item in items {
+            set.insert(item);
+        }
+        self.stack.push(KlujurVal::Set(set, None));
         Ok(())
     }
 }

@@ -158,9 +158,9 @@ use set_ops::{
     builtin_superset_p,
 };
 use strings::{
-    builtin_blank_p, builtin_capitalize, builtin_ends_with_p, builtin_escape, builtin_includes_p,
-    builtin_index_of, builtin_join, builtin_keyword, builtin_lower_case, builtin_name,
-    builtin_namespace, builtin_replace, builtin_replace_first, builtin_split,
+    builtin_blank_p, builtin_capitalize, builtin_char, builtin_ends_with_p, builtin_escape,
+    builtin_includes_p, builtin_index_of, builtin_join, builtin_keyword, builtin_lower_case,
+    builtin_name, builtin_namespace, builtin_replace, builtin_replace_first, builtin_split,
     builtin_starts_with_p, builtin_subs, builtin_symbol, builtin_trim, builtin_triml,
     builtin_trimr, builtin_upper_case,
 };
@@ -239,6 +239,9 @@ pub fn register_builtins(env: &Env) {
     math_ns.define_native("infinite?", builtin_infinite_q);
     math_ns.define_native("pi", builtin_pi);
     math_ns.define_native("e", builtin_e);
+    // PI and E as constants (not functions) for Clojure compatibility
+    math_ns.intern_with_value("PI", KlujurVal::float(std::f64::consts::PI));
+    math_ns.intern_with_value("E", KlujurVal::float(std::f64::consts::E));
     math_ns.define_native("to-radians", builtin_to_radians);
     math_ns.define_native("to-degrees", builtin_to_degrees);
 
@@ -499,6 +502,7 @@ pub fn register_builtins(env: &Env) {
     core_ns.define_native("namespace", builtin_namespace);
     core_ns.define_native("symbol", builtin_symbol);
     core_ns.define_native("keyword", builtin_keyword);
+    core_ns.define_native("char", builtin_char);
     core_ns.define_native("subs", builtin_subs);
 
     // Additional predicates

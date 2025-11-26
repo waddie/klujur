@@ -661,6 +661,16 @@ pub(crate) fn builtin_mod(args: &[KlujurVal]) -> Result<KlujurVal> {
         return Err(Error::arity_named("mod", 2, args.len()));
     }
 
+    // Helper for float mod with Clojure semantics (result has same sign as divisor)
+    fn float_mod(a: f64, b: f64) -> f64 {
+        let rem = a % b;
+        if (rem < 0.0 && b > 0.0) || (rem > 0.0 && b < 0.0) {
+            rem + b
+        } else {
+            rem
+        }
+    }
+
     match (&args[0], &args[1]) {
         (KlujurVal::Int(_), KlujurVal::Int(0)) => Err(Error::DivisionByZero),
         (KlujurVal::Int(a), KlujurVal::Int(b)) => {
@@ -701,7 +711,14 @@ pub(crate) fn builtin_mod(args: &[KlujurVal]) -> Result<KlujurVal> {
                 Ok(KlujurVal::bigint(rem))
             }
         }
-        (other, _) => Err(Error::type_error_in("mod", "integer", other.type_name())),
+        // Float support
+        (KlujurVal::Float(_), KlujurVal::Float(b)) if *b == 0.0 => Err(Error::DivisionByZero),
+        (KlujurVal::Float(a), KlujurVal::Float(b)) => Ok(KlujurVal::float(float_mod(*a, *b))),
+        (KlujurVal::Float(_), KlujurVal::Int(b)) if *b == 0 => Err(Error::DivisionByZero),
+        (KlujurVal::Float(a), KlujurVal::Int(b)) => Ok(KlujurVal::float(float_mod(*a, *b as f64))),
+        (KlujurVal::Int(_), KlujurVal::Float(b)) if *b == 0.0 => Err(Error::DivisionByZero),
+        (KlujurVal::Int(a), KlujurVal::Float(b)) => Ok(KlujurVal::float(float_mod(*a as f64, *b))),
+        (other, _) => Err(Error::type_error_in("mod", "number", other.type_name())),
     }
 }
 

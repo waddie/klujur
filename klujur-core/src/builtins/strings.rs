@@ -654,3 +654,25 @@ pub(crate) fn builtin_escape(args: &[KlujurVal]) -> Result<KlujurVal> {
     }
     Ok(KlujurVal::string(result))
 }
+
+// ============================================================================
+// Character Functions
+// ============================================================================
+
+/// (char x) - convert integer codepoint to character
+pub(crate) fn builtin_char(args: &[KlujurVal]) -> Result<KlujurVal> {
+    if args.len() != 1 {
+        return Err(Error::arity_named("char", 1, args.len()));
+    }
+    match &args[0] {
+        KlujurVal::Int(n) => {
+            let codepoint = *n as u32;
+            match char::from_u32(codepoint) {
+                Some(c) => Ok(KlujurVal::char(c)),
+                None => Err(Error::EvalError(format!("char: invalid codepoint: {}", n))),
+            }
+        }
+        KlujurVal::Char(c) => Ok(KlujurVal::char(*c)),
+        other => Err(Error::type_error_in("char", "integer", other.type_name())),
+    }
+}

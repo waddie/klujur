@@ -34,7 +34,8 @@ impl VM {
                 if *y == 0 {
                     return Err(RuntimeError::DivisionByZero);
                 }
-                self.stack.push(KlujurVal::Int(x / y));
+                // Clojure semantics: integer division produces a ratio
+                self.stack.push(KlujurVal::ratio(*x, *y));
             }
             (KlujurVal::Float(x), KlujurVal::Float(y)) => {
                 self.stack.push(KlujurVal::Float(x / y));
