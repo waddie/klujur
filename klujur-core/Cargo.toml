@@ -15,4 +15,4 @@ num-bigint = "0.4"
 num-traits = "0.2"
 
 [dev-dependencies]
-proptest = "1.5"
+proptest = "1.11"
